@@ -10,7 +10,7 @@ import { CHARACTERISTICS, LANGUAGES, MAX_GRADE, SUBJECTS, SUBJECT_LEVELS } from 
 import { criteriaSchema } from '../../controllers/parent/matching.controller.js'
 import { tutorRecommendationsForParent } from '../matchingApp.service.js'
 import { withSavedTutorLocation } from '../tutorSearchScope.js'
-import { buildChildReport } from '../progress.service.js'
+import { adminConfirmedAttendance, attendanceReviewInclude, buildChildReport } from '../progress.service.js'
 import { parentPaymentSummary } from '../paymentSummary.service.js'
 import { distanceBand } from '../matching.service.js'
 import { addDays, mytParts, mytToDate } from '../../utils/time.js'
@@ -278,7 +278,7 @@ async function getLessonDetails(ctx, { bookingRef }) {
   if (!id) return NOT_FOUND
   const b = await ctx.db.booking.findFirst({
     where: { id, parentId: ctx.parent.id }, // ownership enforced in the query
-    include: { child: { select: { name: true } }, tutor: { select: { user: { select: { fullName: true } } } }, attendance: true, summary: true },
+    include: { child: { select: { name: true } }, tutor: { select: { user: { select: { fullName: true } } } }, attendance: true, summary: true, complaints: attendanceReviewInclude },
   })
   if (!b) return NOT_FOUND
   const refs = bookingRefs(ctx, b)
@@ -287,6 +287,7 @@ async function getLessonDetails(ctx, { bookingRef }) {
   const checkIn = b.teachingMode === 'PHYSICAL' || a
     ? { recorded: Boolean(a?.checkInAt), checkInTime: a?.checkInAt ? myt(a.checkInAt).time : null, checkOutTime: a?.checkOutAt ? myt(a.checkOutAt).time : null }
     : { recorded: null, checkInTime: null, checkOutTime: null }
+  if (!a?.checkInAt && adminConfirmedAttendance(b)) checkIn.adminConfirmed = true
   const sm = b.summary
   ctx.cards.push({
     type: 'lesson_detail', ref: refs.bookingRef, childName: b.child.name, tutorName: b.tutor.user.fullName, subject: b.subject, status: b.status,
@@ -294,11 +295,11 @@ async function getLessonDetails(ctx, { bookingRef }) {
     summary: sm ? { content: cut(sm.content, 1200), topics: cut(sm.topics, 400), homework: cut(sm.homework, 800), recommendations: cut(sm.recommendations, 800), progressNote: cut(sm.progressNote, 800) } : null,
     link: `/parent/bookings?booking=${publicReference(b)}`,
   })
-  evid(ctx, { kind: 'lesson', bookingRef: refs.bookingRef, childRef: refs.childRef, tutorRef: refs.tutorRef, subject: b.subject, status: b.status, date: p.date, time: p.time, mode: b.teachingMode, attendanceRecorded: checkIn.recorded, checkInTime: checkIn.checkInTime, checkOutTime: checkIn.checkOutTime, hasSummary: Boolean(sm) })
+  evid(ctx, { kind: 'lesson', bookingRef: refs.bookingRef, childRef: refs.childRef, tutorRef: refs.tutorRef, subject: b.subject, status: b.status, date: p.date, time: p.time, mode: b.teachingMode, adminConfirmed: checkIn.adminConfirmed, attendanceRecorded: checkIn.recorded, checkInTime: checkIn.checkInTime, checkOutTime: checkIn.checkOutTime, hasSummary: Boolean(sm) })
   source(ctx, 'booking', refs.bookingRef, `Lesson ${p.date} ${b.subject}`, `/parent/bookings?booking=${publicReference(b)}`)
   return {
     ...refs, subject: b.subject, status: b.status, date: p.date, time: p.time, mode: b.teachingMode,
-    attendance: { ...checkIn, ...(b.teachingMode === 'ONLINE' && { note: checkIn.recorded === null ? 'No online attendance record is available for this lesson.' : 'Online check-in/out is recorded in WonderTutor, without GPS or a photo.' }) },
+    attendance: { ...checkIn, ...(checkIn.adminConfirmed ? { note: 'Attendance was confirmed by an administrator; no check-in or check-out times were recorded.' } : b.teachingMode === 'ONLINE' && { note: checkIn.recorded === null ? 'No online attendance record is available for this lesson.' : 'Online check-in/out is recorded in WonderTutor, without GPS or a photo.' }) },
     tutorRecorded: sm
       ? { summary: safe(ctx, sm.content, 600), topics: safe(ctx, sm.topics, 200), homework: safe(ctx, sm.homework, 400), recommendations: safe(ctx, sm.recommendations, 400), observations: safe(ctx, sm.progressNote, 400) }
       : null,
@@ -317,7 +318,7 @@ async function getLearningProgress(ctx, args) {
   ctx.cards.push({
     type: 'progress_summary', childName: child.name,
     period: { from: r.period.from, to: r.period.to, subject: r.period.subject },
-    totals: { lessons: r.totals.lessons, hours: r.totals.hours, summaries: r.totals.summaries, homeworkSet: r.totals.homeworkSet, physicalLessons: r.totals.physicalLessons, attendanceTrackedLessons: r.totals.attendanceTrackedLessons ?? r.totals.physicalLessons, checkedIn: r.totals.checkedIn },
+    totals: { lessons: r.totals.lessons, hours: r.totals.hours, summaries: r.totals.summaries, homeworkSet: r.totals.homeworkSet, physicalLessons: r.totals.physicalLessons, attendanceTrackedLessons: r.totals.attendanceTrackedLessons ?? r.totals.physicalLessons, checkedIn: r.totals.checkedIn, adminConfirmed: r.totals.adminConfirmed },
     subjects: r.subjects.map((x) => ({ subject: x.subject, lessons: x.lessons, hours: x.hours })),
     recentLessons: recent.map((l) => ({ date: myt(l.startAt).date, subject: l.subject, tutorName: l.tutor, homework: cut(l.summary?.homework, 800), summary: cut(l.summary?.content, 800) })),
     link: `/parent/children/${publicReference(child)}/progress`,
@@ -336,6 +337,7 @@ async function getLearningProgress(ctx, args) {
       subject: l.subject,
       tutorRef: refFor(ctx.session, 'tutor', l.tutorId),
       attended: l.attended,
+      attendanceSource: l.attendanceSource,
       tutorRecorded: l.summary ? { summary: safe(ctx, l.summary.content, 300), homework: safe(ctx, l.summary.homework, 300), observations: safe(ctx, l.summary.progressNote, 300) } : null,
     })),
     missing: {

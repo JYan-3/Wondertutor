@@ -16,17 +16,23 @@ import { escalateBooking } from '../../services/tutorBooking.service.js'
 import { canEditLessonLocation, hasConfirmedLessonLocation, lessonLocationSchema } from '../../services/lessonLocation.service.js'
 
 export async function confirmAttendance(req, res) {
-  const { answer, note } = z.object({
+  const { answer, note, reviewedAt } = z.object({
     answer: z.enum(['YES', 'NO', 'UNSURE']), note: z.string().trim().max(1000).optional(),
+    reviewedAt: z.iso.datetime(),
   }).strict().parse(req.body)
   const b = await ownBooking(req)
   const review = b.complaints[0]
+  if (!review || review.updatedAt.toISOString() !== reviewedAt) throw new AppError(409, 'The attendance review changed. Refresh the booking and read the latest question before responding.')
   if (review?.attendanceOutcome === 'MORE_INFO' && !note) throw new AppError(400, 'Please reply to the admin question.')
-  const { count } = await prisma.complaint.updateMany({
-    where: { bookingId: b.id, category: 'Missed check-in', parentAnswer: null, attendanceOutcome: review?.attendanceOutcome ?? null, status: { in: ['OPEN', 'IN_PROGRESS'] } },
-    data: { parentAnswer: answer, parentNote: note || null },
+  await prisma.$transaction(async tx => {
+    const { count } = await tx.complaint.updateMany({
+      where: { id: review.id, updatedAt: review.updatedAt, parentAnswer: null, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+      data: { parentAnswer: answer, parentNote: note || null },
+    })
+    if (!count) throw new AppError(409, 'The attendance review changed or already has a response. Refresh the booking before trying again.')
+    const admins = await tx.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } })
+    if (admins.length) await tx.notification.createMany({ data: admins.map(a => ({ userId: a.id, type: 'ATTENDANCE_REVIEW', title: 'Parent attendance response', message: 'The parent responded to the missed check-in review for ' + b.subject + '.', link: '/admin/complaints' })) })
   })
-  if (!count) throw new AppError(409, 'This review is closed or already has a response.')
   res.json({ booking: toBookingDto(await reload(b.id)) })
 }
 

@@ -40,6 +40,16 @@ function context(booking = baseBooking) {
   return ctx
 }
 const lookup = ctx => executeTool(ctx, 'get_lesson_details', { bookingRef: 'booking_1' })
+test('admin approval is explained without inventing a check-in time or exposing the case evidence', async () => {
+  const ctx = context({ ...baseBooking, attendance: null, complaints: [{ status: 'RESOLVED', attendanceApproved: true, attendanceOutcome: 'CONFIRMED', description: 'PRIVATE_CASE_EVIDENCE' }] })
+  const out = await lookup(ctx)
+  expect(out.result.attendance).toMatchObject({ adminConfirmed: true, checkInTime: null, checkOutTime: null })
+  expect(composeFromEvidence(ctx, 'en')).toContain('Attendance was confirmed by an administrator')
+  expect(composeFromEvidence(ctx, 'ms')).toContain('pentadbir')
+  expect(composeFromEvidence(ctx, 'zh')).toContain('管理员')
+  expect(JSON.stringify({ result: out.result, cards: ctx.cards, evidence: ctx.evidence })).not.toContain('PRIVATE_CASE_EVIDENCE')
+  expect(cardSchema.safeParse(ctx.cards[0]).success).toBe(true)
+})
 function expectPrivateEvidenceAbsent(value) {
   const json = JSON.stringify(value)
   for (const privateValue of [privatePhoto, privateSignature, privateLessonAddress, String(privateLatitude), String(privateLongitude), 'checkInLat', 'checkOutLat', 'checkInDistance', 'checkInPhotoUrl', 'signature'])

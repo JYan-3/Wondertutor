@@ -64,7 +64,7 @@ export default function ChildProgress() {
         {tile('check-circle', 'Lessons completed', stats.completedLessons)}
         {tile('clock', 'Hours of tuition', stats.totalHours)}
         {tile('file', 'Session summaries', stats.summariesReceived, 'Written by the tutor after each lesson')}
-        {tile('pin', 'Lessons checked in', (stats.attendanceTrackedLessons ?? stats.physicalLessons) ? `${stats.checkedInLessons} of ${stats.attendanceTrackedLessons ?? stats.physicalLessons}` : '—', 'Tutor check-ins for recorded lessons')}
+        {tile('pin', 'Lessons checked in', (stats.attendanceTrackedLessons ?? stats.physicalLessons) ? `${stats.checkedInLessons} of ${stats.attendanceTrackedLessons ?? stats.physicalLessons}` : '—', stats.adminConfirmedLessons > 0 ? `${stats.adminConfirmedLessons} other lesson${stats.adminConfirmedLessons === 1 ? '' : 's'} confirmed by admin` : 'Tutor check-ins for recorded lessons')}
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-[2fr_1fr]">
@@ -92,7 +92,7 @@ export default function ChildProgress() {
                         {l.attendance.checkInPhotoUrl && <a href={l.attendance.checkInPhotoUrl} target="_blank" rel="noreferrer"><img src={l.attendance.checkInPhotoUrl} alt={`Check-in photo, ${fmtDate(l.startAt)}`} className="h-12 w-12 rounded-lg object-cover" /></a>}
                         <span><Icon name="pin" className="mr-1 inline h-3.5 w-3.5 text-ok" />Checked in {fmtTime(l.attendance.checkInAt)}{l.attendance.checkOutAt && `, out ${fmtTime(l.attendance.checkOutAt)}`}</span>
                       </div>
-                    ) : <p className="mt-1 text-xs text-slate-500">{l.teachingMode === 'ONLINE' ? 'No attendance record for this online lesson.' : 'No check-in recorded.'}</p>
+                    ) : <p className="mt-1 text-xs text-slate-500">{l.attendanceSource === 'ADMIN_REVIEW' ? 'Attendance confirmed by admin. No check-in time was recorded.' : l.teachingMode === 'ONLINE' ? 'No attendance record for this online lesson.' : 'No check-in recorded.'}</p>
                   )}
                 </li>
               ))}

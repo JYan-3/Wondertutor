@@ -6,7 +6,7 @@ import { LANGUAGES, MAX_GRADE } from '../../data/catalog.js'
 import { currentSchoolYear } from '../../services/progression.service.js'
 import { checkSubjectsFitLevel, cleanSubjects, subjectColumns, subjectFields, subjectsOf } from '../../utils/childSubjects.js'
 import { imageUrl, optionalText, personName, ymd } from '../../utils/validators.js'
-import { attendanceTracked, buildChildReport, toSummaryDto } from '../../services/progress.service.js'
+import { attendanceReviewInclude, attendanceSource, attendanceTracked, buildChildReport, toSummaryDto } from '../../services/progress.service.js'
 
 const childSchema = z
   .object({
@@ -102,7 +102,7 @@ export async function childProgress(req, res) {
   const [lessons, next] = await Promise.all([
     prisma.booking.findMany({
       where: { childId: child.id, status: 'COMPLETED' },
-      include: { tutor: tutorSelect, attendance: true, summary: true, review: true },
+      include: { tutor: tutorSelect, attendance: true, summary: true, review: true, complaints: attendanceReviewInclude },
       orderBy: { startAt: 'desc' },
     }),
     prisma.booking.findFirst({
@@ -131,6 +131,7 @@ export async function childProgress(req, res) {
       physicalLessons: physical.length,
       attendanceTrackedLessons: lessons.filter(attendanceTracked).length,
       checkedInLessons: checkedIn.length,
+      adminConfirmedLessons: lessons.filter(b => attendanceSource(b) === 'ADMIN_REVIEW').length,
       summariesReceived: lessons.filter((b) => b.summary).length,
       firstLessonAt: lessons.length ? lessons[lessons.length - 1].startAt : null,
     },
@@ -145,6 +146,7 @@ export async function childProgress(req, res) {
       startAt: b.startAt,
       endAt: b.endAt,
       teachingMode: b.teachingMode,
+      attendanceSource: attendanceSource(b),
       tutor: { id: b.tutorId, name: b.tutor.user.fullName, photoUrl: b.tutor.user.profilePhotoUrl },
       attendance: b.attendance && { checkInAt: b.attendance.checkInAt, checkOutAt: b.attendance.checkOutAt, checkInPhotoUrl: mediaLink(b.attendance.checkInPhotoUrl, 'wondertutor/attendance/' + b.id) },
       summary: b.summary && toSummaryDto(b.summary),

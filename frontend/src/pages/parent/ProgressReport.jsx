@@ -8,6 +8,7 @@ import { gradeLabel } from '../../lib/education'
 import { addDaysYmd, fmtDate, fmtDateLong, fmtTimeRange, todayYmd } from '../../lib/format'
 import { saveCsv } from '../../lib/csv'
 import { recordRef } from '../../lib/recordRef'
+import { attendanceLabel } from '../../lib/attendance'
 
 // A learning progress report for one child over a chosen period. It is the "historical progress report": every completed
 // lesson with what the tutor wrote, grouped into totals and subjects, to read on screen, print or save as PDF
@@ -68,7 +69,7 @@ export default function ProgressReport() {
       const s = l.summary
       rows.push([
         fmtDate(l.startAt), fmtTimeRange(l.startAt, l.endAt), l.subject, l.tutor, l.teachingMode === 'ONLINE' ? 'Online' : 'Physical',
-        l.attended === null ? 'No attendance record' : l.attended ? 'Checked in' : 'No check-in',
+        attendanceLabel(l),
         s?.topics, s?.content, s?.progressNote, s?.homework, s?.recommendations,
       ])
     }
@@ -141,6 +142,7 @@ export default function ProgressReport() {
                 {stat('Tutor summaries', `${totals.summaries} of ${totals.lessons}`)}
                 {stat('With homework', totals.homeworkSet)}
                 {stat('Tutor check-ins', (totals.attendanceTrackedLessons ?? totals.physicalLessons) ? `${totals.checkedIn} of ${totals.attendanceTrackedLessons ?? totals.physicalLessons}` : '—')}
+                {totals.adminConfirmed > 0 && stat('Attendance confirmed by admin', totals.adminConfirmed)}
                 {stat('Your average rating', totals.averageRating ?? '—')}
               </div>
             </section>
@@ -165,7 +167,7 @@ export default function ProgressReport() {
                     <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
                       <b className="text-navy">{l.subject}</b>
                       <span className="text-sm text-slate-600">{fmtDateLong(l.startAt)}, {fmtTimeRange(l.startAt, l.endAt)}</span>
-                      <span className="text-sm text-slate-600">with {l.tutor} · {l.teachingMode === 'ONLINE' ? 'Online' : 'Physical'}, {l.attended === null ? 'attendance not recorded' : l.attended ? 'checked in' : 'no check-in recorded'}</span>
+                      <span className="text-sm text-slate-600">with {l.tutor} · {l.teachingMode === 'ONLINE' ? 'Online' : 'Physical'}, {attendanceLabel(l).toLowerCase()}</span>
                     </div>
                     <LessonNotes summary={l.summary} />
                   </li>

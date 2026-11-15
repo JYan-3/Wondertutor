@@ -27,6 +27,31 @@ function proof(id) {
   return { version, url: 'https://res.cloudinary.com/session-test/image/authenticated/v' + version + '/' + public_id + '.jpg',
     signature: cloudinary.utils.api_sign_request({ public_id, version }, env.cloudinary.apiSecret) }
 }
+async function answerReview(parentPath, fields) {
+  const { booking } = await api(p.token).get(parentPath)
+  return api(p.token).post(parentPath + '/attendance-response', { ...fields, reviewedAt: booking.attendanceReview.updatedAt })
+}
+
+test('a replaced admin question rejects the old parent response and notifies admin only once', async () => {
+  const { b, send } = await lesson({ endAt: new Date(Date.now() - 1) })
+  await send({ action: 'request-review', reason: 'Please review the missed attendance.' })
+  const parentPath = '/parent/bookings/' + b.publicId
+  const first = (await api(p.token).get(parentPath)).booking.attendanceReview
+  const asking = await api(admin.token).patch('/admin/complaints/' + first.id, { status: 'IN_PROGRESS', outcome: 'MORE_INFO', reviewedAt: first.updatedAt, adminResponse: 'Which exercises did you complete?' })
+  expect(asking.status).toBe(200)
+  const endpoint = parentPath + '/attendance-response'
+  const stale = await api(p.token).post(endpoint, { answer: 'YES', note: 'An answer to the old request.', reviewedAt: first.updatedAt })
+  expect(stale.status).toBe(409)
+  expect(stale.message).toContain('latest question')
+  const current = (await api(p.token).get(parentPath)).booking.attendanceReview
+  expect(current.parentAnswer).toBeNull()
+  const where = { userId: admin.user.id, title: 'Parent attendance response' }
+  const before = await prisma.notification.count({ where })
+  const body = { answer: 'YES', note: 'We completed the fractions exercises.', reviewedAt: current.updatedAt }
+  expect((await api(p.token).post(endpoint, body)).status).toBe(200)
+  expect((await api(p.token).post(endpoint, body)).status).toBe(409)
+  expect(await prisma.notification.count({ where })).toBe(before + 1)
+})
 
 test('physical check-in rechecks the saved radius, photo receipt, and lesson ownership', async () => {
   const { b, path, send } = await lesson({ teachingMode: 'PHYSICAL', location: '12 Jalan Test, Kuala Lumpur', latitude: 3, longitude: 101, locationConfirmedAt: new Date() })
@@ -121,7 +146,7 @@ test('a missed check-in reaches admin and both sides receive the review outcome'
   expect(before.proof).toContain('signature=')
   expect((await api(admin.token).patch(adminPath, { ...decision, reviewedAt: before.reviewedAt })).status).toBe(409)
   const responsePath = '/parent/bookings/' + b.publicId + '/attendance-response'
-  const reply = { answer: 'YES', note: 'We completed the lesson.' }
+  const reply = { answer: 'YES', note: 'We completed the lesson.', reviewedAt: before.reviewedAt }
   expect((await api((await makeParent()).token).post(responsePath, reply)).status).toBe(404)
   expect((await api(p.token).post(responsePath, reply)).booking.attendanceReview.parentAnswer).toBe('YES')
   expect((await api(p.token).post(responsePath, reply)).status).toBe(409)
@@ -142,7 +167,7 @@ test('a missed check-in reaches admin and both sides receive the review outcome'
 test.each(['NO', 'UNSURE'])('admin can decline after parent replies %s and report stays locked', async answer => {
   const { b, send } = await lesson({ endAt: new Date(Date.now() - 1) })
   await send({ action: 'request-review', reason: 'Lost connection', photo: proof(b.id) })
-  await api(p.token).post('/parent/bookings/' + b.id + '/attendance-response', { answer })
+  await answerReview('/parent/bookings/' + b.id, { answer })
   const review = (await api(admin.token).get('/admin/complaints')).complaints.find(c => c.booking?.id === b.id)
   const adminPath = '/admin/complaints/' + review.id
   const { reviewedAt, parentAnswer, proof: url } = (await api(admin.token).get(adminPath)).investigation.attendanceReview
@@ -156,7 +181,7 @@ test('both parties answer a question and a tutor can reopen the same decision wi
   const { b, send, path } = await lesson({ endAt: new Date(Date.now() - 1) })
   await send({ action: 'request-review', reason: 'My device failed.' })
   const parentPath = '/parent/bookings/' + b.publicId
-  const reply = answer => api(p.token).post(parentPath + '/attendance-response', { answer, note: 'I checked the date.' })
+  const reply = answer => answerReview(parentPath, { answer, note: 'I checked the date.' })
   await reply('UNSURE')
   const review = (await api(admin.token).get('/admin/complaints')).complaints.find(c => c.booking?.id === b.id)
   const adminPath = '/admin/complaints/' + review.id
@@ -188,7 +213,7 @@ test.each(['admin first', 'parent first', 'simultaneous'])('one finance review f
   await prisma.payment.create({ data: { bookingId: b.id, amount: 80, commissionRate: 10, commissionAmount: 8, status: 'PAID', paidAt: new Date() } })
   await send({ action: 'request-review', reason: 'Check the attendance record.' })
   const parentPath = '/parent/bookings/' + b.publicId
-  await api(p.token).post(parentPath + '/attendance-response', { answer: 'NO' })
+  await answerReview(parentPath, { answer: 'NO' })
   const c = (await api(admin.token).get('/admin/complaints')).complaints.find(row => row.booking?.id === b.id)
   const complaint = '/admin/complaints/' + c.id
   const { reviewedAt } = (await api(admin.token).get(complaint)).investigation.attendanceReview
@@ -222,7 +247,7 @@ test.each([
   await prisma.payment.create({ data: { bookingId: b.id, amount: 80, commissionRate: 10, commissionAmount: 8, status: 'PAID', paidAt: new Date() } })
   await send({ action: 'request-review', reason: 'Lost phone signal.' })
   const parentPath = '/parent/bookings/' + b.publicId
-  const parentReply = () => api(p.token).post(parentPath + '/attendance-response', { answer: 'UNSURE', note: 'I checked the lesson date.' })
+  const parentReply = () => answerReview(parentPath, { answer: 'UNSURE', note: 'I checked the lesson date.' })
   await parentReply()
   const c = (await api(admin.token).get('/admin/complaints')).complaints.find(row => row.booking?.id === b.id)
   const complaint = '/admin/complaints/' + c.id

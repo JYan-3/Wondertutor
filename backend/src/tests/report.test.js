@@ -52,6 +52,24 @@ describe('homework and follow-up work', () => {
 })
 
 describe('the progress report', () => {
+  test.each(['PHYSICAL', 'ONLINE'])('admin-confirmed %s attendance is distinct from a recorded check-in', async (mode) => {
+    const p = await makeParent()
+    const t = await makeTutor()
+    const b = await makeBooking({ parent: p.parent, child: p.child, tutor: t.tutor, date: monday, status: 'COMPLETED', extra: { teachingMode: mode } })
+    await prisma.complaint.create({ data: { bookingId: b.id, filedById: t.user.id, category: 'Missed check-in', description: 'Reviewed evidence of the lesson.', status: 'RESOLVED', attendanceApproved: true, attendanceOutcome: 'CONFIRMED' } })
+    const report = await api(p.token).get(`/parent/children/${p.child.id}/report`)
+    expect(report.lessons[0]).toMatchObject({ attended: true, attendanceSource: 'ADMIN_REVIEW' })
+    expect(report.totals).toMatchObject({ attendanceTrackedLessons: 1, checkedIn: 0, adminConfirmed: 1 })
+    const progress = await api(p.token).get(`/parent/children/${p.child.id}/progress`)
+    expect(progress.stats).toMatchObject({ checkedInLessons: 0, adminConfirmedLessons: 1 })
+    expect(progress.timeline[0]).toMatchObject({ attendanceSource: 'ADMIN_REVIEW', attendance: null })
+    await prisma.complaint.updateMany({ where: { bookingId: b.id }, data: { status: 'IN_PROGRESS' } })
+    const reopened = await api(p.token).get(`/parent/children/${p.child.id}/report`)
+    expect(reopened.totals.adminConfirmed).toBe(0)
+    expect(reopened.lessons[0].attendanceSource).toBeNull()
+    expect(reopened.lessons[0].attended).toBe(mode === 'PHYSICAL' ? false : null)
+  })
+
   beforeAll(async () => {
     await lesson({ day: '2026-01-12', subject: 'Mathematics', summary: { content: 'Fractions.', topics: 'Fractions', homework: 'Page 3', progressNote: 'Good' }, checkedIn: true, rating: 5 })
     await lesson({ day: '2026-03-02', subject: 'Mathematics', summary: { content: 'Decimals.', topics: 'Decimals' }, checkedIn: false, rating: 3 })

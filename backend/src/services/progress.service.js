@@ -12,10 +12,17 @@ export const toSummaryDto = (s) => ({
   recommendations: s.recommendations,
 })
 
-// Historical online lessons may predate attendance tracking. Keep those unknown
-// rather than labelling them absent; all actual check-in records count by mode.
-export const attendanceTracked = b => b.teachingMode === 'PHYSICAL' || Boolean(b.attendance)
-export const recordedAttendance = b => attendanceTracked(b) ? Boolean(b.attendance?.checkInAt) : null
+// Read only the final decision, never the complaint's private text or evidence.
+export const attendanceReviewInclude = {
+  where: { category: 'Missed check-in' },
+  select: { status: true, attendanceApproved: true, attendanceOutcome: true },
+  orderBy: { id: 'desc' }, take: 1,
+}
+export const adminConfirmedAttendance = b => Boolean(b.complaints?.some(c => c.status === 'RESOLVED' && c.attendanceApproved && (c.attendanceOutcome == null || c.attendanceOutcome === 'CONFIRMED')))
+export const attendanceSource = b => b.attendance?.checkInAt ? 'CHECK_IN' : adminConfirmedAttendance(b) ? 'ADMIN_REVIEW' : null
+// Historical online lessons without either kind of record remain unknown.
+export const attendanceTracked = b => b.teachingMode === 'PHYSICAL' || Boolean(b.attendance) || adminConfirmedAttendance(b)
+export const recordedAttendance = b => attendanceTracked(b) ? Boolean(attendanceSource(b)) : null
 
 // child: an already ownership-checked Child row. q: { from?, to?, subject? } with YYYY-MM-DD dates (Malaysian days,
 // both ends included). Returns the report body without the page-only fields (child DTO, parent name, generatedAt).
@@ -23,7 +30,7 @@ export async function buildChildReport(child, q = {}, db = prisma) {
   const tutorSelect = { include: { user: { select: { fullName: true } } } }
   const all = await db.booking.findMany({
     where: { childId: child.id, status: 'COMPLETED' },
-    include: { tutor: tutorSelect, attendance: true, summary: true, review: true },
+    include: { tutor: tutorSelect, attendance: true, summary: true, review: true, complaints: attendanceReviewInclude },
     orderBy: { startAt: 'desc' },
   })
   const start = q.from ? mytToDate(q.from, '00:00') : null
@@ -54,6 +61,7 @@ export async function buildChildReport(child, q = {}, db = prisma) {
       physicalLessons: physical.length,
       attendanceTrackedLessons: lessons.filter(attendanceTracked).length,
       checkedIn: lessons.filter((b) => b.attendance?.checkInAt).length,
+      adminConfirmed: lessons.filter(b => attendanceSource(b) === 'ADMIN_REVIEW').length,
       averageRating: rated.length ? round1(rated.reduce((t, b) => t + b.review.rating, 0) / rated.length) : null,
     },
     subjects: Object.values(bySubject)
@@ -69,6 +77,7 @@ export async function buildChildReport(child, q = {}, db = prisma) {
       teachingMode: b.teachingMode,
       tutor: b.tutor.user.fullName,
       attended: recordedAttendance(b),
+      attendanceSource: attendanceSource(b),
       summary: b.summary && toSummaryDto(b.summary),
     })),
   }

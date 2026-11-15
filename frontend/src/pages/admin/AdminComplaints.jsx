@@ -1,5 +1,6 @@
 import { attendanceLabels, refundHoldLabels } from '../../lib/attendanceReview'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import api, { errorMessage } from '../../api/client'
 import Icon from '../../components/ui/Icon'
 import { EmptyState, ErrorBox, LoadError, Modal, PageTitle, Spinner } from '../../components/ui/Common'
@@ -9,23 +10,41 @@ import ComplaintsReport from '../../components/ComplaintsReport'
 import WarnUser from '../../components/WarnUser'
 import { fmtTimeRange, money } from '../../lib/format'
 import { recordRef } from '../../lib/recordRef'
+import Pagination from '../../components/ui/Pagination'
 
 const TABS = [['', 'All'], ['OPEN', 'Open'], ['IN_PROGRESS', 'In Progress'], ['RESOLVED', 'Resolved'], ['DISMISSED', 'Dismissed']]
 
 // Admin: review complaints (OPEN -> IN_PROGRESS -> RESOLVED / DISMISSED) and reply to the parent
 export default function AdminComplaints() {
-  const [status, setStatus] = useState('')
+  const [params, setParams] = useSearchParams()
+  const status = params.get('status') || ''
+  const page = params.get('page') || '1'
   const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const request = useRef(0)
   const [sel, setSel] = useState(null)
   // Bumped after every status change so the report above recounts
   const [reportVersion, setReportVersion] = useState(0)
 
   const [loadError, setLoadError] = useState('')
   const load = useCallback(() => {
+    const current = ++request.current
     setLoadError('')
-    return api.get('/admin/complaints', { params: { status } }).then((r) => setData(r.data)).catch((e) => setLoadError(errorMessage(e)))
-  }, [status])
-  useEffect(() => { load() }, [load])
+    setLoading(true)
+    return api.get('/admin/complaints', { params: { status, page, pageSize: 20 } })
+      .then(r => { if (current === request.current) setData(r.data) })
+      .catch(e => { if (current === request.current) setLoadError(errorMessage(e)) })
+      .finally(() => { if (current === request.current) setLoading(false) })
+  }, [status, page])
+  useEffect(() => { load(); return () => { ++request.current } }, [load])
+
+  function setFilter(key, value) {
+    const next = new URLSearchParams(params)
+    if (key !== 'page') next.delete('page')
+    if (value) next.set(key, String(value))
+    else next.delete(key)
+    setParams(next)
+  }
 
   const total = data ? Object.values(data.counts).reduce((a, b) => a + b, 0) : 0
 
@@ -35,12 +54,12 @@ export default function AdminComplaints() {
       <ComplaintsReport refreshKey={reportVersion} />
       <div className="card mb-4 flex flex-wrap gap-2 p-3">
         {TABS.map(([v, l]) => (
-          <button key={l} onClick={() => setStatus(v)} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${status === v ? 'border-brand-500 bg-brand-500 text-white' : 'border-brand-200 bg-white text-navy hover:border-brand-500'}`}>
+          <button key={l} aria-pressed={status === v} onClick={() => setFilter('status', v)} className={`rounded-lg border px-4 py-2 text-sm font-semibold ${status === v ? 'border-brand-500 bg-brand-500 text-white' : 'border-brand-200 bg-white text-navy hover:border-brand-500'}`}>
             {l}{data && ` (${v ? data.counts[v] : total})`}
           </button>))}
       </div>
 
-      {!data ? (loadError ? <LoadError message={loadError} onRetry={load} /> : <Spinner />) : data.complaints.length === 0 ? (
+      {loading ? <Spinner /> : loadError ? <LoadError message={loadError} onRetry={load} /> : !data ? null : data.complaints.length === 0 ? (
         <div className="card"><EmptyState icon="shield" title="No complaints here">Nothing to review in this list.</EmptyState></div>
       ) : (
         <div className="space-y-3">
@@ -59,6 +78,10 @@ export default function AdminComplaints() {
             </article>))}
         </div>
       )}
+      {!loading && !loadError && data?.pagination && <div className="mt-4 space-y-3">
+        <p role="status" className="text-center text-sm text-slate-600">{data.pagination.total} complaint{data.pagination.total === 1 ? '' : 's'} · Page {data.pagination.page} of {data.pagination.totalPages}</p>
+        <Pagination {...data.pagination} onChange={value => setFilter('page', value)} label="Complaint pages" />
+      </div>}
 
       <ReviewModal complaint={sel} onClose={() => setSel(null)} onReviewChanged={load} onDone={() => { setSel(null); load(); setReportVersion((v) => v + 1) }} />
     </div>
@@ -70,11 +93,21 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [inv, setInv] = useState(null) // what the Admin needs to investigate: booking, payment, attendance, history
+  const investigationRequest = useRef(0)
   const [review, setReview] = useState(null)
   const loadInvestigation = useCallback(() => {
-    if (c) api.get(`/admin/complaints/${recordRef(c)}`).then((r) => { setInv(r.data.investigation); if (r.data.complaint?.review) setReview(r.data.complaint.review) }).catch((e) => setError(errorMessage(e)))
+    if (!c) return
+    const current = ++investigationRequest.current
+    setError('')
+    setInv(null)
+    return api.get(`/admin/complaints/${recordRef(c)}`)
+      .then(r => { if (current === investigationRequest.current) { setInv(r.data.investigation); if (r.data.complaint?.review) setReview(r.data.complaint.review) } })
+      .catch(e => { if (current === investigationRequest.current) setError(errorMessage(e)) })
   }, [c])
-  useEffect(() => { setResponse(c?.adminResponse || ''); setReview(c?.review || null); setError(''); setInv(null); loadInvestigation() }, [c, loadInvestigation])
+  useEffect(() => {
+    setResponse(c?.adminResponse || ''); setReview(c?.review || null); setError(''); setInv(null); loadInvestigation()
+    return () => { ++investigationRequest.current }
+  }, [c, loadInvestigation])
   if (!c) return null
   const attendance = c.category === 'Missed check-in'
   const evidence = inv?.attendanceReview

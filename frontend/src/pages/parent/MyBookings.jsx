@@ -254,7 +254,7 @@ export default function MyBookings() {
           <p className="text-sm text-amber-900">Refresh this booking to check its latest status before taking another action. Your previous action will not be resent.</p>
           <button type="button" disabled={refreshing} onClick={load} className="btn-outline min-h-11 w-full px-3 text-sm">{refreshing ? 'Refreshing…' : 'Refresh bookings'}</button>
         </> : <fieldset disabled={acting} aria-label="Booking actions" className="min-w-0 space-y-3 disabled:opacity-60">
-          {currentDetail.attendanceReview && <AttendanceResponse booking={currentDetail} act={act} busy={acting || needsRefresh} />}
+          {currentDetail.attendanceReview && <AttendanceResponse key={currentDetail.attendanceReview.updatedAt} booking={currentDetail} act={act} busy={acting || needsRefresh} />}
           <BookingDetailActions key={recordRef(currentDetail)} b={currentDetail} now={now} {...handlers} />
         </fieldset>}
       </div>} />
@@ -279,6 +279,8 @@ export default function MyBookings() {
 }
 
 function bookingHint(b, now) {
+  if (needsAttention(b, now) && b.attendanceReview?.attendanceOutcome === 'NOT_HELD') return 'Admin confirmed this lesson was not held. View Details for the refund status.'
+  if (needsAttention(b, now) && b.attendanceReview?.status === 'RESOLVED' && b.attendanceReview.attendanceApproved) return 'Attendance confirmed by admin; waiting for the tutor’s report.'
   if (needsAttention(b, now)) return 'Attendance or completion needs review.'
   if (b.reschedule?.status === 'ESCALATED') return 'Time change under administrator review.'
   if (b.reschedule?.status === 'PENDING') return b.reschedule.requestedBy === 'PARENT' ? 'Reschedule requested; waiting for tutor.' : 'New time proposed — review the details.'
@@ -396,7 +398,7 @@ function AttendanceResponse({ booking, act, busy }) {
     {review.parentAnswer ? <p>Your response: {labels[review.parentAnswer]}{review.parentNote && ' · ' + review.parentNote}</p> : open &&
       <form className="space-y-2" onSubmit={e => {
         e.preventDefault()
-        act('/parent/bookings/' + recordRef(booking) + '/attendance-response', { answer, note })
+        act('/parent/bookings/' + recordRef(booking) + '/attendance-response', { answer, note, reviewedAt: review.updatedAt })
       }}>
         <fieldset disabled={busy}><legend>Did this lesson take place?</legend>
           {Object.entries(labels).map(([value, label]) => <label key={value} className="flex min-h-11 items-center gap-2">
@@ -432,6 +434,12 @@ function BookingDetailActions({ b, now, onCancel, onReview, onReschedule, act })
     {payable(b, now) ? <Link to="/parent/payments" className="btn-primary min-h-11 w-full">Pay Now</Link> : <p className="text-sm text-amber-800">The payment window has ended. Refresh your bookings to check the latest status.</p>}
     {future && <div className="grid gap-2 sm:grid-cols-2">{canMove && <Btn onClick={() => onReschedule(b)}>Reschedule</Btn>}<Btn kind="danger" onClick={() => onCancel(b)}>Cancel Booking</Btn></div>}
   </div>
+  if (b.status === 'CONFIRMED' && ended && b.attendanceReview?.attendanceOutcome === 'NOT_HELD') return <div className="space-y-2 rounded-xl bg-brand-25 p-3 text-sm text-slate-700">
+    <p className="font-bold text-navy">Admin confirmed this lesson did not take place.</p>
+    <p>Check the refund status in these booking details or on Payments. A refund request or approval is not confirmation that money has been returned.</p>
+    <Link className="btn-outline min-h-11" to="/parent/payments">View payments and refunds</Link>
+  </div>
+  if (b.status === 'CONFIRMED' && ended && b.attendanceReview?.status === 'RESOLVED' && b.attendanceReview.attendanceApproved) return <p className="rounded-xl bg-brand-25 p-3 text-sm text-slate-700">Attendance was confirmed by admin. Waiting for the tutor to submit the lesson report; no check-in time has been added.</p>
   if (b.status === 'CONFIRMED' && ended) return <div className="space-y-3 rounded-xl bg-orange-50 p-3 text-sm text-slate-700">
     <p className="font-bold text-navy">{b.summary ? 'A report is recorded, but the lesson status still needs review.' : b.attendance?.checkInAt ? 'Waiting for the tutor to finish the attendance and report.' : 'No tutor check-in or completed report has been recorded.'}</p>
     <p>{b.attendance?.checkInAt ? 'Ask your tutor to finish the attendance and report. If the lesson did not take place as recorded, report the problem for administrator review.' : 'Contact your tutor about the missing record. Report a problem for administrator review if attendance is missing or the lesson did not take place.'}</p>

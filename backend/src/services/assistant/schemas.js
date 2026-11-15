@@ -90,14 +90,14 @@ export const cardSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('lesson_detail'),
     ref: REF('booking'), childName: str(80), tutorName: str(120), subject: str(80), status: str(30), date: day, time,
-    mode: z.enum(['ONLINE', 'PHYSICAL']), checkIn: z.object({ recorded: z.boolean().nullable(), checkInTime: nstr(10), checkOutTime: nstr(10) }).strict(),
+    mode: z.enum(['ONLINE', 'PHYSICAL']), checkIn: z.object({ recorded: z.boolean().nullable(), checkInTime: nstr(10), checkOutTime: nstr(10), adminConfirmed: z.boolean().optional() }).strict(),
     summary: z.object({ content: nstr(1200), topics: nstr(400), homework: nstr(800), recommendations: nstr(800), progressNote: nstr(800) }).strict().nullable(),
     link: route,
   }).strict(),
   z.object({
     type: z.literal('progress_summary'),
     childName: str(80), period: z.object({ from: day.nullable(), to: day.nullable(), subject: nstr(80) }).strict(),
-    totals: z.object({ lessons: z.number().int(), hours: z.number(), summaries: z.number().int(), homeworkSet: z.number().int(), physicalLessons: z.number().int(), attendanceTrackedLessons: z.number().int().optional(), checkedIn: z.number().int() }).strict(),
+    totals: z.object({ lessons: z.number().int(), hours: z.number(), summaries: z.number().int(), homeworkSet: z.number().int(), physicalLessons: z.number().int(), attendanceTrackedLessons: z.number().int().optional(), checkedIn: z.number().int(), adminConfirmed: z.number().int().optional() }).strict(),
     subjects: z.array(z.object({ subject: str(80), lessons: z.number().int(), hours: z.number() }).strict()).max(20),
     recentLessons: z.array(z.object({ date: day, subject: str(80), tutorName: str(120), homework: nstr(800), summary: nstr(800) }).strict()).max(5),
     link: route,

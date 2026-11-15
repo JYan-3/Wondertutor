@@ -30,6 +30,17 @@ const renderPage = () => render(<MemoryRouter initialEntries={['/parent/children
 beforeEach(() => { vi.clearAllMocks(); api.get.mockResolvedValue({ data: report() }) })
 
 describe('progress report', () => {
+  test('admin attendance approval is shown and exported without inventing a check-in', async () => {
+    const approved = { ...report().lessons[0], attendanceSource: 'ADMIN_REVIEW', attended: true }
+    api.get.mockResolvedValue({ data: report({ lessons: [approved], totals: { ...report().totals, checkedIn: 0, adminConfirmed: 1 } }) })
+    renderPage()
+    await screen.findByRole('heading', { name: 'Learning Progress Report' })
+    expect(screen.getByText('Attendance confirmed by admin').previousSibling).toHaveTextContent('1')
+    expect(screen.getByText(/Physical, attendance confirmed by admin/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Download CSV' }))
+    expect(saveCsv.mock.calls[0][0][1][5]).toBe('Attendance confirmed by admin')
+    expect(screen.getByText('Tutor check-ins').previousSibling).toHaveTextContent('0 of 1')
+  })
   test('late filter responses cannot replace the current report and exports wait for fresh results', async () => {
     let older, newer
     api.get.mockResolvedValueOnce({ data: report() })

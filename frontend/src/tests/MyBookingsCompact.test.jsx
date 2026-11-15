@@ -216,12 +216,21 @@ test('stale detail records cannot start a refund or change a physical venue outs
 })
 
 test('parent can answer a missed attendance request from the booking notification link', async () => {
-  const b = booking(1, { attendanceReview: { status: 'OPEN' } })
+  const b = booking(1, { attendanceReview: { status: 'OPEN', updatedAt: '2026-11-15T02:00:00.000Z' } })
   open([b], '/parent/bookings?booking=' + b.publicId)
   fireEvent.click(await screen.findByLabelText('The lesson did not take place'))
   fireEvent.change(screen.getByLabelText('Optional note'), { target: { value: 'We waited.' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send response to admin' }))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/parent/bookings/' + b.publicId + '/attendance-response', { answer: 'NO', note: 'We waited.' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/parent/bookings/' + b.publicId + '/attendance-response', { answer: 'NO', note: 'We waited.', reviewedAt: b.attendanceReview.updatedAt }))
+})
+
+test('a lesson confirmed as not held points to the refund rather than chasing a tutor report', async () => {
+  const b = booking(1, { startAt: '2026-11-12T09:00:00Z', endAt: '2026-11-12T10:00:00Z', attendanceReview: { status: 'DISMISSED', attendanceOutcome: 'NOT_HELD', attendanceRefundId: 9 },
+    payment: { status: 'PAID', refunds: [{ id: 9, amount: 80, status: 'PENDING', type: 'ADMIN_REVIEW' }] } })
+  open([b], '/parent/bookings?booking=' + b.publicId)
+  expect(await screen.findByText('Admin confirmed this lesson did not take place.')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: 'View payments and refunds' })).toHaveAttribute('href', '/parent/payments')
+  expect(screen.queryByText(/Contact your tutor about the missing record/)).not.toBeInTheDocument()
 })
 
 test.each([['PENDING', 'Pending Admin review'], ['REJECTED', 'Not approved'], ['APPROVED', 'Refund on hold while admin reviews the attendance evidence.', 'ON_HOLD']])('parent sees the linked attendance refund without a second request button: %s', (status, label, attendanceRefundState) => {

@@ -12,14 +12,20 @@ import { mytToDate, addDays } from '../../utils/time.js'
 
 // GET /admin/complaints?status=OPEN
 export async function listComplaints(req, res) {
-  const status = z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'DISMISSED']).optional().parse(req.query.status || undefined)
-  const [items, grouped] = await Promise.all([
-    prisma.complaint.findMany({ where: status ? { status } : {}, include: complaintInclude, orderBy: { createdAt: 'desc' } }),
-    prisma.complaint.groupBy({ by: ['status'], _count: { _all: true } }),
-  ])
+  const { status, page: requestedPage, pageSize } = z.object({
+    status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'DISMISSED']).optional(),
+    page: z.coerce.number().int().min(1).max(100000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  }).parse({ ...req.query, status: req.query.status || undefined })
+  const grouped = await prisma.complaint.groupBy({ by: ['status'], _count: { _all: true } })
   const counts = { OPEN: 0, IN_PROGRESS: 0, RESOLVED: 0, DISMISSED: 0 }
   for (const g of grouped) counts[g.status] = g._count._all
-  res.json({ counts, complaints: items.map(toComplaintDto) })
+  const total = status ? counts[status] : Object.values(counts).reduce((sum, count) => sum + count, 0)
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const page = Math.min(requestedPage, totalPages)
+  const items = await prisma.complaint.findMany({ where: status ? { status } : {}, include: complaintInclude,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], skip: (page - 1) * pageSize, take: pageSize })
+  res.json({ counts, complaints: items.map(toComplaintDto), pagination: { page, pageSize, total, totalPages } })
 }
 
 const updateSchema = z
