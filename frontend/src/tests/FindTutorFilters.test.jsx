@@ -4,21 +4,25 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import FindTutor from '../pages/parent/FindTutor'
 import api from '../api/client'
 
+const { patchCriteria } = vi.hoisted(() => ({ patchCriteria: vi.fn() }))
+
 vi.mock('../api/client', () => ({ default: { get: vi.fn() }, errorMessage: String }))
 vi.mock('../assistant/MatchingContext', () => ({ useMatching: () => ({
   catalog: { subjects: ['Mathematics', 'Chemistry'], subjectLevels: { Mathematics: ['PRIMARY', 'SECONDARY'], Chemistry: ['SECONDARY'] }, homeLocation: 'Kuala Lumpur' },
   kids: [{ educationLevel: 'SECONDARY', grade: 5, subject: 'Chemistry' }], kidsLoaded: true,
+  patchCriteria,
 }) }))
 vi.mock('../components/PlaceSearch', () => ({ default: ({ value, onChange }) => <label>Location<input value={value} onChange={(e) => onChange(e.target.value)} /></label> }))
 
 beforeEach(() => {
   api.get.mockReset()
+  patchCriteria.mockClear()
   api.get.mockResolvedValue({ data: { tutors: [], total: 0, page: 1, totalPages: 1, pageSize: 9 } })
 })
 
 const open = () => render(<MemoryRouter><FindTutor /></MemoryRouter>)
 
-test('changing Form 5 to Primary 1 removes Chemistry and requires a compatible subject', async () => {
+test('changing Form 5 to Primary 1 removes Chemistry and allows all subjects for the selected grade', async () => {
   open()
   const subject = await screen.findByRole('combobox', { name: /Subject/ })
   expect(subject).toHaveValue('Chemistry')
@@ -26,7 +30,8 @@ test('changing Form 5 to Primary 1 removes Chemistry and requires a compatible s
   expect(subject).toHaveValue('')
   expect(within(subject).queryByRole('option', { name: 'Chemistry' })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Search Tutors' }))
-  expect(screen.getByRole('alert')).toHaveTextContent('Subject and education level are required')
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ level: 'PRIMARY', grade: 1, location: 'Kuala Lumpur', sort: 'recommended', page: 1, pageSize: 9 }))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   fireEvent.change(subject, { target: { value: 'Mathematics' } })
   fireEvent.click(screen.getByRole('button', { name: 'Search Tutors' }))
   await waitFor(() => expect(api.get.mock.lastCall[1].params).toMatchObject({ subject: 'Mathematics', level: 'PRIMARY', grade: 1 }))
@@ -35,7 +40,7 @@ test('changing Form 5 to Primary 1 removes Chemistry and requires a compatible s
   expect(within(subject).getByRole('option', { name: 'Chemistry' })).toBeInTheDocument()
 })
 
-test('Clear filters clears optional search fields and extra filters and restores default sorting', async () => {
+test('Clear filters clears every field and extra filter, then an empty search browses all tutors', async () => {
   open()
   await screen.findByRole('combobox', { name: /Subject/ })
   fireEvent.click(screen.getByRole('button', { name: 'Price' }))
@@ -50,8 +55,52 @@ test('Clear filters clears optional search fields and extra filters and restores
   fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
   expect(screen.getByLabelText('Location')).toHaveValue('')
   expect(screen.getByRole('button', { name: 'Select date & time' })).toBeInTheDocument()
-  expect(screen.getByRole('combobox', { name: /Subject/ })).toHaveValue('Chemistry')
-  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ subject: 'Chemistry', level: 'SECONDARY', grade: 5, sort: 'recommended', page: 1, pageSize: 9 }))
+  expect(screen.getByRole('combobox', { name: /Subject/ })).toHaveValue('')
+  expect(screen.getByRole('combobox', { name: /Education Level/ })).toHaveValue('')
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ sort: 'recommended', page: 1, pageSize: 9 }))
+  fireEvent.click(screen.getByRole('button', { name: 'Search Tutors' }))
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(api.get.mock.lastCall[1].params).toEqual({ sort: 'recommended', page: 1, pageSize: 9 })
+})
+
+test('a subject can be searched across all education levels', async () => {
+  open()
+  await screen.findByRole('combobox', { name: /Subject/ })
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  fireEvent.change(screen.getByRole('combobox', { name: /Subject/ }), { target: { value: 'Mathematics' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search Tutors' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ subject: 'Mathematics', sort: 'recommended', page: 1, pageSize: 9 }))
+})
+
+test('clearing after an incompatible level change does not retain the previous applied subject', async () => {
+  open()
+  await screen.findByRole('combobox', { name: /Subject/ })
+  fireEvent.change(screen.getByRole('combobox', { name: /Education Level/ }), { target: { value: 'PRIMARY:1' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ sort: 'recommended', page: 1, pageSize: 9 }))
+  expect(screen.getByRole('combobox', { name: /Education Level/ })).toHaveValue('')
+})
+
+test('an optional availability search still requires both date and time', async () => {
+  open()
+  await screen.findByRole('combobox', { name: /Subject/ })
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ sort: 'recommended', page: 1, pageSize: 9 }))
+  const count = api.get.mock.calls.length
+  fireEvent.click(screen.getByRole('button', { name: 'Select date & time' }))
+  fireEvent.change(screen.getByLabelText('Date'), { target: { value: '2027-01-01' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Search Tutors' }))
+  expect(screen.getByRole('alert')).toHaveTextContent('Choose both a date and a start time')
+  expect(api.get).toHaveBeenCalledTimes(count)
+})
+
+test('opening AI matching from an empty browse search does not pass an invalid grade', async () => {
+  open()
+  await screen.findByRole('combobox', { name: /Subject/ })
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Try AI Matching' }))
+  expect(patchCriteria).toHaveBeenCalledWith({ subject: '', level: '', grade: null, location: '', childId: null })
 })
 
 const remoteTutor = { id: 18, name: 'Remote English Tutor', photoUrl: null, rating: 4.5, reviewCount: 2, hourlyRate: 55, mainSubject: 'English', levels: 'Primary 1–6', offersOnline: true, offersPhysical: true, location: 'Bayan Lepas, Pulau Pinang', availableDays: ['Mon'], characteristics: [], searchMode: 'ONLINE', match: { score: 90, label: 'Highly suitable', reasons: ['Offers online lessons'], distanceKm: null } }

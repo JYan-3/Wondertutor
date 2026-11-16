@@ -66,8 +66,9 @@ export default function FindTutor() {
 
   const query = useMemo(() => {
     if (!applied) return null
-    const { level, grade } = parseGrade(applied.grade)
-    const p = { subject: applied.subject, level, grade, sort, page, pageSize: PAGE_SIZE }
+    const p = { sort, page, pageSize: PAGE_SIZE }
+    if (applied.subject) p.subject = applied.subject
+    if (applied.grade) Object.assign(p, parseGrade(applied.grade))
     if (applied.location) p.location = applied.location
     if (applied.date && applied.time) Object.assign(p, { date: applied.date, time: applied.time })
     if (extra.minPrice !== '') p.minPrice = extra.minPrice
@@ -106,10 +107,9 @@ export default function FindTutor() {
   }
 
   function clearFilters() {
-    const cleared = { ...bar, location: '', date: '', time: '' }
+    const cleared = { subject: '', grade: '', location: '', date: '', time: '' }
     setBar(cleared)
-    // Keep the last valid search if the new level still needs a subject.
-    setApplied({ ...(bar.subject ? cleared : applied), location: '', date: '', time: '' })
+    setApplied(cleared)
     setExtra(NO_EXTRA)
     setSort('recommended')
     setPage(1)
@@ -132,7 +132,6 @@ export default function FindTutor() {
   }
 
   const search = () => {
-    if (!bar.subject || !bar.grade) return setError('Subject and education level are required')
     // The availability filter needs both parts; half of it would be silently ignored
     if (Boolean(bar.date) !== Boolean(bar.time)) return setError('Choose both a date and a start time, or clear the availability filter.')
     setError('')
@@ -140,7 +139,7 @@ export default function FindTutor() {
   }
 
   function tryAiMatching() {
-    const { level, grade } = parseGrade(bar.grade)
+    const { level, grade } = bar.grade ? parseGrade(bar.grade) : { level: '', grade: null }
     patchCriteria({ subject: bar.subject, level, grade, location: bar.location, childId: kids.find((k) => k.educationLevel === level && k.grade === grade)?.id ?? null })
     navigate('/parent/find-tutor/match')
   }
@@ -158,15 +157,16 @@ export default function FindTutor() {
         </div>
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto] xl:items-end">
           <label className="block">
-            <span className="mb-1.5 block text-sm font-semibold text-navy">Subject <span className="text-red-500">*</span></span>
+            <span className="mb-1.5 block text-sm font-semibold text-navy">Subject</span>
             <SelectBox icon="book" value={bar.subject} onChange={set('subject')}>
-              <option value="">Select subject</option>
+              <option value="">All subjects</option>
               {subjectsForLevel(catalog.subjects, catalog.subjectLevels, parseGrade(bar.grade).level).map((s) => <option key={s}>{s}</option>)}
             </SelectBox>
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-sm font-semibold text-navy">Education Level <span className="text-red-500">*</span></span>
+            <span className="mb-1.5 block text-sm font-semibold text-navy">Education Level</span>
             <SelectBox icon="cap" value={bar.grade} onChange={set('grade')}>
+              <option value="">All education levels</option>
               {GRADE_GROUPS.map((g) => (
                 <optgroup key={g.label} label={g.label}>{g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>
               ))}
@@ -182,6 +182,7 @@ export default function FindTutor() {
           </div>
           <button onClick={search} className="btn-primary h-11 px-8 text-base"><Icon name="search" className="h-[18px] w-[18px]" /> Search Tutors</button>
         </div>
+        <p className="mt-3 text-sm text-slate-600">Leave filters empty to browse all tutors.</p>
         <ErrorBox className="mt-3">{error}</ErrorBox>
 
         <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-brand-100 bg-brand-25 p-3">
@@ -200,7 +201,9 @@ export default function FindTutor() {
           <h2 className="text-xl font-bold text-navy" aria-live="polite">{error && !data ? 'Tutors could not be loaded' : resultsHeading(data)}</h2>
           {data?.total > 0 && sort === 'recommended' && (
             <p className="text-sm text-slate-600">
-              Best match first{data.rankedBy?.length ? `, based on ${data.rankedBy.join(' and ')}` : ''}. Every card shows its match score and why.
+              {(data.personalised ?? data.tutors.some(tutor => tutor.match))
+                ? <>Best match first{data.rankedBy?.length ? `, based on ${data.rankedBy.join(' and ')}` : ''}. Every card shows its match score and why.</>
+                : 'Verified tutors first, then parent ratings and teaching experience. Choose a subject and education level to see match scores.'}
             </p>
           )}
         </div>

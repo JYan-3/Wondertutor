@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { AppError } from '../../utils/AppError.js'
-import { CHARACTERISTICS, LANGUAGES, LOCATIONS, MAX_CHILD_SUBJECTS, MAX_GRADE, SUBJECTS, SUBJECT_LEVELS, findLocation } from '../../data/catalog.js'
-import { rankTutorGroups } from '../../services/tutorSearchScope.js'
+import { CHARACTERISTICS, LANGUAGES, LOCATIONS, MAX_CHILD_SUBJECTS, MAX_GRADE, SUBJECTS, SUBJECT_LEVELS, findLocation, isSubjectAtLevel } from '../../data/catalog.js'
+import { groupTutorCandidates } from '../../services/tutorSearchScope.js'
+import { distanceKm, rankTutors } from '../../services/matching.service.js'
 import { tutorInclude, toTutorCard, toTutorProfile } from '../../services/tutor.service.js'
 import { SLOT_BLOCKING, getTutorSlots } from '../../services/booking.service.js'
 import { effectiveSlots, slotAllows } from '../../services/availability.service.js'
@@ -30,8 +31,8 @@ export function catalog(req, res) {
 
 // Query params -> matching criteria (also the browse filter set)
 const browseSchema = z.object({
-  subject: z.string().trim().min(1, 'Subject is required').max(60),
-  level: z.enum(['KINDERGARTEN', 'PRIMARY', 'SECONDARY'], { message: 'Education level is required' }),
+  subject: z.enum(SUBJECTS).optional(),
+  level: z.enum(['KINDERGARTEN', 'PRIMARY', 'SECONDARY']).optional(),
   grade: z.coerce.number().int().min(1).optional(),
   location: z.string().trim().max(100).optional(),
   date: ymd().optional(),
@@ -48,18 +49,24 @@ const browseSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(30).default(9),
 })
+  .refine(q => !q.grade || Boolean(q.level), { message: 'Choose an education level before a grade', path: ['grade'] })
   .refine((q) => !q.grade || q.grade <= MAX_GRADE[q.level], { message: 'That grade does not exist for the chosen level', path: ['grade'] })
+  .refine(q => !q.subject || !q.level || isSubjectAtLevel(q.subject, q.level), { message: 'That subject is not offered at this education level', path: ['subject'] })
   .refine((q) => q.minPrice == null || q.maxPrice == null || q.minPrice <= q.maxPrice, { message: 'The minimum price cannot be more than the maximum', path: ['maxPrice'] })
   .refine(q => !q.location || Boolean(findLocation(q.location)), { message: 'Choose a recognised area, town or postcode', path: ['location'] })
   .refine(q => Boolean(q.date) === Boolean(q.time), { message: 'Choose both a date and a start time', path: ['date'] })
 
-// Tutors whose account is active and who teach the subject at the level (the DB-side part of the mandatory filter)
-export async function activeTutors(subject, level) {
+// Browse fields are optional; matching callers still supply subject and level.
+export async function activeTutors(subject, level, grade) {
   return prisma.tutorProfile.findMany({
     where: {
       user: { status: 'ACTIVE', deletedAt: null },
       hourlyRate: { gt: 0 },
-      subjects: { some: { subject, educationLevel: level } },
+      subjects: { some: {
+        ...(subject && { subject }),
+        ...(level && { educationLevel: level }),
+        ...(grade != null && { minGrade: { lte: grade }, maxGrade: { gte: grade } }),
+      } },
     },
     include: tutorInclude,
   })
@@ -123,7 +130,7 @@ export async function browseTutors(req, res) {
     budgetMax: q.maxPrice ?? prefs.budgetMax ?? null,
   }
 
-  const candidates = await activeTutors(q.subject, q.level)
+  const candidates = await activeTutors(q.subject, q.level, q.grade)
   // Apply the same non-location filters to local results and online alternatives.
   const tutors = candidates.filter(tutor => {
     const rate = Number(tutor.hourlyRate)
@@ -147,7 +154,20 @@ export async function browseTutors(req, res) {
     }
     available[mode] = ids
   }))
-  const groups = rankTutorGroups(tutors, criteria, available)
+  // An empty Location must not silently restrict ordinary browsing to the
+  // parent's home area. Explicit Physical searches can still use that area.
+  const area = loc || (q.mode === 'PHYSICAL' ? { lat: criteria.lat, lng: criteria.lng, name: criteria.location } : null)
+  const scoped = groupTutorCandidates(tutors, { ...criteria, lat: area?.lat, lng: area?.lng, location: area?.name || null }, available)
+  const personalised = Boolean(q.subject && q.level)
+  const rank = (rows, mode) => personalised
+    ? rankTutors(rows, { ...criteria, mode }).map(row => ({ ...row, distanceKm: row.match.distanceKm }))
+    : rows.map(tutor => ({ tutor, match: null, distanceKm: mode === 'ONLINE' ? null : distanceKm(area?.lat, area?.lng, tutor.latitude, tutor.longitude) }))
+      .sort((a, b) => Number(b.tutor.isVerified) - Number(a.tutor.isVerified) || b.tutor.ratingAvg - a.tutor.ratingAvg || b.tutor.ratingCount - a.tutor.ratingCount || b.tutor.yearsExperience - a.tutor.yearsExperience || a.tutor.id - b.tutor.id)
+  const groups = {
+    searchScope: scoped.searchScope,
+    tutors: rank(scoped.tutors, scoped.searchScope.mode === 'ANY' ? 'EITHER' : scoped.searchScope.mode),
+    onlineAlternatives: rank(scoped.onlineAlternatives, 'ONLINE'),
+  }
   let ranked = groups.tutors
 
   // "Recommended" keeps the score order; the other sorts re-order the same list (ties fall back to the score)
@@ -156,7 +176,7 @@ export async function browseTutors(req, res) {
     price_desc: (a, b) => Number(b.tutor.hourlyRate) - Number(a.tutor.hourlyRate),
     rating: (a, b) => b.tutor.ratingAvg - a.tutor.ratingAvg,
     experience: (a, b) => b.tutor.yearsExperience - a.tutor.yearsExperience,
-    nearest: (a, b) => (a.match.distanceKm ?? 999) - (b.match.distanceKm ?? 999),
+    nearest: (a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999),
   }[q.sort]
   const ordered = rows => byFn ? rows.map((r, i) => ({ ...r, i })).sort((a, b) => byFn(a, b) || a.i - b.i) : rows
   ranked = ordered(ranked)
@@ -176,13 +196,13 @@ export async function browseTutors(req, res) {
   const basis = []
   if (groups.searchScope.mode === 'ONLINE') basis.push('online lessons across Malaysia')
   else if (loc) basis.push(`nearby physical lessons within ${groups.searchScope.radiusKm} km of ${q.location}`)
-  else if (req.parent.latitude != null && req.parent.address) basis.push(`nearby physical lessons within ${groups.searchScope.radiusKm} km of your home area (${req.parent.address})`)
-  if (p && (p.gender !== 'ANY' || p.characteristics?.length || p.days?.length || p.timePreset || p.budgetMax != null || p.mode !== 'EITHER')) basis.push('your saved preferences')
+  else if (req.parent.latitude != null && req.parent.address && (personalised || groups.searchScope.mode === 'PHYSICAL')) basis.push(`distance from your home area (${req.parent.address})`)
+  if (personalised && p && (p.gender !== 'ANY' || p.characteristics?.length || p.days?.length || p.timePreset || p.budgetMax != null || p.mode !== 'EITHER')) basis.push('your saved preferences')
 
-  const cards = (rows, searchMode) => rows.map(({ tutor, match }) => ({
-    ...toTutorCard(tutor, q.subject), searchMode,
-    isFavourite: favourites.has(tutor.id), distanceKm: match.distanceKm,
-    match: { score: match.score, label: match.label, reasons: match.reasons },
+  const cards = (rows, searchMode) => rows.map(({ tutor, match, distanceKm: distance }) => ({
+    ...toTutorCard(tutor, q.subject || (q.level ? tutor.subjects.find(row => row.educationLevel === q.level && (q.grade == null || (row.minGrade <= q.grade && row.maxGrade >= q.grade)))?.subject : undefined)), searchMode,
+    isFavourite: favourites.has(tutor.id), distanceKm: distance,
+    match: match ? { score: match.score, label: match.label, reasons: match.reasons } : null,
   }))
   const alternatives = total === 0 ? ordered(groups.onlineAlternatives) : []
   const alternativePages = Math.max(1, Math.ceil(alternatives.length / q.pageSize)), alternativePage = Math.min(q.page, alternativePages)
@@ -192,6 +212,7 @@ export async function browseTutors(req, res) {
     pageSize: q.pageSize,
     totalPages,
     rankedBy: basis,
+    personalised,
     searchScope: groups.searchScope,
     tutors: cards(pageRows, groups.searchScope.mode),
     onlineAlternatives: { total: alternatives.length, page: alternativePage, totalPages: alternativePages, pageSize: q.pageSize, tutors: cards(alternatives.slice((alternativePage - 1) * q.pageSize, alternativePage * q.pageSize), 'ONLINE') },
