@@ -9,7 +9,7 @@ import { homeData, places, faqData, browsePublicTutors, getPublicTutor, getPubli
 import { rateLimit } from '../middleware/rateLimit.js'
 import { requireAuth } from '../middleware/auth.js'
 import * as notifications from '../controllers/notifications.controller.js'
-import { billplzCallback } from '../controllers/parent/payments.controller.js'
+import { billplzCallback, toyyibpayCallback } from '../controllers/parent/payments.controller.js'
 
 const router = validateIdParams(Router()) // every :id in these URLs must be a positive whole number
 
@@ -30,6 +30,7 @@ router.get('/public/places', rateLimit({ name: 'places', windowMs: 60_000, max: 
 
 // [XY] Billplz tells the server a bill was paid. Public on purpose: it is protected by Billplz's signature, not a login.
 router.post('/payments/billplz/callback', rateLimit({ name: 'billplz-callback', windowMs: 60_000, max: 60 }), billplzCallback)
+router.post('/payments/toyyibpay/callback', rateLimit({ name: 'toyyibpay-callback', windowMs: 60_000, max: 120 }), toyyibpayCallback)
 
 // [XY] Parent Portal: children, matching, bookings, payments, reviews
 router.use('/parent', parentRoutes)

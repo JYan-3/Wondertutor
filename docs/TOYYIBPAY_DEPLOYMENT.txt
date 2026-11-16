@@ -1,0 +1,100 @@
+WONDERTUTOR -- TOYYIBPAY PAYMENT INTEGRATION
+16 November 2026
+
+HOSTINGER ENVIRONMENT VARIABLES (server only)
+
+TOYYIBPAY_SECRET_KEY=<merchant secret supplied privately>
+TOYYIBPAY_CATEGORY_CODE=<WonderTutor category from the same merchant account>
+TOYYIBPAY_BASE_URL=https://toyyibpay.com
+
+The project is configured for the live endpoint when keys are added. Live payments
+move real money. Use https://dev.toyyibpay.com with sandbox credentials to test
+without real funds. No secret belongs in VITE_ variables, source control or logs.
+Apply the variables and restart the backend after deploying frontend + backend.
+These changes use existing Payment fields and need no new database migration.
+
+AUTOMATIC URLS FOR THE CURRENT DOMAIN
+
+Callback: https://wondertutor.wonderland-home.com/api/payments/toyyibpay/callback
+Return:   https://wondertutor.wonderland-home.com/parent/payments/return
+
+CLIENT_URL must be https://wondertutor.wonderland-home.com (no trailing slash).
+The backend passes these URLs when it creates each bill. Callbacks cannot reach
+localhost. The parent needs a valid phone number in My Profile; payer name,
+email and phone, amount and a random payment reference are sent to ToyyibPay.
+FPX is selected; enabled channels depend on the merchant account. Merchant-side
+provider fees are not an extra lesson charge shown to parents. Split payment is
+disabled: this integration does not send tutor payouts or execute refunds.
+Existing Admin refund/withdrawal review and transfer-evidence workflows remain.
+
+HOW VERIFICATION WORKS
+
+Each booking retains one Payment and its original bill code. A server callback
+must pass ToyyibPay's documented MD5 hash check. Because that hash does not cover
+billcode or amount, the backend also fetches getBillTransactions with the merchant
+secret and checks the random external reference, WonderTutor bill description and
+exact successful amount. Browser status_id values never decide success. Pending,
+failed and unknown provider results do not confirm a lesson. Repeated callbacks
+are idempotent. A verified late payment is recorded and queues one full refund
+for administrator review; it never revives a cancelled/released booking.
+
+TIMEOUT / ORIGINAL BILL RECOVERY
+
+A documented explicit create rejection marks the attempt failed and allows a
+corrected retry. An uncertain response (timeout, 5xx, malformed result) leaves the
+attempt pending. Retrying cannot silently create another potentially payable bill.
+A later verified callback or parent return can recover the original bill using
+WT-<payment-public-UUID>. Find that exact reference in the merchant dashboard.
+
+Inspect a known bill (no local change):
+  node scripts/reconcile-toyyibpay.js PAYMENT_PUBLIC_UUID ORIGINAL_BILL_CODE
+
+Apply the independently verified result:
+  node scripts/reconcile-toyyibpay.js PAYMENT_PUBLIC_UUID ORIGINAL_BILL_CODE --apply
+
+Run inside backend on the server with its protected environment. SSH does not
+automatically inherit the web app variables; load the protected configuration. The documented
+transactions API cannot discover an unknown bill code from a reference alone.
+An unused bill may return no transactions, so it cannot yet be verified/attached
+through that API. Check its reference and amount in the merchant dashboard and
+use the original bill; do not delete the Payment to force a fresh checkout.
+Do not reuse a bill from another account/environment or another booking. Sandbox
+payments are stored as ToyyibPay (sandbox); live verification cannot attach or
+settle those records. Keep test and live business data in separate databases.
+
+BACKWARD COMPATIBILITY
+
+ToyyibPay takes precedence when both providers are configured. Existing Billplz
+payments keep their original provider and receipt labels; legacy callbacks remain
+available only with the original BILLPLZ_* credentials. A pending external bill
+is never replaced by another provider's bill. Historical local demo payments are
+records, not evidence of a real bank transfer.
+
+ACCEPTANCE ON THE LIVE ACCOUNT
+
+Confirm the account/category belongs to the intended merchant and check FPX is
+enabled. With an agreed small test lesson, the parent completes the bank payment
+on ToyyibPay. Check provider transaction, booking confirmation, amount/commission,
+receipt, parent/tutor notification and refresh/retry behavior. Check an abandoned
+attempt and a later retry open the same bill. Do not claim live bank settlement
+from unit tests or a mocked provider. Monitor runtime logs for callback failures.
+
+OFFICIAL REFERENCE
+https://toyyibpay.com/apireference/
+
+FYP DESIGN UPDATE
+
+Use ToyyibPay for the payment activity-diagram swimlane, external-service box and
+payment integration description. Verification is callback hash plus an independent
+transaction lookup. Existing financial tables/relationships are unchanged.
+
+VERIFICATION -- 16 NOVEMBER 2026
+
+The complete backend regression suite passed. Final payment regressions: 89/89,
+including callback/browser recovery, concurrent retries, wrong references/amounts,
+late payments, provider separation and simulator protection. Frontend: 669/669.
+Production build passed. Frontend lint: 0 errors, 71 existing warnings.
+Browser checks: 19 passed at 1440, 375 and 320 pixels, with a synthetic provider
+and stubbed application API. These checks moved no real money and are separate
+from the merchant live-payment acceptance test above. Credentials were not
+provided to the tests. Private test logs/screenshots remain outside Git.

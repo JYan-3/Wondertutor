@@ -843,7 +843,9 @@ describe('slot states', () => {
     await setup(mixed())
     expect(kinds('fc-booked')).toHaveLength(1)
     expect(kinds('fc-held')).toHaveLength(1)
-    expect(lockedHour(`Monday ${Number(WEEK.slice(8))} ${weekLabel(WEEK).split(' ').at(-1)} 15:00, booked`)).toBeInTheDocument()
+    // A week may end in another month; use the booked day's own month.
+    const bookedDate = new Date(`${WEEK}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+    expect(lockedHour(`Monday ${bookedDate} 15:00, booked`)).toBeInTheDocument()
     const held = lockedHour(HELD_NAME)
     expect(held).toHaveAttribute('title', `Held until ${malaysiaLabel(HOLD_UNTIL)} while the parent pays. It is released if they don't.`)
     expect(held.querySelector('svg')).toBeInTheDocument()

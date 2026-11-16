@@ -258,7 +258,7 @@ The review-moderation migration adds review visibility/audit fields and an optio
 Start with the [documentation index](docs/README.md), [latest system review](docs/SYSTEM_REVIEW_2026-11-15.md), [deployment guidance](docs/HOSTINGER_DEPLOYMENT.txt) and [FYP requirements traceability](docs/REQUIREMENTS_TRACEABILITY.md). The [ERD/class diagram reference](docs/CURRENT_DATA_MODEL.md) labels its snapshot date and required updates. Local test results do not verify Hostinger, live bank payments or client acceptance.
 
 ## Still to configure later
-- Payment gateway sandbox (Billplz / ToyyibPay / Stripe test mode). The pay dialog currently simulates the gateway.
+- Configure ToyyibPay with a matching merchant secret, category code and live/sandbox URL; see [payment setup and recovery](docs/TOYYIBPAY_DEPLOYMENT.txt). A development-only simulator remains available without gateway keys; production never uses it. Real bank settlement still needs merchant acceptance testing.
 
 ## Read-only AI Assistant (optional)
 

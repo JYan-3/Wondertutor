@@ -11,9 +11,9 @@ function trustedOrigin(value) {
 
 export function csrfProtection(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next()
-  // Billplz's server-to-server callback has its own signature verification. No
+  // Provider callbacks have their own signature and transaction verification. No
   // browser return, checkout or other payment operation is exempted.
-  if (req.method === 'POST' && req.path === '/payments/billplz/callback') return next()
+  if (req.method === 'POST' && ['/payments/billplz/callback', '/payments/toyyibpay/callback'].includes(req.path)) return next()
   res.set('Cache-Control', 'private, no-store')
   if (req.get('Sec-Fetch-Site') === 'cross-site') return invalidOrigin(res)
   const origin = req.get('Origin')

@@ -19,6 +19,7 @@ Start with the [latest system review — 15 November 2026](SYSTEM_REVIEW_2026-11
 | Document | Purpose |
 | --- | --- |
 | [Hostinger deployment](HOSTINGER_DEPLOYMENT.txt) | Build/start, environment, migrations, scheduled jobs, readiness and recovery guidance. |
+| [ToyyibPay setup and recovery](TOYYIBPAY_DEPLOYMENT.txt) | Live/sandbox keys, callback/return URLs, verification, original-bill recovery and acceptance checks. |
 | [Browser sessions and CSRF](SAFER_SESSIONS_2026-11-12.md) | Cookie session design, role-safe login/logout and request protection. |
 | [Public IDs](PUBLIC_IDS_2026-11-12.md) | UUID references, compatibility, ownership checks and backfill/deployment. |
 | [Child photo privacy](CHILD_PHOTO_PRIVACY_2026-11-12.md) | Private child media, legacy-file migration and retention considerations. |

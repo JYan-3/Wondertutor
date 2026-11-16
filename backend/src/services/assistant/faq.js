@@ -56,6 +56,14 @@ export const FAQ = [
     reviewed: '2026-11-13',
   },
   {
+    id: 'faq.payment-provider',
+    topic: 'Paying securely with ToyyibPay',
+    keywords: ['toyyibpay', 'payment gateway', 'fpx', 'online banking', 'payment pending', 'payment failed', 'resit', 'bayar', '支付', '付款'],
+    answer: 'WonderTutor uses ToyyibPay for configured online lesson payments. Open Payments and choose Pay Now for an accepted booking, then continue to the secure ToyyibPay FPX page. Your profile needs a valid phone number. The server verifies the payment with the provider before confirming the lesson; a browser success page alone is not proof of payment. If the result is pending, choose Check payment again or return to Payments. A retry reopens the original bill. If checkout timed out and its original bill cannot yet be confirmed, contact the centre with the payment reference instead of starting another bill. Existing receipts keep the provider used for that payment. Refund requests are reviewed by administrators and do not transfer money back automatically.',
+    source: 'backend/src/services/toyyibpayPayments.service.js; frontend/src/pages/parent/Payments.jsx; frontend/src/pages/parent/PaymentReturn.jsx',
+    reviewed: '2026-11-16',
+  },
+  {
     id: 'faq.payment-deadline',
     topic: 'Payment deadline',
     keywords: ['deadline', 'pay before', 'expire', 'expired', 'unpaid', 'bayar', 'tamat', '付款期限', '过期'],

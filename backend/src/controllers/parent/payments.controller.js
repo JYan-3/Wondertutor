@@ -1,9 +1,6 @@
-// Payments. Two gateways behind one flow:
-//  - Billplz (real sandbox/live gateway) when BILLPLZ_API_KEY is set: checkout creates a bill and sends the parent to
-//    Billplz's page; the result comes back through the browser return (`gatewayReturn`) and Billplz's server callback
-//    (`billplzCallback`). Both are checked against Billplz's signature AND against Billplz's own record of the bill.
-//  - A built-in test gateway otherwise (no account needed): `confirmPayment` plays the gateway's role.
-// Either way the result is applied by `settlePayment`, so a payment is confirmed in exactly one way.
+// External gateways use the same settlement rules. ToyyibPay is preferred for
+// new checkouts; existing Billplz bills remain verifiable during the transition.
+// The built-in simulator is available only in development and automated tests.
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
@@ -16,6 +13,8 @@ import { mytParts } from '../../utils/time.js'
 import { billplzConfigured, createBill, getBill, signatureIsValid } from '../../services/billplz.service.js'
 import { settlePayment } from '../../services/payment.service.js'
 import { randomBytes } from 'node:crypto'
+import { toyyibPayConfigured, signatureIsValid as toyyibSignatureIsValid } from '../../services/toyyibpay.service.js'
+import { beginToyyibPayCheckout, settleFromToyyibPay } from '../../services/toyyibpayPayments.service.js'
 // Amount/total rules are shared with the AI assistant (services/paymentSummary.service.js)
 import { PAID_STATUSES, lessonAmount, money, mytMonthStart, sumDecimal } from '../../services/paymentSummary.service.js'
 
@@ -62,13 +61,14 @@ export async function paymentsOverview(req, res) {
       booking: toBookingDto(p.booking),
     })),
     banks: SANDBOX_BANKS,
-    gateway: billplzConfigured() ? 'billplz' : 'sandbox',
+    gateway: toyyibPayConfigured() ? 'toyyibpay' : billplzConfigured() ? 'billplz' : env.nodeEnv === 'production' ? 'unavailable' : 'sandbox',
+    gatewayMode: toyyibPayConfigured() ? (env.toyyibpay.baseUrl === 'https://toyyibpay.com' ? 'live' : 'sandbox') : undefined,
   })
 }
 
-// POST /parent/payments/checkout { bookingId }: start a sandbox FPX payment
+// POST /parent/payments/checkout { bookingId }: open or reconcile the original checkout
 export async function checkout(req, res) {
-  if (env.nodeEnv === 'production' && !billplzConfigured())
+  if (env.nodeEnv === 'production' && !toyyibPayConfigured() && !billplzConfigured())
     throw new AppError(503, 'Online payments are not configured. Please contact the centre.')
   const { bookingId } = z.object({ bookingId: recordReference('Booking') }).parse(req.body)
   const booking = await prisma.booking.findFirst({ where: { ...referenceWhere(bookingId), parentId: req.parent.id }, include: { payment: true } })
@@ -78,6 +78,16 @@ export async function checkout(req, res) {
   if (paymentDeadline(booking) <= new Date()) throw new AppError(400, 'Payment closes at the pay-by time. Please book another time.')
 
   const amount = lessonAmount(booking)
+  // Never replace a pre-existing external bill with one from another provider.
+  if (booking.payment?.method === 'Billplz') {
+    if (!billplzConfigured()) throw new AppError(409, 'This booking has an earlier Billplz checkout. Contact the centre to check its original bill.')
+    return checkoutWithBillplz(req, res, booking, amount)
+  }
+  if (toyyibPayConfigured()) {
+    const result = await beginToyyibPayCheckout({ booking, user: req.user, parentId: req.parent.id, amount })
+    return res.status(result.status).json(result.body)
+  }
+  if (booking.payment?.method?.startsWith('ToyyibPay')) throw new AppError(503, 'ToyyibPay is not configured. Contact the centre to check the original payment.')
   if (billplzConfigured()) return checkoutWithBillplz(req, res, booking, amount)
   const gatewayRef = `SBX-${randomBytes(5).toString('hex').toUpperCase()}`
 
@@ -93,7 +103,7 @@ export async function checkout(req, res) {
 
 // POST /parent/payments/:id/confirm { bank, outcome }: the built-in test gateway's "callback" (never used with Billplz)
 export async function confirmPayment(req, res) {
-  if (env.nodeEnv === 'production' || billplzConfigured()) throw new AppError(404, 'Not found')
+  if (env.nodeEnv === 'production' || toyyibPayConfigured() || billplzConfigured()) throw new AppError(404, 'Not found')
   const { bank, outcome } = z
     .object({ bank: z.enum(SANDBOX_BANKS, { message: 'Choose a bank from the list' }), outcome: z.enum(['SUCCESS', 'FAILED']) })
     .parse(req.body)
@@ -103,6 +113,9 @@ export async function confirmPayment(req, res) {
     include: { booking: true },
   })
   if (!payment) throw new AppError(404, 'Payment not found')
+  // Removing gateway configuration must never make an external bill payable
+  // through the development simulator.
+  if (payment.method === 'Billplz' || payment.method.startsWith('ToyyibPay')) throw new AppError(404, 'Not found')
   if (payment.status !== 'PENDING') throw new AppError(400, 'This payment has already been processed')
   // The booking may have been cancelled or expired after checkout started: it must not come back to life
   if (payment.booking.status !== 'AWAITING_PAYMENT')
@@ -169,7 +182,7 @@ export async function settleFromBillplz(billId, { expectedBookingId, parentId } 
   if (bill.id !== billId || bill.collection_id !== env.billplz.collectionId)
     throw new AppError(404, 'Bill does not belong to this collection')
   const owner = parentId ? { booking: { parentId } } : {}
-  let payment = await prisma.payment.findFirst({ where: { gatewayRef: billId, ...owner } })
+  let payment = await prisma.payment.findFirst({ where: { method: 'Billplz', gatewayRef: billId, ...owner } })
   if (!payment) {
     // If the create response was lost, recover only from the provider's stored
     // merchant reference, amount and application callback, never from a caller's claim.
@@ -180,7 +193,7 @@ export async function settleFromBillplz(billId, { expectedBookingId, parentId } 
       throw new AppError(404, 'Original WonderTutor bill not found')
     payment = await prisma.payment.findFirst({ where: { bookingId, method: 'Billplz', gatewayRef: null, ...owner } })
     if (!payment) {
-      payment = await prisma.payment.findFirst({ where: { bookingId, gatewayRef: billId, ...owner } })
+      payment = await prisma.payment.findFirst({ where: { bookingId, method: 'Billplz', gatewayRef: billId, ...owner } })
       if (!payment) throw new AppError(404, 'No matching payment')
     }
   }
@@ -206,13 +219,23 @@ export async function settleFromBillplz(billId, { expectedBookingId, parentId } 
 // POST /parent/payments/return { id, paid, paid_at, x_signature }: the parent's browser coming back from Billplz.
 // The page sends the three values Billplz put in the address bar; the signature proves Billplz made them.
 export async function gatewayReturn(req, res) {
+  if (req.body?.gateway === 'toyyibpay' || req.body?.billcode !== undefined) {
+    if (!toyyibPayConfigured()) throw new AppError(503, 'ToyyibPay is not configured. Please contact the centre.')
+    const body = z.object({ gateway: z.literal('toyyibpay').optional(), billcode: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), order_id: z.string().min(1).max(100) }).parse(req.body)
+    const settled = await settleFromToyyibPay(body.billcode, { orderId: body.order_id, parentId: req.parent.id })
+    return sendPaymentOutcome(req, res, settled)
+  }
   if (!billplzConfigured()) throw new AppError(404, 'Not found')
   const body = z.object({ id: z.string().min(1).max(64), paid: z.string().max(10), paid_at: z.string().max(60).optional(), x_signature: z.string().max(100) }).parse(req.body)
   const params = { 'billplz[id]': body.id, 'billplz[paid]': body.paid, ...(body.paid_at !== undefined && { 'billplz[paid_at]': body.paid_at }) }
   if (!signatureIsValid({ ...params, 'billplz[x_signature]': body.x_signature })) throw new AppError(400, 'This payment result could not be verified')
 
-  const { result } = await settleFromBillplz(body.id, { parentId: req.parent.id })
-  const fresh = await prisma.payment.findFirstOrThrow({ where: { gatewayRef: body.id, booking: { parentId: req.parent.id } }, include: { refunds: true, booking: { select: { status: true } } } })
+  const settled = await settleFromBillplz(body.id, { parentId: req.parent.id })
+  return sendPaymentOutcome(req, res, settled)
+}
+
+async function sendPaymentOutcome(req, res, { result, payment }) {
+  const fresh = await prisma.payment.findFirstOrThrow({ where: { id: payment.id, booking: { parentId: req.parent.id } }, include: { refunds: true, booking: { select: { status: true } } } })
   let effectiveResult = result
   if (result === 'ALREADY') {
     if (['REFUNDED', 'PARTIALLY_REFUNDED'].includes(fresh.status)) effectiveResult = fresh.status
@@ -223,7 +246,7 @@ export async function gatewayReturn(req, res) {
     SUCCESS: 'Payment successful. Your lesson is confirmed.',
     ALREADY: fresh.status === 'PAID' ? 'Payment successful. Your lesson is confirmed.' : 'This payment was not completed. You have not been charged.',
     LATE: 'We received your payment, but the booking had already been released. A full refund has been queued.',
-    FAILED: 'The payment was not completed. You have not been charged.',
+    FAILED: 'The latest payment attempt was not completed. If your bank shows a debit, check Payments again before paying.',
     WAITING: 'We have not received the payment yet. If you already paid, it can take a minute to show up: check Payments again shortly.',
     REFUNDED: 'This payment is recorded as fully refunded in WonderTutor. Check Payments for the refund details.',
     PARTIALLY_REFUNDED: 'This payment is recorded as partly refunded in WonderTutor. Check Payments for the refund details.',
@@ -249,6 +272,26 @@ export async function billplzCallback(req, res) {
     if (err.status !== 404) {
       console.error('[billplz] callback failed:', err.message)
       return res.status(500).json({ message: 'Try again' })
+    }
+  }
+  res.sendStatus(200)
+}
+
+// POST /api/payments/toyyibpay/callback. Verify ToyyibPay's hash, then retrieve
+// its transaction record; the hash alone does not authenticate billcode/amount.
+export async function toyyibpayCallback(req, res) {
+  if (!toyyibPayConfigured() || !toyyibSignatureIsValid(req.body)) return res.status(400).json({ message: 'Invalid signature' })
+  const body = z.object({ billcode: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/), order_id: z.string().min(1).max(100) }).safeParse(req.body)
+  if (!body.success) return res.status(400).json({ message: 'Invalid payment reference' })
+  try {
+    const settled = await settleFromToyyibPay(body.data.billcode, { orderId: body.data.order_id })
+    if (req.body.status === '1' && ['WAITING', 'FAILED'].includes(settled.result)) return res.status(503).json({ message: 'Payment verification is pending; retry later' })
+  } catch (error) {
+    // An unrelated bill from the same merchant account is not a WonderTutor
+    // payment. Other failures remain retryable rather than silently losing money.
+    if (error.status !== 404) {
+      console.error('[toyyibpay] callback could not be verified')
+      return res.status(error.status === 400 || error.status === 409 ? 400 : 503).json({ message: 'Payment could not be verified' })
     }
   }
   res.sendStatus(200)

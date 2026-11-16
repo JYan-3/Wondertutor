@@ -1,5 +1,5 @@
-// Turns a gateway result (paid / not paid) into the right changes in our own data. The mock gateway, the Billplz
-// browser return and the Billplz server callback all end here, so a payment is settled in exactly one way.
+// Applies verified gateway results to our records. ToyyibPay, legacy Billplz and
+// the development simulator share these commission, confirmation and refund rules.
 import { Prisma } from '@prisma/client'
 import { PAYMENT_DEADLINE_MINUTES } from './paymentWindow.js'
 import { prisma } from '../config/prisma.js'

@@ -28,11 +28,15 @@ export default function Payments() {
   if (!data) return loadError ? <LoadError message={loadError} onRetry={load} /> : <Spinner />
 
   const { required, summary, transactions, banks, gateway } = data
-  const live = gateway === 'billplz' // real gateway: the parent pays on Billplz's page, not in our test dialog
+  const gatewayName = gateway === 'toyyibpay' ? 'ToyyibPay' : gateway === 'billplz' ? 'Billplz' : null
+  const hosted = Boolean(gatewayName)
+  const unavailable = gateway === 'unavailable'
   const rows = showAll ? transactions : transactions.slice(0, 5)
 
   return (
     <div>
+      {gateway === 'toyyibpay' && data.gatewayMode === 'sandbox' && <p className="mb-4 rounded-lg bg-brand-50 p-3 text-sm text-navy" role="status">ToyyibPay sandbox — test payments only.</p>}
+      {unavailable && <ErrorBox className="mb-4">Online payments are not available yet. Please contact the centre before paying.</ErrorBox>}
       <PageTitle title="Payments" subtitle="Manage your lesson payments and view your transaction history." sparkle={false}
         right={<div className="pointer-events-none hidden items-center gap-3 pr-6 lg:flex"><Icon name="card" className="h-16 w-16 text-brand-200" strokeWidth={1.25} /><div className="font-hand text-2xl leading-6 text-brand-200 [transform:rotate(-8deg)]">Learning<br />Today<br />Brighter<br />Tomorrow</div></div>} />
 
@@ -58,7 +62,7 @@ export default function Payments() {
                   <StatusPill status="AWAITING_PAYMENT" label="Payment Pending" />
                   <div className="text-3xl font-extrabold text-navy">{money(b.totalAmount)}</div>
                   <div className="text-xs text-slate-600">Pay by <b className="text-navy">{fmtDate(payBy(b))}, {fmtTime(payBy(b))}</b> or the slot is released.</div>
-                  <button onClick={() => setPayFor(b)} className="btn-primary h-12 w-full px-8 text-base md:w-48">Pay Now <Icon name="arrow-right" className="h-4 w-4" /></button>
+                  <button disabled={unavailable} onClick={() => setPayFor(b)} className="btn-primary h-12 w-full px-8 text-base md:w-48">Pay Now <Icon name="arrow-right" className="h-4 w-4" /></button>
                 </div>
               </div>
             </section>
@@ -107,19 +111,19 @@ export default function Payments() {
             <h2 className="mb-3 text-xl font-extrabold text-navy">Payment Method</h2>
             <div className="rounded-xl border border-slate-100 p-4">
               <div className="flex items-center gap-4">
-                <span className="text-3xl font-black italic tracking-tight text-navy"><span className="text-brand-500">❯</span>{live ? 'Pay' : 'FPX'}</span>
-                {live
-                  ? <div><div className="font-bold text-navy">FPX &amp; e-wallets</div><div className="text-sm text-slate-500">Choose how to pay on the secure Billplz page.</div></div>
+                <span className="text-3xl font-black italic tracking-tight text-navy"><span className="text-brand-500">❯</span>{hosted ? 'Pay' : 'FPX'}</span>
+                {hosted
+                  ? <div><div className="font-bold text-navy">FPX Online Banking</div><div className="text-sm text-slate-500">Pay securely through {gatewayName}.</div></div>
                   : <div><div className="font-bold text-navy">FPX Online Banking</div><div className="text-sm text-slate-500">{bank ? `Preferred bank: ${bank}` : 'Preferred payment method'}</div></div>}
               </div>
-              {!live && <button onClick={() => setMethodOpen(true)} className="btn-outline mt-4 w-full">Change Payment Method <Icon name="arrow-right" className="h-4 w-4" /></button>}
+              {!hosted && !unavailable && <button onClick={() => setMethodOpen(true)} className="btn-outline mt-4 w-full">Change Payment Method <Icon name="arrow-right" className="h-4 w-4" /></button>}
             </div>
           </section>
         </aside>
       </div>
 
       {/* Reload on every close: even a failed attempt can change things (e.g. the booking expired meanwhile) */}
-      <PayModal booking={payFor} banks={banks} defaultBank={bank} live={live} onClose={() => { setPayFor(null); load() }} onDone={() => { setPayFor(null); load() }} />
+      <PayModal key={payFor?.publicId || payFor?.id || 'empty'} booking={payFor} banks={banks} defaultBank={bank} gatewayName={gatewayName} onClose={() => { setPayFor(null); load() }} onDone={() => { setPayFor(null); load() }} />
       <LessonDetails booking={detail} onClose={() => setDetail(null)} onChanged={load} />
       <Modal open={methodOpen} onClose={() => setMethodOpen(false)} title="Payment Method">
         <p className="mb-3 text-sm text-slate-500">Lessons are paid by FPX online banking. Choose the bank you'd like pre-selected at checkout.</p>
@@ -132,21 +136,24 @@ export default function Payments() {
   )
 }
 
-// Sandbox FPX checkout: no real money moves. "Simulate failed payment" tests the failure path.
-function PayModal({ booking, banks, defaultBank, live, onClose, onDone }) {
+// Hosted checkout for configured providers; the development-only simulator stays separate.
+function PayModal({ booking, banks, defaultBank, gatewayName, onClose, onDone }) {
   const [bank, setBank] = useState(defaultBank || '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
+  const hosted = Boolean(gatewayName)
+  const paymentPartner = booking?.payment?.method === 'Billplz' ? 'Billplz' : gatewayName
   if (!booking) return null
 
-  // Real gateway: create the bill, then leave for Billplz. The result comes back on /parent/payments/return.
-  async function payOnBillplz() {
+  // Open the original bill on the provider site; confirmation is checked by our server.
+  async function payOnGateway() {
     setBusy(true)
     setError('')
     try {
       const checkout = await api.post('/parent/payments/checkout', { bookingId: recordRef(booking) })
       if (checkout.data.reconciled) return onDone()
+      if (!checkout.data.redirectUrl) throw new Error('Checkout could not be opened. Refresh Payments and try again.')
       window.location.assign(checkout.data.redirectUrl)
     } catch (err) {
       setError(errorMessage(err))
@@ -172,7 +179,7 @@ function PayModal({ booking, banks, defaultBank, live, onClose, onDone }) {
   const close = () => { const ok = result?.status === 'SUCCESS'; setResult(null); setError(''); if (ok) onDone(); else onClose() }
 
   return (
-    <Modal open onClose={close} title={result ? (result.status === 'SUCCESS' ? 'Payment successful' : 'Payment failed') : live ? 'Pay for your lesson' : 'Pay with FPX'}>
+    <Modal open onClose={close} title={result ? (result.status === 'SUCCESS' ? 'Payment successful' : 'Payment failed') : hosted ? 'Pay for your lesson' : 'Pay with FPX'}>
       {result ? (
         <div className="flex flex-col items-center gap-3 py-4 text-center">
           <span className={`flex h-16 w-16 items-center justify-center rounded-full text-white ${result.status === 'SUCCESS' ? 'bg-ok' : 'bg-red-500'}`}><Icon name={result.status === 'SUCCESS' ? 'check' : 'x'} className="h-9 w-9" strokeWidth={3} /></span>
@@ -186,10 +193,10 @@ function PayModal({ booking, banks, defaultBank, live, onClose, onDone }) {
             <div className="text-2xl font-extrabold text-navy">{money(booking.totalAmount)}</div>
           </div>
           <ErrorBox>{error}</ErrorBox>
-          {live ? (
+          {hosted ? (
             <>
-              <p className="text-sm text-slate-600">You will be taken to Billplz, our secure payment partner, to pay by FPX online banking or e-wallet. You will come straight back here afterwards.</p>
-              <button disabled={busy} onClick={payOnBillplz} className="btn-primary h-12 w-full text-base">{busy ? 'Opening Billplz…' : `Pay ${money(booking.totalAmount)} with Billplz`}</button>
+              <p className="text-sm text-slate-600">You will be taken to {paymentPartner} to pay securely by FPX online banking. Return here afterwards so we can check your payment.</p>
+              <button disabled={busy} onClick={payOnGateway} className="btn-primary h-12 w-full text-base">{busy ? `Opening ${paymentPartner}…` : `Pay ${money(booking.totalAmount)} with ${paymentPartner}`}</button>
             </>
           ) : (
           <>

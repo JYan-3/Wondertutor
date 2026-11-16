@@ -44,6 +44,26 @@ export function readAiConfig(e) {
   return cfg
 }
 
+// ToyyibPay keys are server-only. Restrict the destination so a configuration
+// typo cannot send the merchant secret to an unrelated host.
+export function readToyyibPayConfig(e) {
+  const secretKey = (e.TOYYIBPAY_SECRET_KEY || '').trim()
+  const categoryCode = (e.TOYYIBPAY_CATEGORY_CODE || '').trim()
+  let base
+  try { base = new URL(e.TOYYIBPAY_BASE_URL || 'https://toyyibpay.com') } catch {
+    throw new Error('TOYYIBPAY_BASE_URL must be https://toyyibpay.com or https://dev.toyyibpay.com')
+  }
+  if (base.protocol !== 'https:' || !['toyyibpay.com', 'dev.toyyibpay.com'].includes(base.hostname) ||
+      base.username || base.password || base.port || !['', '/'].includes(base.pathname) || base.search || base.hash) {
+    throw new Error('TOYYIBPAY_BASE_URL must be https://toyyibpay.com or https://dev.toyyibpay.com')
+  }
+  if (Boolean(secretKey) !== Boolean(categoryCode)) {
+    throw new Error('Set both TOYYIBPAY_SECRET_KEY and TOYYIBPAY_CATEGORY_CODE to enable ToyyibPay')
+  }
+  if (categoryCode && !/^[a-zA-Z0-9_-]{1,64}$/.test(categoryCode)) throw new Error('TOYYIBPAY_CATEGORY_CODE is invalid')
+  return { secretKey, categoryCode, baseUrl: base.origin }
+}
+
 export const env = {
   port: Number(process.env.PORT || 5000),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -59,7 +79,8 @@ export const env = {
   },
   googleClientId: process.env.GOOGLE_CLIENT_ID,
   recaptchaSecret: process.env.RECAPTCHA_SECRET,
-  // Payment gateway. Without BILLPLZ_API_KEY the built-in test gateway is used instead (development and automated tests).
+  toyyibpay: readToyyibPayConfig(process.env),
+  // Legacy Billplz credentials keep original bills and callbacks verifiable after switching provider.
   billplz: {
     apiKey: process.env.BILLPLZ_API_KEY,
     collectionId: process.env.BILLPLZ_COLLECTION_ID,

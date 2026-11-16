@@ -1,5 +1,5 @@
 WONDERTUTOR HOSTINGER DEPLOYMENT AND ARCHITECTURE
-Reviewed 9 November 2026
+Updated 16 November 2026; ToyyibPay integration added
 
 DECISION
 
@@ -30,7 +30,7 @@ Parent / Tutor / Admin browser
       |-- bounded read-only AI orchestration
       |
       +--> Private MySQL via Prisma
-      +--> Billplz HTTPS API and signed callback
+      +--> ToyyibPay HTTPS API, signed callback and transaction verification
       +--> SMTP TLS for important notifications
       +--> Gemini HTTPS API with minimised data
       +--> Google identity / reCAPTCHA verification
@@ -82,7 +82,9 @@ MINIMUM ENVIRONMENT REVIEW
 - GOOGLE_CLIENT_ID plus matching frontend ID and allowed production origin
 - RECAPTCHA_SECRET plus frontend site key and production domain registration
 - CLOUDINARY_*: production account; private delivery for identity/attendance media
-- BILLPLZ_API_KEY / COLLECTION_ID / X_SIGNATURE / BASE_URL: matching environment
+- TOYYIBPAY_SECRET_KEY / TOYYIBPAY_CATEGORY_CODE: matching merchant account
+- TOYYIBPAY_BASE_URL=https://toyyibpay.com for live, or https://dev.toyyibpay.com for sandbox
+- Keep legacy BILLPLZ_* only if original Billplz bills still need reconciliation
 - AI_ASSISTANT_ENABLED=false initially; enable after synthetic live evaluation
 - The current assistant defaults to AI_REQUEST_TIMEOUT_MS=60000; the browser's
   chat-only deadline is 65000. Verify the hosting reverse-proxy request limit
@@ -96,11 +98,15 @@ Hostinger's current MySQL guide recommends 127.0.0.1 rather than localhost for
 its local Node/MySQL connection. Use the database credentials supplied by hPanel,
 URL-encode special password characters, and do not reuse development root access.
 
-The simulator is now blocked in production. Missing Billplz configuration means
-payments are unavailable; it cannot silently become free confirmed lessons.
-Billplz sandbox configuration can still demonstrate integration but is not real
-payment processing. The payment provider, collection and callback signing secret
-must all belong to the same environment. Complete sandbox acceptance before live.
+The simulator is blocked in production. ToyyibPay handles new checkouts when its
+secret and category are configured. Missing all gateway configuration makes
+payments unavailable. The live base URL moves real money; sandbox credentials
+must use https://dev.toyyibpay.com. The browser return is not payment proof: the
+backend validates callback hashes and retrieves the provider transaction using
+the merchant secret, checking its reference and exact amount before confirming.
+Original bills are reused, including after an unsuccessful payment attempt.
+Ambiguous checkout timeouts stay pending; they must not create another bill.
+See TOYYIBPAY_DEPLOYMENT.txt for setup, recovery and acceptance checks.
 
 CRON AND HOUSEKEEPING
 
