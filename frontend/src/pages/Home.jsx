@@ -295,6 +295,7 @@ export default function Home() {
               </li>
             ))}
           </ol>
+          <Link to="/how-it-works" className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand-600 hover:underline">See how it works<Icon name="arrow-right" className="h-4 w-4" /></Link>
         </div>
       </section>
 

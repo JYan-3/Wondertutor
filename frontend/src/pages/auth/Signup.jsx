@@ -52,12 +52,17 @@ export default function Signup() {
   const { saveSession } = useAuth()
   const [draft] = useState(loadDraft)
   // Sent here from Log In with an unverified account: a new code was just emailed, so start on the code screen
-  const { state } = useLocation()
+  const { state, search } = useLocation()
   const verifyEmail = state?.verifyEmail
   const returnState = { from: state?.from, fromUserId: state?.fromUserId }
+  // Audience guides can suggest a role; account creation still uses the normal
+  // role choice, validation and email verification. Never accept ADMIN here.
+  const requestedRole = new URLSearchParams(search).get('role')
+  const suggestedRole = ['PARENT', 'TUTOR'].includes(requestedRole) ? requestedRole : null
+  const initialRole = (verifyEmail ? null : suggestedRole) || draft?.role || 'PARENT'
   const [step, setStep] = useState(verifyEmail ? 2 : 0)
-  const [role, setRole] = useState(draft?.role || 'PARENT')
-  const [section, setSection] = useState(SECTIONS[draft?.role || 'PARENT'][0].id)
+  const [role, setRole] = useState(initialRole)
+  const [section, setSection] = useState(SECTIONS[initialRole][0].id)
   const [form, setForm] = useState({ ...emptyForm, ...(draft?.form || {}), ...(verifyEmail && { email: verifyEmail }) })
   const [kids, setKids] = useState((draft?.kids || []).map((k) => ({ ...k, subjects: childSubjects(k) })))
   const [prefs, setPrefs] = useState({ ...emptyPreferences(), ...(draft?.prefs || {}) })

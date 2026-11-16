@@ -9,6 +9,8 @@ import { useAuth } from './context/AuthContext'
 import Home from './pages/Home'
 import Privacy from './pages/Privacy'
 const Help = lazy(() => import('./pages/Help'))
+const AudienceGuide = lazy(() => import('./pages/AudienceGuide'))
+const HowItWorks = lazy(() => import('./pages/HowItWorks'))
 import Login from './pages/auth/Login'
 import AdminLogin from './pages/auth/AdminLogin'
 import Signup from './pages/auth/Signup'
@@ -68,6 +70,9 @@ export default function App() {
         <Route path="/tutors/:id" element={<TutorProfile publicView />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/faq" element={<Help />} />
+        <Route path="/for-parents" element={<AudienceGuide audience="parents" />} />
+        <Route path="/for-tutors" element={<AudienceGuide audience="tutors" />} />
+        <Route path="/how-it-works" element={<HowItWorks />} />
         <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />
         <Route path="/signup" element={<GuestOnly><Signup /></GuestOnly>} />
         <Route path="/forgot-password" element={<GuestOnly><ForgotPassword /></GuestOnly>} />

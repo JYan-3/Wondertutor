@@ -1,28 +1,12 @@
-import { useState } from 'react'
+import { useEffect } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
+import PublicHeader from '../components/PublicHeader'
 import { useAuth } from '../context/AuthContext'
 import { homeFor } from '../components/ProtectedRoute'
 
 // Public browsing stays open; only account actions require a signed-in parent.
 const footerLink = 'inline-flex min-h-9 items-center text-slate-700 hover:text-brand-600 hover:underline'
-
-const LINKS = [
-  ['Find a Tutor', '/tutors'],
-  ['How It Works', '/#how-it-works'],
-  ['For Parents', '/#for-parents'],
-  ['For Tutors', '/#for-tutors'],
-  ['About Us', '/#about'],
-]
-
-// The current page is marked with a yellow underline (and aria-current), so it is not shown by colour alone
-function NavLink({ label, to, active }) {
-  return (
-    <a href={to} aria-current={active ? 'page' : undefined} className={`flex min-h-11 items-center border-b-[3px] ${active ? 'border-accent text-brand-500' : 'border-transparent hover:text-brand-500'}`}>
-      {label}
-    </a>
-  )
-}
 
 export default function PublicLayout() {
   const { pathname, hash } = useLocation()
@@ -31,58 +15,14 @@ export default function PublicLayout() {
   const isHome = pathname === '/'
   // The login page is a single screen: no footer, and the page fills the window height so nothing needs scrolling
   const isLogin = pathname === '/login'
-  const [menuOpen, setMenuOpen] = useState(false)
-  const isActive = (to) => to === '/tutors'
-    ? pathname === '/tutors' || pathname.startsWith('/tutors/')
-    : to.startsWith('/#') && pathname === '/' && hash === to.slice(1)
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView()
+    else window.scrollTo(0, 0)
+  }, [pathname, hash])
   return (
     <div className={"flex min-h-screen flex-col overflow-x-clip"}>
-      {/* Plain full-width bar (no box or border), like the landing mockup */}
-      <header className="sticky top-0 z-30 w-full bg-white">
-        <div className="mx-auto flex max-w-[81.25rem] items-center justify-between gap-3 px-4 py-2 md:px-8">
-          <Link to="/" aria-label="WonderTutor home" className="flex min-h-11 items-center">
-            {/* The compact "W" mark on phones keeps room for the Log In / Sign Up buttons */}
-            <Logo mark className="h-9 sm:hidden" />
-            <Logo className="hidden h-9 sm:block" />
-          </Link>
-          <nav aria-label="Main" className="hidden items-center gap-7 text-sm font-medium text-navy lg:flex">
-            {LINKS.map(([label, to]) => <NavLink key={label} label={label} to={to} active={isActive(to)} />)}
-          </nav>
-          <div className="flex items-center gap-2">
-            {user ? (
-              <Link to={homeFor(user.role)} className="btn-primary min-h-11 px-4 sm:px-5">My Dashboard</Link>
-            ) : (
-              <>
-                <Link to="/login" aria-current={pathname === '/login' ? 'page' : undefined} className={`btn-outline min-h-11 whitespace-nowrap px-3 sm:px-5 ${pathname === '/login' ? 'bg-brand-50' : ''}`}>Log In</Link>
-                <Link to="/signup" aria-current={pathname === '/signup' ? 'page' : undefined} className="btn-accent min-h-11 whitespace-nowrap px-3 sm:px-5">Sign Up</Link>
-              </>
-            )}
-            <button
-              type="button"
-              className="flex h-11 w-11 items-center justify-center rounded-lg text-navy hover:bg-brand-50 lg:hidden"
-              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
-              aria-expanded={menuOpen}
-              aria-controls="mobile-menu"
-              onClick={() => setMenuOpen((o) => !o)}
-            >
-              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                {menuOpen ? <path d="M18 6L6 18M6 6l12 12" /> : <path d="M3 6h18M3 12h18M3 18h18" />}
-              </svg>
-            </button>
-          </div>
-        </div>
-        {menuOpen && (
-          <nav id="mobile-menu" aria-label="Mobile" className="border-t border-brand-100 bg-white px-4 py-2 lg:hidden">
-            <ul>
-              {LINKS.map(([label, to]) => (
-                <li key={label}>
-                  <a href={to} onClick={() => setMenuOpen(false)} aria-current={isActive(to) ? 'page' : undefined} className={`flex min-h-11 items-center text-base font-medium ${isActive(to) ? 'text-brand-500' : 'text-navy'}`}>{label}</a>
-                </li>
-              ))}
-            </ul>
-          </nav>
-        )}
-      </header>
+      {/* A new page starts with closed menus, including browser back/forward. */}
+      <PublicHeader key={pathname} user={user} pathname={pathname} />
       <main className={`${isLogin ? 'flex w-full flex-1 flex-col' : 'mx-auto w-full max-w-[81.25rem] px-3 md:px-6'} ${isHome || isLogin ? '' : 'pb-10'}`}>
         <Outlet />
       </main>
@@ -98,19 +38,19 @@ export default function PublicLayout() {
               <h2 className="mb-2 font-display text-base font-bold text-navy">Platform</h2>
               <ul className="space-y-1">
                 <li><Link to="/tutors" className={footerLink}>Find a Tutor</Link></li>
-                <li><a href="/#how-it-works" className={footerLink}>How It Works</a></li>
-                <li><a href="/#for-parents" className={footerLink}>For Parents</a></li>
-                <li><a href="/#for-tutors" className={footerLink}>For Tutors</a></li>
+                <li><Link to="/for-parents" className={footerLink}>For Parents</Link></li>
+                <li><Link to="/for-tutors" className={footerLink}>For Tutors</Link></li>
               </ul>
             </nav>
-            <nav aria-label="Account">
-              <h2 className="mb-2 font-display text-base font-bold text-navy">Account</h2>
+            <nav aria-label="Support">
+              <h2 className="mb-2 font-display text-base font-bold text-navy">Support</h2>
               <ul className="space-y-1">
+                <li><Link to="/how-it-works" className={footerLink}>How It Works</Link></li>
+                <li><Link to="/faq" className={footerLink}>FAQ</Link></li>
                 {user
                   ? <li><Link to={homeFor(user.role)} className={footerLink}>My Dashboard</Link></li>
                   : <><li><Link to="/login" className={footerLink}>Log In</Link></li><li><Link to="/signup" className={footerLink}>Sign Up</Link></li></>}
                 <li><Link to="/privacy" className={footerLink}>Privacy Notice</Link></li>
-                <li><Link to="/faq" className={footerLink}>Help & FAQs</Link></li>
               </ul>
             </nav>
             <div>

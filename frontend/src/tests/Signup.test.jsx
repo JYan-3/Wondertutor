@@ -258,3 +258,29 @@ describe('signup: contact details', () => {
     expect(screen.queryByText(/once photo storage is connected/)).not.toBeInTheDocument()
   })
 })
+
+describe('signup: public guide handoff', () => {
+  test.each(['PARENT', 'TUTOR'])('a %s guide preselects its role without skipping the role choice', role => {
+    sessionStorage.clear()
+    api.get.mockResolvedValue({ data: { subjects: [], locations: [], tutors: [] } })
+    render(<MemoryRouter initialEntries={[`/signup?role=${role}`]}><Signup /></MemoryRouter>)
+    expect(screen.getByRole('radiogroup', { name: 'I am joining as' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `Continue as ${role === 'PARENT' ? 'Parent' : 'Tutor'}` })).toBeEnabled()
+  })
+
+  test('a URL cannot suggest an admin role', () => {
+    sessionStorage.clear()
+    api.get.mockResolvedValue({ data: { subjects: [], locations: [], tutors: [] } })
+    render(<MemoryRouter initialEntries={['/signup?role=ADMIN']}><Signup /></MemoryRouter>)
+    expect(screen.getByRole('button', { name: 'Continue as Parent' })).toBeInTheDocument()
+    expect(screen.getAllByRole('radio')).toHaveLength(2)
+  })
+
+  test('a role hint does not overwrite the tutor role of a draft being verified', () => {
+    sessionStorage.setItem('wt-signup-draft', JSON.stringify({ role: 'TUTOR', form: { email: 'tutor@example.com' } }))
+    api.get.mockResolvedValue({ data: { subjects: [], locations: [], tutors: [] } })
+    render(<MemoryRouter initialEntries={[{ pathname: '/signup', search: '?role=PARENT', state: { verifyEmail: 'tutor@example.com' } }]}><Signup /></MemoryRouter>)
+    expect(screen.getByText('Check your email')).toBeInTheDocument()
+    expect(screen.getByText('tutor@example.com')).toBeInTheDocument()
+  })
+})
