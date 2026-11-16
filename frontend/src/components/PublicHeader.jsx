@@ -5,6 +5,7 @@ import SupportNavigation from './SupportNavigation'
 import { homeFor } from './ProtectedRoute'
 
 const LINKS = [
+  ['Home', '/'],
   ['Find a Tutor', '/tutors'],
   ['For Parents', '/for-parents'],
   ['For Tutors', '/for-tutors'],
