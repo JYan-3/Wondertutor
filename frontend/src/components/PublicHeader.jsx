@@ -26,6 +26,12 @@ export default function PublicHeader({ user, pathname }) {
     return () => document.removeEventListener('pointerdown', dismiss)
   }, [menuOpen])
 
+  function followLink(to) {
+    setMenuOpen(false)
+    // Same-page navigation does not rerun the layout's pathname scroll effect.
+    if (pathname === to) window.scrollTo(0, 0)
+  }
+
   return (
     <header ref={header} className="sticky top-0 z-30 w-full bg-white"
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false) }}
@@ -37,12 +43,12 @@ export default function PublicHeader({ user, pathname }) {
         }
       }}>
       <div className="mx-auto flex max-w-[81.25rem] items-center justify-between gap-3 px-4 py-2 md:px-8">
-        <Link to="/" aria-label="WonderTutor home" className="flex min-h-11 items-center">
+        <Link to="/" onClick={() => followLink('/')} aria-label="WonderTutor home" className="flex min-h-11 items-center">
           <Logo mark className="h-9 sm:hidden" />
           <Logo className="hidden h-9 sm:block" />
         </Link>
         <nav aria-label="Main" className="hidden items-center gap-7 text-sm font-medium text-navy lg:flex">
-          {LINKS.map(([label, to]) => <Link key={to} to={to} aria-current={isActive(to) ? 'page' : undefined}
+          {LINKS.map(([label, to]) => <Link key={to} to={to} onClick={() => followLink(to)} aria-current={isActive(to) ? 'page' : undefined}
             className={`flex min-h-11 items-center rounded-sm border-b-[3px] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand-500 ${isActive(to) ? 'border-accent text-brand-500' : 'border-transparent hover:text-brand-500'}`}>{label}</Link>)}
           <SupportNavigation />
         </nav>
@@ -61,7 +67,7 @@ export default function PublicHeader({ user, pathname }) {
       </div>
       {menuOpen && <nav id="mobile-menu" aria-label="Mobile" className="border-t border-brand-100 bg-white px-4 py-2 lg:hidden">
         <ul>
-          {LINKS.map(([label, to]) => <li key={to}><Link to={to} onClick={() => setMenuOpen(false)} aria-current={isActive(to) ? 'page' : undefined}
+          {LINKS.map(([label, to]) => <li key={to}><Link to={to} onClick={() => followLink(to)} aria-current={isActive(to) ? 'page' : undefined}
             className={`flex min-h-11 items-center rounded-sm text-base font-medium focus-visible:outline-2 focus-visible:outline-brand-500 ${isActive(to) ? 'text-brand-500' : 'text-navy'}`}>{label}</Link></li>)}
           <li><SupportNavigation mobile onNavigate={() => setMenuOpen(false)} /></li>
         </ul>

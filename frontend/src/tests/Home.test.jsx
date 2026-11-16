@@ -32,7 +32,7 @@ const setup = (data) => {
 }
 const full = { tutors: [tutor], subjects: ['Mathematics', 'English'], locations: ['Kepong, Kuala Lumpur'] }
 
-beforeEach(() => { auth = { user: null }; vi.clearAllMocks(); sessionStorage.clear() })
+beforeEach(() => { auth = { user: null }; vi.clearAllMocks(); sessionStorage.clear(); sessionStorage.setItem('wt-visitor-choice', 'BROWSE') })
 
 describe('landing page', () => {
   test('search works immediately while the tutor catalogue is still loading', async () => {

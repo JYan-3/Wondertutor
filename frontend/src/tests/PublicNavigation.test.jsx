@@ -93,6 +93,21 @@ test('Escape dismisses the mobile disclosure before the menu and restores focus'
   expect(menu).toHaveFocus()
 })
 
+test('the logo and Home links scroll an already open homepage back to the top', async () => {
+  setup()
+  window.scrollTo.mockClear()
+  await userEvent.click(screen.getByRole('link', { name: 'WonderTutor home' }))
+  expect(window.scrollTo).toHaveBeenCalledWith(0, 0)
+  window.scrollTo.mockClear()
+  await userEvent.click(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'Home', exact: true }))
+  expect(window.scrollTo).toHaveBeenCalledWith(0, 0)
+  window.scrollTo.mockClear()
+  await userEvent.click(screen.getByRole('button', { name: 'Open menu' }))
+  await userEvent.click(within(screen.getByRole('navigation', { name: 'Mobile' })).getByRole('link', { name: 'Home', exact: true }))
+  expect(window.scrollTo).toHaveBeenCalledWith(0, 0)
+  expect(screen.queryByRole('navigation', { name: 'Mobile' })).not.toBeInTheDocument()
+})
+
 test.each(['PARENT', 'TUTOR', 'ADMIN'])('signed-in %s readers keep their own dashboard link', role => {
   auth = { user: { role } }
   setup('/for-parents')

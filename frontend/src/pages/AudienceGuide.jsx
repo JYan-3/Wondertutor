@@ -21,21 +21,24 @@ export default function AudienceGuide({ audience }) {
     <article ref={root} className="mx-auto max-w-6xl space-y-10 py-5 md:space-y-14 md:py-8">
       <section aria-labelledby="guide-title" className="relative isolate overflow-hidden rounded-3xl border border-brand-100 bg-gradient-to-br from-brand-50 via-brand-25 to-white px-5 py-8 sm:p-9 lg:p-12">
         <span aria-hidden="true" className="pointer-events-none absolute -right-24 -top-28 -z-10 h-80 w-80 rounded-full border-[44px] border-brand-100/40" />
+        <span aria-hidden="true" className="pointer-events-none absolute -bottom-12 -left-12 -z-10 h-44 w-44 rounded-full bg-accent-100/45 blur-2xl" />
         <div className="grid items-center gap-8 lg:grid-cols-[1.2fr_1fr] lg:gap-14">
           <div>
-            <p className="eyebrow">{guide.label}</p>
+            <p className="eyebrow inline-flex items-center gap-2 rounded-full border border-accent-100 bg-accent-50 px-3 py-1.5"><span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-accent" />{guide.label}</p>
             <h1 id="guide-title" className="mt-3 max-w-xl font-display text-3xl font-bold leading-tight text-navy sm:text-4xl lg:text-5xl">{guide.title}</h1>
             <p className="mt-4 max-w-xl leading-relaxed text-slate-700">{guide.introduction}</p>
             <ul className="mt-5 space-y-2.5 text-sm text-slate-700">
               {guide.highlights.map(text => <li key={text} className="flex items-start gap-2"><Icon name="check-circle" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />{text}</li>)}
             </ul>
             <div className="mt-7 flex flex-wrap gap-3">
-              <Link to={primary.to} className="btn-primary min-h-12 px-5 max-sm:w-full">{primary.label}<Icon name="arrow-right" className="h-4 w-4" /></Link>
+              <Link to={primary.to} className="btn-accent min-h-12 px-5 max-sm:w-full">{primary.label}<Icon name="arrow-right" className="h-4 w-4" /></Link>
               <Link to={secondary.to} className="btn-outline min-h-12 px-5 max-sm:w-full">{secondary.label}</Link>
             </div>
           </div>
-          <aside className="rounded-3xl border border-brand-100 bg-white/95 p-5 shadow-card sm:p-7">
-            <h2 className="font-display text-xl font-bold leading-snug text-navy">{guide.panelTitle}</h2>
+          <aside className="relative overflow-hidden rounded-3xl border border-brand-100 bg-white/95 p-5 shadow-card sm:p-7">
+            <span aria-hidden="true" className="absolute right-6 top-0 h-7 w-5 bg-accent/80 [clip-path:polygon(0_0,100%_0,100%_100%,50%_75%,0_100%)]" />
+            <h2 className="pr-5 font-display text-xl font-bold leading-snug text-navy">{guide.panelTitle}</h2>
+            <span aria-hidden="true" className="mt-3 block h-1 w-10 rounded-full bg-accent" />
             <ul className="mt-5 space-y-4">
               {guide.panelItems.map(([icon, title, text]) => <li key={title} className="flex items-start gap-3">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-50 text-brand-500"><Icon name={icon} className="h-5 w-5" /></span>
@@ -51,7 +54,7 @@ export default function AudienceGuide({ audience }) {
         <div className="home-reveal"><p className="eyebrow">Built around you</p><h2 id="guide-benefits" className="section-title mt-2">{audience === 'parents' ? 'More clarity, from the very first search.' : 'More time for the teaching that matters.'}</h2></div>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           {guide.benefits.map(([icon, title, text], index) => <div key={title} className="home-reveal card p-6" style={{ '--reveal-delay': `${index * 50}ms` }}>
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-50 text-brand-500"><Icon name={icon} className="h-6 w-6" /></span>
+            <span className={`flex h-11 w-11 items-center justify-center rounded-2xl ${index === 1 ? 'bg-accent-50 text-navy' : 'bg-brand-50 text-brand-500'}`}><Icon name={icon} className="h-6 w-6" /></span>
             <h3 className="card-title mt-4">{title}</h3><p className="mt-2 text-sm leading-relaxed text-slate-600">{text}</p>
           </div>)}
         </div>
@@ -61,11 +64,11 @@ export default function AudienceGuide({ audience }) {
         <div className="home-reveal"><p className="eyebrow">Getting started</p><h2 id="guide-steps" className="section-title mt-2">Four steps to your next lesson.</h2></div>
         <ol className="mt-6 grid gap-4 sm:grid-cols-2">
           {guide.steps.map((step, index) => <li key={step.title} className="home-reveal flex items-start gap-4 rounded-2xl border border-brand-100 bg-white p-5 sm:p-6" style={{ '--reveal-delay': `${index % 2 * 50}ms` }}>
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-sm font-bold text-brand-600" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-accent-100 bg-accent-50 text-sm font-bold text-navy" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
             <div><h3 className="card-title"><span className="sr-only">Step {index + 1}: </span>{step.title}</h3><p className="mt-2 text-sm leading-relaxed text-slate-600">{step.text}</p></div>
           </li>)}
         </ol>
-        <div className="home-reveal mt-5 flex items-start gap-3 rounded-2xl bg-brand-50 p-5">
+        <div className="home-reveal mt-5 flex items-start gap-3 rounded-2xl border-l-4 border-accent bg-brand-50 p-5">
           <Icon name="info" className="mt-0.5 h-5 w-5 shrink-0 text-brand-500" />
           <div><h3 className="text-sm font-bold text-navy">{guide.noteTitle}</h3><p className="mt-1 text-sm leading-relaxed text-slate-700">{guide.note}</p></div>
         </div>
@@ -81,10 +84,11 @@ export default function AudienceGuide({ audience }) {
         <Link to="/faq" className="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand-600 hover:underline">Explore all FAQs<Icon name="arrow-right" className="h-4 w-4" /></Link>
       </section>
 
-      <section aria-labelledby="guide-next" className="home-reveal rounded-3xl bg-navy px-5 py-8 text-white sm:p-9">
+      <section aria-labelledby="guide-next" className="home-reveal relative isolate overflow-hidden rounded-3xl bg-navy px-5 py-8 text-white sm:p-9">
+        <span aria-hidden="true" className="pointer-events-none absolute -right-8 -top-14 -z-10 h-48 w-48 rounded-full border-[18px] border-accent/15" />
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="max-w-xl"><h2 id="guide-next" className="font-display text-2xl font-bold sm:text-3xl">{guide.finalTitle}</h2><p className="mt-3 leading-relaxed text-white/85">{guide.finalText}</p></div>
-          <Link to={primary.to} className="btn min-h-12 bg-white px-6 text-navy hover:bg-brand-50 max-sm:w-full">{primary.label}<Icon name="arrow-right" className="h-4 w-4" /></Link>
+          <Link to={primary.to} className="btn-accent min-h-12 px-6 max-sm:w-full">{primary.label}<Icon name="arrow-right" className="h-4 w-4" /></Link>
         </div>
       </section>
     </article>

@@ -7,6 +7,7 @@ import Robot from '../components/ui/Robot'
 import Avatar from '../components/ui/Avatar'
 import ComboField from '../components/ComboField'
 import ParentReviewCarousel from '../components/ParentReviewCarousel'
+import VisitorWelcome from '../components/VisitorWelcome'
 import useScrollReveal from '../hooks/useScrollReveal'
 
 const LEVELS = ['Kindergarten', 'Primary', 'Secondary']
@@ -152,6 +153,7 @@ export default function Home() {
 
   return (
     <div ref={pageRef} className="home-landing relative isolate space-y-10 pt-4">
+      <VisitorWelcome />
       <SideDecor />
       {/* ── Hero: full width, no card border (breaks out of the page container) ── */}
       <section aria-labelledby="hero-title" className="relative left-1/2 z-10 -mt-4 w-screen -translate-x-1/2 overflow-x-clip bg-gradient-to-r from-brand-50 via-brand-50 to-brand-25">
