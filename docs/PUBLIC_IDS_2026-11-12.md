@@ -63,9 +63,9 @@ Use the normal deployment backup and migration process. Confirm the target datab
 
 - Keep integer PK/FK interfaces in `booking.service.js`, `lifecycle.service.js`, payment reconciliation and tutor services. Resolve an external reference once at the authenticated API boundary, then call existing services using the real integer ID.
 - Existing tutor API URLs and DTO `id` fields remain compatible. Additive `publicId` fields do not require changing tutor attendance, finance or scheduling joins to UUIDs.
-- Merge schema additions rather than replacing the schema. Her weekly availability, slot-mode and `payBy` columns are separate additions and are not included in the current 25-model diagram snapshot.
+- Merge schema additions rather than replacing the schema. Weekly availability, slot-mode and `payBy` additions are now integrated. The 15 November schema has 30 models; the older diagram snapshot is explicitly dated in `CURRENT_DATA_MODEL.md`.
 - Preserve Billplz gateway IDs, its existing booking correlation and original-bill recovery. A public URL change must not cause new bills, reset deadlines or break late-payment reconciliation.
-- Preserve ownership checks on both UUID and numeric paths, child/booking overlap locks, private media access and stable existing notification deduplication. The availability review is documented separately in [the integration review](AVAILABILITY_INTEGRATION_REVIEW_2026-11-12.md).
+- Preserve ownership checks on both UUID and numeric paths, child/booking overlap locks, private media access and stable existing notification deduplication. Effective availability is exact-date override, then week override, then usual hours, with the chosen mode checked across the whole lesson. See the [latest system review](SYSTEM_REVIEW_2026-11-15.md) for current integration and acceptance limits.
 
 ## Validation results
 

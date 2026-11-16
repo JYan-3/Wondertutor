@@ -233,7 +233,7 @@ frontend/src/
 | Backend (Jest): matching scoring, booking rules, payments + commission snapshot, refunds, reviews, admin, complaints, security, parent signup and saved preferences, input validation, double-submit and stale-page races | `cd backend && npm test` | Uses a **separate** database `wondertutor_test`, created and migrated automatically (`pretest`). Your dev data is never touched. MySQL must be running. |
 | Backend tutor onboarding (`tutorSetup.test.js`): reCAPTCHA on login, tutor sign-up without profile details, setup drafts and bad input, submit rules, identity + qualification approval, changes requested, tutors using the portal before verification | `cd backend && npm test` | Same test database. |
 | Frontend (Vitest + React Testing Library): login (with reCAPTCHA), sign-up (parent sections, tutor form, code boxes), route protection, tutor pages open before verification and the status banner, profile setup steps, matching wizard, tutor card, chatbot text reader, date helpers, form validation rules | `cd frontend && npm test` | Runs in a simulated browser, no servers needed. |
-| API demo (Postman) | Import `docs/WonderTutor.postman_collection.json` | Run *Login (parent)* and *Login (admin)* first; they store the tokens. |
+| API demo (Postman) | Import `docs/WonderTutor.postman_collection.json` | Fetch the CSRF token, then log in as the role being tested. The cookie jar holds one active account at a time; switch roles by logging in again. |
 
 Vitest is used instead of Jest on the frontend because it reads the Vite config directly (Jest needs extra setup for `import.meta.env`). The test syntax is the same.
 
@@ -255,7 +255,7 @@ Restart both servers after changing `.env` files.
 `npm run build` installs locked frontend/backend dependencies and builds the web app. It does not migrate or seed a database.
 After reviewing migration SQL and verifying a database backup/restore, use `npm run db:deploy` as an explicit release step, then `npm start`.
 The review-moderation migration adds review visibility/audit fields and an optional review link on complaints; teammates must apply it before starting the updated application.
-See [deployment guidance](docs/HOSTINGER_DEPLOYMENT.txt), [acceptance review](docs/ACCEPTANCE_REVIEW_2026-11-11.md) and [current ERD/class diagrams](docs/CURRENT_DATA_MODEL.md). Local test results do not verify Hostinger, live bank payments or client acceptance.
+Start with the [documentation index](docs/README.md), [latest system review](docs/SYSTEM_REVIEW_2026-11-15.md), [deployment guidance](docs/HOSTINGER_DEPLOYMENT.txt) and [FYP requirements traceability](docs/REQUIREMENTS_TRACEABILITY.md). The [ERD/class diagram reference](docs/CURRENT_DATA_MODEL.md) labels its snapshot date and required updates. Local test results do not verify Hostinger, live bank payments or client acceptance.
 
 ## Still to configure later
 - Payment gateway sandbox (Billplz / ToyyibPay / Stripe test mode). The pay dialog currently simulates the gateway.

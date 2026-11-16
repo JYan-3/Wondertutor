@@ -1,14 +1,14 @@
-# WonderTutor current data model and domain class diagram
+# WonderTutor data model and domain class diagram reference
 
 Schema snapshot: 12 November 2026, including review moderation, random public references and database-backed browser sessions. Source of truth: `backend/prisma/schema.prisma` and its migrations. This document describes the **declared schema**, not proof that every environment has applied its migrations. No production database was queried by this workstream. Yan Hsi's weekly-availability branch is not included in this snapshot.
 
-13 November follow-up: the code now includes Yan Hsi's later integrations; the diagrams below remain the dated 12 November snapshot, not a regenerated complete ERD. The precise-location change adds one nullable scalar, `Booking.locationConfirmedAt DateTime?`, with no new table or relation. `Booking.location/latitude/longitude` now store a parent-confirmed per-booking physical venue. Null confirmation means legacy coordinates must not be used as a check-in destination. The migration deliberately does not backfill this timestamp. ParentProfile area coordinates retain their separate approximate matching purpose. See the latest follow-up in [review handover](REVIEW_HANDOVER_2026-11-12.md) for application rules.
+15 November status: the integrated Prisma schema has **30 models and 39 declared foreign-key relationships**. The diagrams below remain the dated 12 November snapshot, not a regenerated complete ERD; update them from the schema before final report submission. Later additions include attendance-review history and the complaint/refund link. `Booking.locationConfirmedAt` distinguishes an explicitly confirmed per-booking venue from legacy area coordinates; the migration does not backfill that timestamp. ParentProfile area coordinates retain their separate approximate matching purpose. See the [latest system review](SYSTEM_REVIEW_2026-11-15.md#architecturereport-impact) for current report implications.
 
 View the exported diagrams: [full ERD](diagrams/current-erd.svg), [domain classes](diagrams/current-domain-classes.svg), and [application layers](diagrams/current-application-layers.svg). SVGs can be zoomed without losing text clarity; the Mermaid sources below remain editable.
 
-## What the ERD currently looks like
+## Diagram snapshot — 12 November 2026
 
-There are **26 Prisma models/tables and 34 declared foreign-key relations**, shared by Parent, Tutor and Admin in one MySQL database. The central relationship is **ParentProfile → Child → Booking ← TutorProfile**. A Booking can have at most one Payment, Attendance, SessionSummary and Review. A Payment can have several Refund records. A Complaint can connect an involved user, a booking and now a reported review. Public references add four scalar columns; database-backed authentication adds AuthSession and its required User relationship.
+This snapshot contains **26 Prisma models/tables and 34 declared foreign-key relations**, shared by Parent, Tutor and Admin in one MySQL database. The central relationship is **ParentProfile → Child → Booking ← TutorProfile**. A Booking can have at most one Payment, Attendance, SessionSummary and Review. A Payment can have several Refund records. A Complaint can connect an involved user, a booking and a reported review. Public references add four scalar columns; database-backed authentication adds AuthSession and its required User relationship.
 
 | Area | Tables |
 | --- | --- |
