@@ -17,7 +17,11 @@ const app = express()
 // CSP is relaxed because the pages load Google sign-in, reCAPTCHA and Cloudinary scripts/images
 // Behind the hosting provider's proxy the real visitor IP is in X-Forwarded-For; rate limiting needs it
 if (env.nodeEnv === 'production') app.set('trust proxy', 1)
-app.use(helmet({ contentSecurityPolicy: false }))
+app.use(helmet({
+  contentSecurityPolicy: false,
+  // Google sign-in uses a popup that returns the credential to the opening page.
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+}))
 app.use(cors({ origin: env.clientUrl, credentials: true }))
 app.use(express.json({ limit: '1mb' }))
 app.use(express.urlencoded({ extended: false, limit: '100kb' })) // payment providers post callbacks as forms
