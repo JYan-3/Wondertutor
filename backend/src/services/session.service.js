@@ -2,9 +2,11 @@ import { createHash, createHmac, randomBytes } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
 import { env } from '../config/env.js'
 import { credentialTag } from './token.service.js'
+import { AppError } from '../utils/AppError.js'
 
 export const SESSION_HOURS = 12
 export const REMEMBER_DAYS = 7
+export const idleTimeoutMs = role => (role === 'ADMIN' ? 15 : 30) * 60_000
 const SECRET_PATTERN = /^[A-Za-z0-9_-]{43}$/
 const secret = () => randomBytes(32).toString('base64url')
 
@@ -40,9 +42,25 @@ export async function createSession(user, { remember = false, now = new Date(), 
   const raw = secret()
   const lifetime = remember ? REMEMBER_DAYS * 24 * 3_600_000 : SESSION_HOURS * 3_600_000
   const expiresAt = new Date(now.getTime() + lifetime)
-  const record = await db.authSession.create({ data: { id: hashSessionId(raw), userId: user.id, credentialTag: credentialTag(user), expiresAt } })
+  const idleExpiresAt = new Date(Math.min(expiresAt.getTime(), now.getTime() + idleTimeoutMs(user.role)))
+  const record = await db.authSession.create({ data: { id: hashSessionId(raw), userId: user.id, credentialTag: credentialTag(user), expiresAt, idleExpiresAt } })
   return { raw, csrfToken: csrfForSession(raw), expiresAt, remember, record }
 }
+
+// Public timing information, never the raw credential or the database's hash.
+// The non-secret key lets tabs recognise the same session without sharing CSRF tokens.
+export function sessionInfo(session, user = session.user, now = new Date()) {
+  const record = session.record || session
+  return {
+    key: createHash('sha256').update('session-timing-v1:' + record.id).digest('hex').slice(0, 32),
+    idleTimeoutMs: idleTimeoutMs(user.role),
+    idleExpiresAt: record.idleExpiresAt.toISOString(),
+    expiresAt: record.expiresAt.toISOString(),
+    serverTime: now.toISOString(),
+  }
+}
+
+const expiredAt = (session, now) => session.expiresAt <= now || session.idleExpiresAt <= now
 
 // Rotate on every successful authentication. An existing browser session is revoked
 // in the same transaction, so logging into another account cannot retain it.
@@ -61,21 +79,45 @@ export async function startSession(req, res, user, { remember = false } = {}) {
   return session
 }
 
-export async function loadSession(req) {
+export async function loadSession(req, { db = prisma, now = new Date() } = {}) {
   if (!req.authSessionLookup) {
     req.authSessionLookup = (async () => {
       const raw = readSessionId(req)
       if (!raw) return null
-      const session = await prisma.authSession.findUnique({ where: { id: hashSessionId(raw) }, include: { user: true } })
+      const session = await db.authSession.findUnique({ where: { id: hashSessionId(raw) }, include: { user: true } })
       if (!session) return null
-      if (session.expiresAt <= new Date() || session.credentialTag !== credentialTag(session.user)) {
-        await prisma.authSession.deleteMany({ where: { id: session.id } })
+      if (expiredAt(session, now)) {
+        // A concurrent, timely activity update must not be deleted by a stale read.
+        await db.authSession.deleteMany({ where: { id: session.id, OR: [{ expiresAt: { lte: now } }, { idleExpiresAt: { lte: now } }] } })
+        return null
+      }
+      if (session.credentialTag !== credentialTag(session.user)) {
+        await db.authSession.deleteMany({ where: { id: session.id, credentialTag: session.credentialTag } })
         return null
       }
       return { ...session, raw, csrfToken: csrfForSession(raw) }
     })()
   }
   return req.authSessionLookup
+}
+
+// Called only by the CSRF-protected activity endpoint. Client clocks, role and
+// timestamps are never accepted. The conditional update cannot revive an expired
+// or revoked session, overwrite a newer deadline, or extend its absolute lifetime.
+export async function recordActivity(session, { db = prisma, now = new Date() } = {}) {
+  const idleExpiresAt = new Date(Math.min(session.expiresAt.getTime(), now.getTime() + idleTimeoutMs(session.user.role)))
+  await db.authSession.updateMany({
+    where: {
+      id: session.id, credentialTag: session.credentialTag,
+      expiresAt: { gt: now }, idleExpiresAt: { gt: now, lte: idleExpiresAt },
+      user: { status: 'ACTIVE', role: session.user.role },
+    },
+    data: { idleExpiresAt },
+  })
+  const current = await db.authSession.findUnique({ where: { id: session.id }, include: { user: true } })
+  if (!current || expiredAt(current, now) || current.credentialTag !== credentialTag(current.user)) throw new AppError(401, 'Session expired, please log in again')
+  if (current.user.status === 'DEACTIVATED') throw new AppError(403, 'Your account has been deactivated. Please contact Admin.')
+  return current
 }
 
 // The CSRF token can be read by JavaScript, but neither authentication cookie can.
@@ -103,6 +145,6 @@ export async function revokeSession(req, res) {
   return anonymousCsrf(req, res, { rotate: true })
 }
 
-export async function cleanupExpiredSessions(now = new Date()) {
-  return prisma.authSession.deleteMany({ where: { expiresAt: { lte: now } } })
+export async function cleanupExpiredSessions(now = new Date(), db = prisma) {
+  return db.authSession.deleteMany({ where: { OR: [{ expiresAt: { lte: now } }, { idleExpiresAt: { lte: now } }] } })
 }

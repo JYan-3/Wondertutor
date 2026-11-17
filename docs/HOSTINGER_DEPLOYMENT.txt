@@ -65,6 +65,11 @@ HOSTINGER MANAGED NODE APP
    migrations explicitly with npm run db:deploy, then activate the new release.
    Never reset or seed a production database. Rehearse restoration in an isolated
    database before a real release; backup creation alone does not prove recovery.
+   The idle-session release includes 20261117130000_idle_sessions. Apply it before
+   activating the new frontend/backend together. Existing browser sessions expire
+   once and users sign in again; account, booking and payment data is preserved.
+   Parent/Tutor idle expiry is 30 minutes, Admin 15 minutes, with a one-minute
+   warning. No new environment variables or scheduled jobs are needed for expiry.
 6. Start with npm start from the repository root. Let Hostinger supply PORT; do not
    expose MySQL publicly. hPanel's exact entry-file requirement must be confirmed.
 7. Reload direct SPA URLs such as /parent/bookings. Check /api errors still return

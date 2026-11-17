@@ -6,7 +6,7 @@ import { OAuth2Client } from 'google-auth-library'
 import { prisma } from '../config/prisma.js'
 import { env } from '../config/env.js'
 import { AppError } from '../utils/AppError.js'
-import { anonymousCsrf, currentCsrfToken, revokeSession, startSession } from '../services/session.service.js'
+import { anonymousCsrf, currentCsrfToken, recordActivity, revokeSession, sessionInfo, startSession } from '../services/session.service.js'
 import { issueOtp, checkOtp } from '../services/otp.service.js'
 import { sendEmail } from '../services/email.service.js'
 import { escapeHtml, notify } from '../services/notification.service.js'
@@ -139,7 +139,7 @@ export async function verifyOtp(req, res) {
   const verified = await prisma.user.update({ where: { id: user.id }, data: { isEmailVerified: true } })
 
   const session = await startSession(req, res, verified, { remember: true })
-  res.json({ user: await userResponse(verified), csrfToken: session.csrfToken })
+  res.json({ user: await userResponse(verified), csrfToken: session.csrfToken, session: sessionInfo(session, verified) })
 }
 
 // POST /api/auth/resend-otp
@@ -268,7 +268,7 @@ export async function login(req, res) {
   if (user.status === 'DEACTIVATED') throw new AppError(403, 'Your account has been deactivated. Please contact Admin.')
 
   const session = await startSession(req, res, user, { remember })
-  res.json({ user: await userResponse(user), csrfToken: session.csrfToken })
+  res.json({ user: await userResponse(user), csrfToken: session.csrfToken, session: sessionInfo(session, user) })
 }
 
 // POST /api/auth/google  { credential, role? }
@@ -334,12 +334,19 @@ export async function googleLogin(req, res) {
   }
 
   const session = await startSession(req, res, user, { remember: true })
-  res.json({ user: await userResponse(user), csrfToken: session.csrfToken })
+  res.json({ user: await userResponse(user), csrfToken: session.csrfToken, session: sessionInfo(session, user) })
 }
 
 // GET /api/auth/me
 export async function me(req, res) {
-  res.json({ user: await userResponse(req.user), csrfToken: req.session.csrfToken })
+  res.json({ user: await userResponse(req.user), csrfToken: req.session.csrfToken, session: sessionInfo(req.session) })
+}
+
+// POST /api/auth/activity: only actual interaction (or Stay signed in) calls this.
+export async function activity(req, res) {
+  z.object({}).strict().parse(req.body ?? {})
+  const session = await recordActivity(req.session)
+  res.json({ session: sessionInfo(session) })
 }
 
 // Public bootstrap for login/signup and for recovering a stale tab's CSRF token.

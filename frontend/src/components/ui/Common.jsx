@@ -185,11 +185,11 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), selec
 
 // Accessible dialog: announced as a dialog with its title, keyboard focus moves into it and stays inside
 // (Tab cycles), Escape closes it, focus returns to the button that opened it, and the page behind does not scroll.
-export function Modal({ open, onClose, title, children, width = 'max-w-lg', footer }) {
+export function Modal({ open, onClose, title, children, width = 'max-w-lg', footer, dismissible = true, layerClassName = 'z-50' }) {
   const titleId = useId()
   const box = useRef(null)
   const closeRef = useRef(onClose)
-  closeRef.current = onClose
+  closeRef.current = dismissible ? onClose : () => {}
 
   useEffect(() => {
     if (!open) return
@@ -216,14 +216,14 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', foot
   }, [open])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy/40 p-4 backdrop-blur-[2px]" onMouseDown={onClose}>
+    <div className={`fixed inset-0 ${layerClassName} flex items-center justify-center bg-navy/40 p-4 backdrop-blur-[2px]`} onMouseDown={() => closeRef.current()}>
       <div ref={box} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
         className={`pop-in max-h-[90vh] w-full ${width} overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl outline-none`} onMouseDown={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-start justify-between gap-4">
           <h2 id={titleId} className="text-xl font-bold text-navy">{title}</h2>
-          <button onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close">
+          {dismissible && <button onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close">
             <Icon name="x" />
-          </button>
+          </button>}
         </div>
         {children}
         {footer && <div className="mt-5 flex justify-end gap-3">{footer}</div>}

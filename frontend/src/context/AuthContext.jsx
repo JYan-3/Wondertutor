@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import api, { clearCsrfToken, errorMessage, isCurrentSessionRequest, setCsrfToken } from '../api/client'
+import SessionIdleGuard from '../components/SessionIdleGuard'
 
 const AuthContext = createContext(null)
 
@@ -8,6 +9,8 @@ const AUTH_CALL = /\/auth\/(login|google|register|verify-otp|resend-otp|forgot-p
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
+  const [sessionTiming, setSessionTiming] = useState(null)
+  const timingRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [sessionError, setSessionError] = useState('')
   // An explicit logout starts the next account at its dashboard. A forced
@@ -26,11 +29,13 @@ export function AuthProvider({ children }) {
       const status = err?.response?.status
       const message = err?.response?.data?.message || ''
       const ended = status === 401 || (status === 403 && /deactivated/i.test(message))
-      if (userRef.current && ended && isCurrentSessionRequest(err.config) && err.config?.url !== '/auth/me' && !AUTH_CALL.test(err.config?.url || '')) {
+      if (userRef.current && ended && isCurrentSessionRequest(err.config) && !['/auth/me', '/auth/activity'].includes(err.config?.url) && !AUTH_CALL.test(err.config?.url || '')) {
         setSessionEnd({ reason: 'expired', userId: userRef.current.id })
         clearCsrfToken()
         userRef.current = null
         setUser(null)
+        timingRef.current = null
+        setSessionTiming(null)
         setSessionError('')
         setNotice(status === 401 ? 'Your session has expired. Please log in again.' : message)
       }
@@ -50,6 +55,8 @@ export function AuthProvider({ children }) {
       if (current !== request.current) return
       userRef.current = res.data.user
       setUser(res.data.user)
+      timingRef.current = res.data.session || null
+      setSessionTiming(timingRef.current)
       if (res.data.csrfToken) setCsrfToken(res.data.csrfToken)
     } catch (err) {
       if (current !== request.current) return
@@ -57,6 +64,8 @@ export function AuthProvider({ children }) {
         if (userRef.current) setSessionEnd({ reason: 'expired', userId: userRef.current.id })
         userRef.current = null
         setUser(null)
+        timingRef.current = null
+        setSessionTiming(null)
         clearCsrfToken()
         if (err.response.status === 403) setNotice(err.response.data.message)
       } else setSessionError(errorMessage(err))
@@ -72,10 +81,12 @@ export function AuthProvider({ children }) {
     return () => { ++request.current }
   }, [refreshSession])
 
-  function saveSession(user, csrfToken) {
+  function saveSession(user, csrfToken, session = null) {
     ++request.current
     userRef.current = user
     setUser(user)
+    timingRef.current = session
+    setSessionTiming(session)
     setSessionError('')
     setSessionEnd(null)
     setLoading(false)
@@ -85,7 +96,7 @@ export function AuthProvider({ children }) {
   async function login(email, password, remember, recaptchaToken, portal) {
     setNotice('')
     const res = await api.post('/auth/login', { email, password, remember: Boolean(remember), recaptchaToken: recaptchaToken || undefined, ...(portal === 'ADMIN' && { portal }) })
-    saveSession(res.data.user, res.data.csrfToken)
+    saveSession(res.data.user, res.data.csrfToken, res.data.session)
     return res.data.user
   }
 
@@ -93,24 +104,47 @@ export function AuthProvider({ children }) {
   async function googleLogin(credential, role, acceptedPrivacy = false) {
     setNotice('')
     const res = await api.post('/auth/google', { credential, role, ...(acceptedPrivacy && { acceptedPrivacy: true }) })
-    saveSession(res.data.user, res.data.csrfToken)
+    saveSession(res.data.user, res.data.csrfToken, res.data.session)
     return res.data.user
   }
 
-  async function logout(message) {
+  const logout = useCallback(async (message) => {
     await api.post('/auth/logout')
     ++request.current
     setSessionEnd({ reason: 'logout', userId: userRef.current?.id })
     userRef.current = null
     setUser(null)
+    timingRef.current = null
+    setSessionTiming(null)
     setSessionError('')
     setLoading(false)
     setNotice(typeof message === 'string' ? message : '')
-  }
+  }, [])
+
+  const updateTiming = useCallback((session, expectedKey) => {
+    if (timingRef.current?.key !== expectedKey || session?.key !== expectedKey) return
+    timingRef.current = session
+    setSessionTiming(session)
+  }, [])
+
+  const expireIdleSession = useCallback((expectedKey, message) => {
+    if (timingRef.current?.key !== expectedKey) return
+    ++request.current
+    setSessionEnd({ reason: 'expired', userId: userRef.current?.id })
+    clearCsrfToken()
+    userRef.current = null
+    timingRef.current = null
+    setSessionTiming(null)
+    setUser(null)
+    setSessionError('')
+    setLoading(false)
+    setNotice(message)
+  }, [])
 
   return (
     <AuthContext.Provider value={{ user, setUser, loading, sessionError, sessionEnd, refreshSession, login, googleLogin, logout, saveSession, notice }}>
       {children}
+      <SessionIdleGuard key={sessionTiming?.key || 'anonymous'} session={sessionTiming} onTiming={updateTiming} onExpired={expireIdleSession} onLogout={logout} />
     </AuthContext.Provider>
   )
 }

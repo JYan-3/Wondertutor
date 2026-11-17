@@ -138,9 +138,12 @@ model AuthSession {
   credentialTag String   @db.Char(43)
   createdAt     DateTime @default(now())
   expiresAt     DateTime
+  // Only explicit browser activity renews this deadline; background reads do not.
+  idleExpiresAt DateTime
 
   @@index([userId])
   @@index([expiresAt])
+  @@index([idleExpiresAt])
 }
 
 model EmailOtp {

@@ -11,6 +11,7 @@ vi.mock('../context/AuthContext', () => ({ useAuth: () => ({ ...auth, user: null
 vi.mock('../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() }, errorMessage: error => error.message }))
 
 const booking = '/parent/tutors/7/book'
+const verifiedSession = { key: 'verified-parent-session', idleTimeoutMs: 30 * 60_000, idleExpiresAt: '2026-11-17T08:30:00Z', expiresAt: '2026-11-24T08:00:00Z', serverTime: '2026-11-17T08:00:00Z' }
 function LocationProbe() {
   const location = useLocation()
   return <output data-testid="booking-return">{location.state?.from || ''}</output>
@@ -31,7 +32,7 @@ beforeEach(() => {
   sessionStorage.clear()
   auth.login.mockResolvedValue({ id: 1, role: 'PARENT' })
   api.get.mockResolvedValue({ data: { subjects: [], tutors: [], locations: [] } })
-  api.post.mockResolvedValue({ data: { user: { id: 1, role: 'PARENT' }, csrfToken: 'test-csrf' } })
+  api.post.mockResolvedValue({ data: { user: { id: 1, role: 'PARENT' }, csrfToken: 'test-csrf', session: verifiedSession } })
 })
 
 test('parent login resumes the tutor booking chosen while browsing as a guest', async () => {
@@ -56,7 +57,7 @@ test('email verification resumes the requested booking for a new parent', async 
   fireEvent.change(screen.getByLabelText('Digit 1 of 6'), { target: { value: '123456' } })
   await userEvent.click(screen.getByRole('button', { name: 'Verify and continue' }))
   expect(await screen.findByText('REQUESTED BOOKING')).toBeInTheDocument()
-  expect(auth.saveSession).toHaveBeenCalledWith({ id: 1, role: 'PARENT' }, 'test-csrf')
+  expect(auth.saveSession).toHaveBeenCalledWith({ id: 1, role: 'PARENT' }, 'test-csrf', verifiedSession)
 })
 
 test.each(['https://outside.example/path', '//outside.example/path', '/admin/users'])('verification rejects the unsafe or wrong-role return path %s', async from => {

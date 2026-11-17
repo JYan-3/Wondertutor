@@ -26,6 +26,7 @@ router.post('/google', limiters.login, auth.googleLogin)
 router.post('/forgot-password', limiters.email, auth.forgotPassword)
 router.post('/reset-password', limiters.code, auth.resetPassword)
 router.get('/me', requireAuth, auth.me)
+router.post('/activity', requireAuth, rateLimit({ name: 'session-activity', windowMs: 60_000, max: 30, keyBy: req => req.session.id }), auth.activity)
 router.post('/change-email/request', requireAuth, limiters.emailChange, auth.requestEmailChange)
 router.post('/change-email/confirm', requireAuth, limiters.emailChangeCode, auth.confirmEmailChange)
 

@@ -202,6 +202,7 @@ export default function Login({ admin = false }) {
               onChange={(e) => setForm({ ...form, remember: e.target.checked })} />
             Remember me on this device
           </label>
+          <p className="-mt-2 text-xs leading-relaxed text-slate-500">For your privacy, you are signed out after {admin ? '15' : '30'} minutes without activity, including when Remember me is selected.</p>
 
           <Recaptcha onToken={setCaptcha} compact={admin} />
 
