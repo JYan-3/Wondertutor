@@ -4,7 +4,8 @@ import { AppError } from '../utils/AppError.js'
 import { publicReference } from '../utils/publicIds.js'
 import { assertSlotBookable, assertChildFree } from './booking.service.js'
 import { newPayBy, assertCanAccept, paymentDeadline } from './paymentWindow.js'
-import { notify, notifyWithEmail } from './notification.service.js'
+import { notifyWithEmail } from './notification.service.js'
+import { formatLessonTime } from '../utils/time.js'
 import { lessonLocationFields } from './lessonLocation.service.js'
 
 const include = {
@@ -91,7 +92,7 @@ export async function tutorAction(tutorId, id, input) {
         if (input.price === Number(b.proposedPrice)) throw new AppError(400, 'Choose a different hourly rate or accept the offer.')
         data = { status: 'COUNTER_OFFERED', counterPrice: input.price }
         title = 'Tutor proposed a different rate'
-        message = 'Your tutor offered RM' + input.price + ' per hour for ' + b.subject + '.'
+        message = `Your tutor offered RM${input.price.toFixed(2)} per hour for ${b.subject} (your proposed rate: RM${Number(b.proposedPrice).toFixed(2)} per hour).`
       } else {
         data = { status: 'REJECTED', rejectionReason: reason }
         title = 'Tutor declined your request'
@@ -119,7 +120,6 @@ export async function tutorAction(tutorId, id, input) {
     return { b, title, message }
   })
   const { b, title, message } = result
-  const payload = { title, message, type: 'TUTOR_' + action.toUpperCase(), link: '/parent/bookings?booking=' + publicReference(b) }
-  if (action === 'accept' || action === 'cancel') await notifyWithEmail(b.parent.user, payload)
-  else if (action !== 'link' || b.status === 'CONFIRMED') await notify(b.parent.userId, payload)
+  const payload = { title, message: `${message || 'Open the booking for details.'} Lesson: ${b.subject} on ${formatLessonTime(b.startAt, b.endAt)}.`, type: 'TUTOR_' + action.toUpperCase(), link: '/parent/bookings?booking=' + publicReference(b) }
+  if (action !== 'link' || b.status === 'CONFIRMED') await notifyWithEmail(b.parent.user, payload)
 }

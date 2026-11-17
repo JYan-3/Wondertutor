@@ -60,7 +60,7 @@ export default function PrivacyAccountCard({ emailReminders, privacyAcceptedAt, 
       <div className="flex items-start justify-between gap-4">
         <div>
           <div id="reminder-label" className="font-semibold text-navy">Reminder emails</div>
-          <p id="reminder-help" className="text-sm text-slate-600">A reminder the day before a lesson, and when a payment is due soon. Emails about payments and refunds are always sent.</p>
+          <p id="reminder-help" className="text-sm text-slate-600">A reminder the day before a lesson, and when a payment is due soon. This controls reminders only; important booking, payment and refund emails are sent separately.</p>
         </div>
         <button
           type="button" role="switch" aria-checked={on} aria-labelledby="reminder-label" aria-describedby="reminder-help"

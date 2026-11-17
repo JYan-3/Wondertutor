@@ -8,19 +8,18 @@
 // Used by the Parent Portal (and ready for the Tutor Portal): both sides call the same functions, so the rules can't drift.
 import { prisma } from '../config/prisma.js'
 import { AppError } from '../utils/AppError.js'
-import { notify } from './notification.service.js'
+import { notify, notifyWithEmail } from './notification.service.js'
 import { assertChildFree, assertSlotBookable } from './booking.service.js'
-import { mytToDate } from '../utils/time.js'
+import { formatLessonTime, mytToDate } from '../utils/time.js'
 import { publicReference } from '../utils/publicIds.js'
 
 export const RESCHEDULABLE = ['AWAITING_PAYMENT', 'CONFIRMED']
 
-const when = (d) =>
-  new Date(d).toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+const when = formatLessonTime
 
 // booking must include { parent: { userId }, tutor: { userId } }
 const otherParty = (booking, userId) => (userId === booking.parent.userId ? booking.tutor.userId : booking.parent.userId)
-const linkFor = (booking, userId) => (userId === booking.parent.userId ? `/parent/bookings?booking=${publicReference(booking)}` : '/tutor/bookings')
+const linkFor = (booking, userId) => `/${userId === booking.parent.userId ? 'parent' : 'tutor'}/bookings?booking=${publicReference(booking)}`
 
 async function assertNewTimeOk(booking, startAt, endAt, db = prisma) {
   await assertSlotBookable({ tutorId: booking.tutorId, startAt, endAt, ignoreBookingId: booking.id, teachingMode: booking.teachingMode }, db)
@@ -55,10 +54,10 @@ export async function requestReschedule({ booking, byUserId, date, startTime, re
   })
   const who = byUserId === booking.parent.userId ? 'The parent' : 'The tutor'
   const to = otherParty(booking, byUserId)
-  await notify(to, {
+  await notifyWithEmail(to, {
     type: 'RESCHEDULE_REQUESTED',
     title: 'Reschedule requested',
-    message: `${who} asked to move the ${booking.subject} lesson from ${when(booking.startAt)} to ${when(startAt)}.${reason ? ` Reason: ${reason}` : ''}`,
+    message: `${who} asked to move the ${booking.subject} lesson from ${when(booking.startAt, booking.endAt)} to ${when(startAt, endAt)}.${reason ? ` Reason: ${reason}` : ''} The lesson stays at its current time until the request is accepted.`,
     link: linkFor(booking, to),
   })
   return request
@@ -90,10 +89,10 @@ export async function respondReschedule({ booking, requestId, byUserId, accept }
       })
       if (!count) throw stale()
     })
-    await notify(request.requestedById, {
+    await notifyWithEmail(request.requestedById, {
       type: 'RESCHEDULE_APPROVED',
       title: 'Reschedule accepted',
-      message: `The ${booking.subject} lesson has moved to ${when(request.newStartAt)}.`,
+      message: `The ${booking.subject} lesson has moved from ${when(booking.startAt, booking.endAt)} to ${when(request.newStartAt, request.newEndAt)}.`,
       link: linkFor(booking, request.requestedById),
     })
     return { status: 'APPROVED' }
@@ -101,7 +100,7 @@ export async function respondReschedule({ booking, requestId, byUserId, accept }
 
   // No mutual agreement: Admin decides. The lesson keeps its current time until then.
   await answerPending(prisma, request.id, 'ESCALATED')
-  await notify(request.requestedById, {
+  await notifyWithEmail(request.requestedById, {
     type: 'RESCHEDULE_ESCALATED',
     title: 'Reschedule declined',
     message: `The new time for the ${booking.subject} lesson was not accepted. Our admin team will review it and contact you. The lesson stays on ${when(booking.startAt)} for now.`,
@@ -123,7 +122,7 @@ export async function withdrawReschedule({ booking, requestId, byUserId }) {
   if (request.requestedById !== byUserId) throw new AppError(403, 'Only the person who asked can withdraw it')
   if (request.status !== 'PENDING') throw new AppError(400, 'This request has already been answered')
   await answerPending(prisma, request.id, 'REJECTED')
-  await notify(otherParty(booking, byUserId), {
+  await notifyWithEmail(otherParty(booking, byUserId), {
     type: 'RESCHEDULE_WITHDRAWN',
     title: 'Reschedule withdrawn',
     message: `The request to move the ${booking.subject} lesson was withdrawn. It stays on ${when(booking.startAt)}.`,

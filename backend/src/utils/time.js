@@ -38,3 +38,12 @@ export function mondayOf(dateStr) {
 }
 
 export const todayMyt = () => mytParts(new Date()).date
+
+// Booking notices must stay in Malaysia time even when Hostinger runs in UTC.
+export function formatLessonTime(startAt, endAt) {
+  const start = new Date(startAt).toLocaleString('en-MY', {
+    timeZone: 'Asia/Kuala_Lumpur', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+  const end = endAt ? new Date(endAt).toLocaleTimeString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', hour: 'numeric', minute: '2-digit' }) : null
+  return `${start}${end ? ` – ${end}` : ''} (MYT)`
+}

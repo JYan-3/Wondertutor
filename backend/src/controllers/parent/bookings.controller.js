@@ -3,9 +3,9 @@ import { prisma } from '../../config/prisma.js'
 import { AppError } from '../../utils/AppError.js'
 import { assertChildFree, assertSlotBookable } from '../../services/booking.service.js'
 import { bookingInclude, toBookingDto } from '../../services/booking.dto.js'
-import { notify } from '../../services/notification.service.js'
+import { notify, notifyWithEmail, sendNotificationEmail } from '../../services/notification.service.js'
 import { requestReschedule as askReschedule, respondReschedule, withdrawReschedule } from '../../services/reschedule.service.js'
-import { mytToDate, toMinutes } from '../../utils/time.js'
+import { formatLessonTime, mytToDate, toMinutes } from '../../utils/time.js'
 import { hhmm, id, ringgit, ymd } from '../../utils/validators.js'
 import { SUBJECTS } from '../../data/catalog.js'
 import { subjectsOf } from '../../utils/childSubjects.js'
@@ -51,8 +51,11 @@ export async function negotiate(req, res) {
     if (data.price === Number(b.counterPrice)) throw new AppError(400, 'Accept the offer or choose a different price.')
     await changeStatus(tx, b, { status: 'PENDING', proposedPrice: data.price, counterPrice: null })
   })
-  await notify(b.tutor.userId, { type: 'BOOKING_UPDATED', title: data.action === 'counter' ? 'Parent proposed a new rate' : 'Parent requested admin review',
-    message: data.action === 'counter' ? 'New offer: RM' + data.price + ' per hour.' : data.reason, link: '/tutor/bookings?booking=' + publicReference(b) })
+  await notifyWithEmail(b.tutor.userId, { type: 'BOOKING_UPDATED', title: data.action === 'counter' ? 'Parent proposed a new rate' : 'Parent requested admin review',
+    message: data.action === 'counter'
+      ? `${req.user.fullName} proposed RM${data.price.toFixed(2)} per hour for the ${b.subject} lesson on ${formatLessonTime(b.startAt, b.endAt)}.${b.counterPrice != null ? ` Previous offer: RM${Number(b.counterPrice).toFixed(2)} per hour.` : ''}`
+      : `${req.user.fullName} requested administrator review of the ${b.subject} lesson on ${formatLessonTime(b.startAt, b.endAt)}. Reason: ${data.reason}`,
+    link: '/tutor/bookings?booking=' + publicReference(b) })
   res.json({ booking: toBookingDto(await reload(b.id)) })
 }
 
@@ -168,11 +171,11 @@ export async function createBooking(req, res) {
     return created
   })
 
-  await notify(tutor.userId, {
+  await notifyWithEmail(tutor.userId, {
     type: 'BOOKING_REQUEST',
     title: 'New booking request',
-    message: `${req.user.fullName} requested ${bookings.length} ${subject} lesson(s) for ${child.name}.`,
-    link: '/tutor/bookings',
+    message: `${req.user.fullName} requested ${bookings.length} ${subject} lesson(s) for ${child.name} at RM${data.proposedPrice.toFixed(2)} per hour. Requested times: ${bookings.map(b => formatLessonTime(b.startAt, b.endAt)).join('; ')}.`,
+    link: '/tutor/bookings?booking=' + publicReference(bookings[0]),
   })
   await notify(req.user.id, {
     type: 'BOOKING_SENT',
@@ -204,6 +207,7 @@ export async function getBooking(req, res) {
 // lesson after attendance has started or overwrite another location correction.
 export async function updateLessonLocation(req, res) {
   const data = lessonLocationSchema.extend({ version: z.iso.datetime() }).strict().parse(req.body)
+  let notice
   const booking = await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${Number(req.params.id)} AND parentId = ${req.parent.id} FOR UPDATE`
     const b = await tx.booking.findFirst({
@@ -229,14 +233,17 @@ export async function updateLessonLocation(req, res) {
       }, include: bookingInclude,
     })
     // Committed atomically with the venue; notifications contain no street or GPS data.
-    await tx.notification.create({ data: {
-      userId: b.tutor.userId, type: 'BOOKING_UPDATED', title: 'Lesson location confirmed',
+    const payload = {
+      type: 'BOOKING_UPDATED', title: 'Lesson location confirmed',
       message: resetOffer ? 'The parent confirmed the exact lesson location. Please review the booking and price again.'
         : 'The parent confirmed the exact lesson location. Open the booking to view it.',
       link: '/tutor/bookings?booking=' + publicReference(b),
-    } })
+    }
+    await tx.notification.create({ data: { userId: b.tutor.userId, ...payload } })
+    notice = { userId: b.tutor.userId, payload }
     return updated
   })
+  if (notice) await sendNotificationEmail(notice.userId, notice.payload)
   res.json({ booking: toBookingDto(booking) })
 }
 
@@ -261,11 +268,11 @@ export async function acceptCounter(req, res) {
     if (!changed.count) throw new AppError(409, 'This counter offer has changed. Please refresh the page and try again.')
   })
   const updated = await reload(b.id)
-  await notify(b.tutor.userId, {
+  await notifyWithEmail(b.tutor.userId, {
     type: 'COUNTER_ACCEPTED',
     title: 'Counter offer accepted',
-    message: `${req.user.fullName} accepted your counter offer. Waiting for payment.`,
-    link: '/tutor/bookings',
+    message: `${req.user.fullName} accepted RM${Number(b.counterPrice).toFixed(2)} per hour for the ${b.subject} lesson on ${formatLessonTime(b.startAt, b.endAt)}. Waiting for payment; the lesson is not confirmed yet.`,
+    link: '/tutor/bookings?booking=' + publicReference(b),
   })
   res.json({ booking: toBookingDto(updated) })
 }
@@ -276,11 +283,11 @@ export async function declineCounter(req, res) {
   if (b.status !== 'COUNTER_OFFERED') throw new AppError(400, 'There is no counter offer to decline')
   await changeStatus(prisma, b, { status: 'CANCELLED', cancelReason: 'Parent declined the counter offer', cancelledById: req.user.id })
   const updated = await reload(b.id)
-  await notify(b.tutor.userId, {
+  await notifyWithEmail(b.tutor.userId, {
     type: 'COUNTER_DECLINED',
     title: 'Counter offer declined',
-    message: `${req.user.fullName} declined your counter offer.`,
-    link: '/tutor/bookings',
+    message: `${req.user.fullName} declined your counter offer for the ${b.subject} lesson on ${formatLessonTime(b.startAt, b.endAt)}. The booking is cancelled.`,
+    link: '/tutor/bookings?booking=' + publicReference(b),
   })
   res.json({ booking: toBookingDto(updated) })
 }
@@ -324,7 +331,7 @@ export async function requestRefund(req, res) {
     if (disputing) await changeStatus(tx, b, { status: 'DISPUTED' })
   })
   if (disputing) {
-    await notify(b.tutor.userId, { type: 'BOOKING_DISPUTED', title: 'Lesson disputed', message: `The parent disputed the attendance for the ${b.subject} lesson. Our admin team will review it.`, link: '/tutor/bookings' })
+    await notifyWithEmail(b.tutor.userId, { type: 'BOOKING_DISPUTED', title: 'Lesson disputed', message: `The parent disputed the attendance for the ${b.subject} lesson on ${formatLessonTime(b.startAt, b.endAt)}. Our admin team will review it.`, link: '/tutor/bookings?booking=' + publicReference(b) })
   }
   const admins = await prisma.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } })
   await Promise.all(
@@ -363,11 +370,11 @@ export async function cancelBooking(req, res) {
   })
   const updated = await reload(b.id)
 
-  await notify(b.tutor.userId, {
+  await notifyWithEmail(b.tutor.userId, {
     type: 'BOOKING_CANCELLED',
     title: 'Booking cancelled',
-    message: `${req.user.fullName} cancelled the ${b.subject} lesson.`,
-    link: '/tutor/bookings',
+    message: `${req.user.fullName} cancelled the ${b.subject} lesson on ${formatLessonTime(b.startAt, b.endAt)}.${reason ? ` Reason: ${reason}` : ''}`,
+    link: '/tutor/bookings?booking=' + publicReference(b),
   })
   res.json({ booking: toBookingDto(updated) })
 }
