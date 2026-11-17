@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useEffect, useState } from 'react'
-import { PageTitle, SectionCard } from '../../components/ui/Common'
+import { SectionCard } from '../../components/ui/Common'
+import TutorPageHeader from '../../components/TutorPageHeader'
 import { Records } from '../../components/ui/AdminRecords'
 import { useRecords } from '../../lib/adminRecords'
 import { fmtDate, fmtTime } from '../../lib/format'
@@ -25,7 +26,7 @@ function StudentLessons({ lessons, now }) {
   const last = lessons.findLast(lesson => lesson.status === 'COMPLETED')
   const next = rows.find(row => row.state === 'upcoming')?.lesson
   const { child } = lessons[0]
-  return <details className="min-w-0 border-b py-2">
+  return <details className="mt-3 min-w-0 rounded-xl border border-brand-100 bg-brand-25 px-4 py-2 open:bg-white">
     <summary className="min-h-11 cursor-pointer break-words py-2">
       <strong>{child.name}</strong> · {gradeLabel(child.educationLevel, child.grade)}
       <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-600">
@@ -33,7 +34,7 @@ function StudentLessons({ lessons, now }) {
       </span>
     </summary>
     <div className="my-3 grid min-w-0 gap-3 sm:grid-cols-2">
-      <section className="min-w-0 break-words rounded-xl bg-brand-25 p-3">
+      <section className="tutor-paper-note min-w-0 break-words rounded-xl p-3">
         <h3 className="font-semibold text-navy">Last completed lesson</h3>
         {last ? <>
           <p className="mt-1 text-sm">{last.subject} · {fmtDate(last.startAt)}</p>
@@ -43,7 +44,7 @@ function StudentLessons({ lessons, now }) {
           </dl> : <p className="mt-2 text-sm">No report recorded for this lesson.</p>}
         </> : <p className="mt-1 text-sm">No completed lessons yet.</p>}
       </section>
-      <section className="min-w-0 break-words rounded-xl border border-brand-100 p-3">
+      <section className="tutor-paper-blue min-w-0 break-words rounded-xl border border-brand-100 p-3">
         <h3 className="font-semibold text-navy">Next confirmed lesson</h3>
         {next ? <p className="mt-1 text-sm">{next.subject} · {fmtDate(next.startAt)}, {fmtTime(next.startAt)} (MYT)</p>
           : <p className="mt-1 text-sm">No upcoming confirmed lesson.</p>}
@@ -67,7 +68,7 @@ export default function Students() {
     window.addEventListener('focus', tick)
     return () => { clearInterval(timer); window.removeEventListener('focus', tick) }
   }, [])
-  return <div className="min-w-0 space-y-4"><PageTitle title="My students" /><SectionCard title="Student lessons">
+  return <div className="min-w-0 space-y-4"><TutorPageHeader title="My students" subtitle="Find a student's last lesson report and upcoming sessions." /><SectionCard title="Student lessons" action={<img src="/img/art/student-workbook.png" alt="" width="88" height="72" className="h-16 w-20 shrink-0 object-contain sm:h-[4.5rem] sm:w-[5.5rem]" />}>
     <label className="block">Find a student<input className="input min-h-11 w-full text-base" value={query} onChange={e => setQuery(e.target.value)} /></label>
     <Records source={source}>{({ bookings }) => {
       const students = new Map()

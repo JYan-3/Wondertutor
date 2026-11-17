@@ -64,7 +64,7 @@ const VerificationCard = forwardRef(function VerificationCard({ profile, onUploa
       <div className="mt-3 flex flex-wrap gap-2">
         {needsDocument && onUpload && <button type="button" onClick={onUpload} className="btn-primary min-h-11 px-4">Upload a new document</button>}
         {!onUpload && <Link to="/tutor/setup" state={{ step: 'documents' }} className="btn-outline min-h-11 px-4">Manage verification documents</Link>}
-        <Link to="/tutor/preview" className="btn-outline min-h-11 px-4">Preview my profile</Link>
+        {onUpload && <Link to="/tutor/preview" className="btn-outline min-h-11 px-4">Preview my profile</Link>}
       </div>
     </section>
   )

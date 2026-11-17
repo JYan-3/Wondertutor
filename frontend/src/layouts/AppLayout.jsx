@@ -47,7 +47,7 @@ export default function AppLayout() {
   const isParent = user.role === 'PARENT'
 
   const shell = (
-    <div className="flex min-h-screen flex-col">
+    <div className={`flex min-h-screen flex-col ${user.role === 'TUTOR' ? 'tutor-portal' : ''}`}>
       {/* Same bar as the public pages (landing, login, signup): flat, full width, white, yellow underline on the current page */}
       <header className="brand-header sticky top-0 z-30 w-full bg-white">
         <div className="mx-auto flex max-w-[81.25rem] items-center justify-between gap-3 px-4 py-2 md:px-8">

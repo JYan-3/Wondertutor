@@ -689,10 +689,10 @@ function AddHours({ onAdd, target, modeLabel, teachAs, onPickMode, presets, onSa
   }
 
   return (
-    <section className="card h-fit p-5" aria-labelledby="add-hours-title">
+    <section className="tutor-paper-note card h-fit p-5" aria-labelledby="add-hours-title">
       <div className="mb-3 flex items-center gap-2 border-b border-brand-100 pb-3">
-        <Icon name="plus" className="h-5 w-5 shrink-0 text-brand-500" />
         <h2 id="add-hours-title" className="text-lg font-bold text-navy">Add many hours at once</h2>
+        <img src="/img/art/weekly-planner.png" alt="" width="80" height="80" className="ml-auto h-16 w-16 shrink-0 object-contain sm:h-20 sm:w-20" />
       </div>
       <p className="mt-1 text-xs text-slate-600">Adding to: {target}</p>
       <p className="text-xs text-slate-600">Added as: {modeLabel}</p>

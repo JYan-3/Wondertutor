@@ -147,21 +147,21 @@ export default function Earnings() {
     </dl>
     <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,22rem)]">
       <div className="min-w-0 space-y-4 lg:col-start-2 lg:row-start-1">
-        <SectionCard title="Withdraw money" icon="wallet"><form onSubmit={withdraw} className="space-y-3">
+        <SectionCard title="Withdraw money" icon="wallet" className="tutor-paper-blue"><form onSubmit={withdraw} className="space-y-3">
           <label className="block">Amount (RM)<input className="input min-h-11 text-base" type="number" min="0.01" max={Number(data.available)} step="0.01" inputMode="decimal" required value={amount} onChange={e => setAmount(e.target.value)} /></label>
           <p className="text-sm">Up to {money(data.available)} available.</p>
           <p className="break-words">{data.bank ? 'Pay to ' + accountLabel(data.bank) : 'Add a bank account below to withdraw.'}</p>
           <button className="btn-primary min-h-11 w-full" disabled={busy || !data.bank || Number(data.available) <= 0 || !amount}>{busy ? 'Submitting…' : 'Request withdrawal'}</button>
           {notice && <p role="status" className="text-sm">{notice}</p>}
         </form></SectionCard>
-        <SectionCard title="Pending withdrawals" icon="clock">
+        <SectionCard title="Pending withdrawals" icon="clock" className="tutor-paper-note">
           {pendingWithdrawals.length ? <><p className="text-sm">{money(data.held)} is already set aside from your available balance.</p>
             <WithdrawalList rows={pendingWithdrawals} /></> : <p>No withdrawals awaiting review.</p>}
         </SectionCard>
         <BankCard data={data} refresh={load} />
       </div>
       <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1">
-        <SectionCard title="Transaction history" icon="file">
+        <SectionCard title="Transaction history" action={<img src="/img/art/lesson-receipt.png" alt="" width="80" height="80" className="h-16 w-16 shrink-0 object-contain sm:h-20 sm:w-20" />}>
           <div className="mb-3 flex flex-wrap gap-2"><select aria-label="Transaction period" className="input min-h-11 w-auto max-w-full text-base" value={period} onChange={e => setPeriod(e.target.value)}><option value="all">All dates</option><option value="month">This month</option></select>
             <button className="btn-outline min-h-11" disabled={!rows.length} onClick={() => exportCsv(rows)}>Export CSV</button></div>
           {!rows.length && <p>No lesson payments for this period.</p>}

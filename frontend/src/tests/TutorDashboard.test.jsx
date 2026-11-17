@@ -21,6 +21,8 @@ test('shows the tutor overview and links to teaching tools', async () => {
   api.get.mockResolvedValue({ data: overview })
   show()
   expect(await screen.findByText('4.8 / 5')).toBeInTheDocument()
+  expect(screen.getByText(/could only load your totals/)).toBeVisible()
+  expect(screen.queryByText('No upcoming confirmed lessons.')).not.toBeInTheDocument()
   expect(screen.getByText('3')).toBeInTheDocument()
   expect(screen.getByText('7')).toBeInTheDocument()
   expect(screen.getByText('2 parent reviews')).toBeInTheDocument()

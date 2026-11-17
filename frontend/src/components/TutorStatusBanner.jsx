@@ -27,7 +27,7 @@ export default function TutorStatusBanner() {
   const { user } = useAuth()
   const { pathname } = useLocation()
   const message = MESSAGES[user?.tutorStatus]
-  if (!message || pathname.startsWith('/tutor/setup')) return null
+  if (!message || pathname.startsWith('/tutor/setup') || pathname.replace(/\/$/, '') === '/tutor/profile') return null
 
   return (
     <div role="status" className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-accent-100 bg-accent-50 px-4 py-3 text-sm text-amber-900">

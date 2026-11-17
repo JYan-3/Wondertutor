@@ -8,17 +8,17 @@ import { LoadError, SectionCard, Spinner } from '../../components/ui/Common'
 import { fmtDate, fmtTimeRange, greeting } from '../../lib/format'
 
 const ACTIONS = [
-  { to: '/tutor/availability', icon: 'calendar', title: 'Plan your teaching hours', text: 'Set your usual hours, choose online or physical lessons, and adjust individual weeks.', action: 'Set teaching hours' },
-  { to: '/tutor/setup', icon: 'user', title: 'Keep your profile up to date', text: 'Manage your subjects, hourly rate, teaching approach and verification documents.', action: 'Edit my profile' },
-  { to: '/tutor/preview', icon: 'eye', title: 'See your profile as parents do', text: 'Check your introduction and teaching details before parents get in touch.', action: 'Preview my profile' },
+  { to: '/tutor/availability', icon: 'calendar', action: 'Set teaching hours' },
+  { to: '/tutor/setup', icon: 'user', action: 'Edit my profile' },
+  { to: '/tutor/preview', icon: 'eye', action: 'Preview my profile' },
 ]
 
-function LessonRow({ lesson, showDate = false }) {
+function LessonRow({ lesson, showDate = false, featured = false }) {
   return <div className="flex min-w-0 flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-    <div className="min-w-0 break-words"><strong>{lesson.subject} · {lesson.student}</strong>
+    <div className="min-w-0 break-words"><strong className={featured ? 'text-xl text-navy sm:text-2xl' : 'text-navy'}>{lesson.subject} · {lesson.student}</strong>
       <p className="text-sm text-slate-600">{showDate && fmtDate(lesson.startAt) + ' · '}{fmtTimeRange(lesson.startAt, lesson.endAt)} (MYT)</p>
     </div>
-    <Link to={lesson.to} className="btn-outline min-h-11 sm:shrink-0">{lesson.action}</Link>
+    <Link to={lesson.to} className={featured ? 'btn-primary min-h-11 sm:shrink-0' : 'inline-flex min-h-11 items-center gap-2 self-start text-sm font-semibold text-brand-700 hover:underline sm:self-center'}>{lesson.action}{!featured && <Icon name="arrow-right" className="h-4 w-4 shrink-0" />}</Link>
   </div>
 }
 
@@ -47,6 +47,7 @@ export default function TutorDashboard() {
 
   if (error) return <LoadError message={error} onRetry={() => { setError(''); setAttempt(n => n + 1) }} />
   if (!data) return <Spinner />
+  const hasSchedule = data.nextLesson !== undefined && Array.isArray(data.actions) && Array.isArray(data.todaySessions)
   const stats = [
     ['New requests', data.newRequests, 'clock', 'Requests waiting for your response'],
     ['Upcoming lessons', data.upcomingSessions, 'calendar', 'Confirmed lessons ahead'],
@@ -55,22 +56,27 @@ export default function TutorDashboard() {
 
   return (
     <div className="space-y-6">
-      <TutorPageHeader title={`${greeting()}, ${user.fullName}!`} subtitle="Your lessons and booking requests in Malaysia time." />
-      <SectionCard title="Next lesson" icon="calendar">
-        {data.nextLesson ? <LessonRow lesson={data.nextLesson} showDate /> : <p>No upcoming confirmed lessons.</p>}
+      <TutorPageHeader dashboard title={`${greeting()}, ${user.fullName}!`} subtitle="Your lessons and booking requests in Malaysia time." />
+      {hasSchedule ? <>
+      <SectionCard title="Next lesson" icon="calendar" className="tutor-next-lesson">
+        {data.nextLesson ? <LessonRow lesson={data.nextLesson} showDate featured /> : <p>No upcoming confirmed lessons.</p>}
       </SectionCard>
       <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2">
-        <SectionCard title="Action needed" icon="clock">
-          {data.actions?.length ? data.actions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} showDate />) : <p>No outstanding requests or session follow-ups.</p>}
-          <Link to="/tutor/bookings" className="btn-outline min-h-11">View all bookings</Link>
+        <SectionCard title="Action needed" icon="clock" className={data.actions?.length ? 'tutor-needs-attention' : ''}>
+          {data.actions?.length ? <div className="divide-y divide-slate-100">{data.actions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} showDate />)}</div> : <p>No outstanding requests or session follow-ups.</p>}
+          <Link to="/tutor/bookings" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-700 hover:underline">View all bookings</Link>
         </SectionCard>
-        <SectionCard title="Today's sessions" icon="calendar">
-          {data.todaySessions?.length ? data.todaySessions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} />) : <p>No sessions scheduled today.</p>}
+        <SectionCard title="Today's sessions" icon="calendar" className="tutor-paper-blue">
+          {data.todaySessions?.length ? <div className="divide-y divide-slate-100">{data.todaySessions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} />)}</div> : <p>No sessions scheduled today.</p>}
         </SectionCard>
       </div>
-      <dl className="grid gap-4 sm:grid-cols-3" aria-label="Teaching overview">
+      </> : <SectionCard title="Lesson schedule" icon="calendar">
+        <p>The dashboard could only load your totals. Open Bookings to see your lessons and requests.</p>
+        <Link to="/tutor/bookings" className="btn-outline mt-3 min-h-11">View all bookings</Link>
+      </SectionCard>}
+      <dl className="grid gap-3 sm:grid-cols-3" aria-label="Teaching overview">
         {stats.map(([label, value, icon, hint]) => (
-          <div key={label} className="card p-5">
+          <div key={label} className="rounded-xl border border-brand-100 bg-white p-4 sm:p-5">
             <dt className="flex items-center gap-2 text-sm font-semibold text-slate-600"><Icon name={icon} className="h-5 w-5 text-brand-500" />{label}</dt>
             <dd className="mt-3 text-2xl font-bold text-navy">{value}</dd>
             <dd className="mt-1 text-xs text-slate-500">{hint}</dd>
@@ -78,14 +84,11 @@ export default function TutorDashboard() {
         ))}
       </dl>
       <SectionCard title="Manage your teaching" icon="briefcase">
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-3">
           {ACTIONS.map((item) => (
-            <div key={item.to} className="flex min-w-0 flex-col rounded-xl border border-slate-200 p-4">
-              <Icon name={item.icon} className="mb-3 h-6 w-6 text-brand-500" />
-              <h3 className="font-bold text-navy">{item.title}</h3>
-              <p className="mb-4 mt-1 flex-1 text-sm text-slate-600">{item.text}</p>
-              <Link to={item.to} className="btn-outline min-h-11">{item.action}<Icon name="arrow-right" className="h-4 w-4" /></Link>
-            </div>
+            <Link key={item.to} to={item.to} className="flex min-h-11 items-center gap-2 rounded-xl bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-700 hover:bg-brand-100">
+              <Icon name={item.icon} className="h-5 w-5" />{item.action}<Icon name="arrow-right" className="ml-auto h-4 w-4" />
+            </Link>
           ))}
         </div>
       </SectionCard>

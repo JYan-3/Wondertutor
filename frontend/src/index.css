@@ -97,6 +97,90 @@ body {
   .brand-title::after, .brand-footer h2::before { display: none; }
 }
 
+.tutor-portal {
+  background-color: #f4f7fb;
+  --shadow-card: 0 3px 14px rgb(32 65 112 / 6%);
+}
+.tutor-portal > main {
+  position: relative;
+  isolation: isolate;
+}
+.tutor-portal > main::before {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 auto;
+  width: min(65%, 30rem);
+  height: 12rem;
+  z-index: -1;
+  pointer-events: none;
+  background: url('/img/art/login-bg.jpg') right bottom / cover no-repeat;
+  opacity: .16;
+  mask-image: radial-gradient(ellipse at bottom right, black 20%, transparent 75%);
+}
+.tutor-heading {
+  background: linear-gradient(110deg, #153d75, #245d9e);
+}
+.tutor-heading-art {
+  mask-image: linear-gradient(to right, transparent, black 28%);
+}
+.tutor-heading-sketch {
+  background-image: radial-gradient(circle, rgb(209 230 255 / 24%) 1px, transparent 1.2px);
+  background-size: 14px 14px;
+  mask-image: linear-gradient(to right, transparent, black 25%);
+}
+.tutor-heading h1 {
+  color: white;
+  letter-spacing: -.025em;
+  line-height: 1.16;
+}
+.tutor-heading .page-title-copy p {
+  color: #e3efff;
+}
+.tutor-heading-dashboard h1 {
+  font-size: clamp(1.6rem, 3.3vw, 2.85rem);
+}
+.tutor-portal .btn-primary {
+  background-color: #1557ad;
+}
+.tutor-portal .btn-primary:hover {
+  background-color: #123f7a;
+}
+.tutor-portal .tutor-next-lesson {
+  border-inline-start: 4px solid #3778c5;
+  background: white;
+}
+.tutor-portal .tutor-paper-blue {
+  background: #f7faff;
+  border-color: #d8e3ef;
+}
+.tutor-portal .tutor-paper-note {
+  position: relative;
+  border: 1px solid #d8e3ef;
+  background: white;
+}
+.tutor-portal .tutor-paper-note::before {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  top: -5px;
+  right: 1.25rem;
+  width: 2.4rem;
+  height: .58rem;
+  transform: rotate(4deg);
+  background: #f5d67e;
+}
+.tutor-portal main .card h2 > svg:first-child {
+  flex-shrink: 0;
+  box-sizing: content-box;
+  padding: .38rem;
+  border-radius: .5rem;
+  background: #dcecff;
+  color: #174e98;
+}
+.tutor-portal .tutor-needs-attention {
+  border-inline-start: 3px solid #edc45c;
+}
+
 /* Dual-handle budget slider: two range inputs stacked on one track */
 .range-dual input[type="range"] {
   position: absolute;

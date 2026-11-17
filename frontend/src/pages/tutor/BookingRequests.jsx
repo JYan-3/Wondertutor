@@ -83,7 +83,7 @@ function BookingDetails({ b, onUpdate, onReload, openLinkForm }) {
     {['CONFIRMED', 'COMPLETED', 'DISPUTED'].includes(b.status) && <div><Link className="btn-primary min-h-11" to={'/tutor/bookings/' + recordRef(b) + '/session'}>{b.status === 'CONFIRMED' ? 'Open session' : 'View session record'}</Link></div>}
     <h2 className="text-xl font-bold text-navy">{b.subject} with {b.child.name}</h2>
     <p>{fmtDate(b.startAt)} · {fmtTimeRange(b.startAt, b.endAt)} (Malaysia time)</p>
-    <dl className="grid gap-3 rounded-xl bg-brand-25 p-4 text-sm sm:grid-cols-2">
+    <dl className="tutor-paper-blue grid gap-3 rounded-xl p-4 text-sm sm:grid-cols-2">
       {[['Parent', b.parentName], ['Student', b.child.name + ' · ' + gradeLabel(b.child.educationLevel, b.child.grade)],
         ['Lesson', b.teachingMode === 'ONLINE' ? 'Online' : 'Physical · ' + (hasConfirmedLessonLocation(b) ? b.location : venueMayBeConfirmed ? 'Exact address awaiting parent confirmation' : 'Exact address not recorded')],
         ['Parent’s offer', money(b.proposedPrice) + ' / hour'], ...(b.counterPrice ? [['Tutor’s offer', money(b.counterPrice) + ' / hour']] : []),
@@ -165,9 +165,12 @@ export default function BookingRequests() {
   return <div className="min-w-0 space-y-4">
     <TutorPageHeader title="Booking requests" subtitle="Review parents’ offers and manage your lessons." />
     {error ? <LoadError message={error} onRetry={load} /> : !rows ? <Spinner /> : <>
-      <div className="flex flex-wrap gap-2" aria-label="Booking filters">{Object.keys(groups).map(g => <button key={g} aria-pressed={g === tab} className={(g === tab ? 'btn-primary' : 'btn-outline') + ' min-h-11'} onClick={() => { setTab(g); setId(null); setMobileDetail(false) }}>{g} ({rows.filter(b => groupFor(b) === g).length})</button>)}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap gap-2" aria-label="Booking filters">{Object.keys(groups).map(g => <button key={g} aria-pressed={g === tab} className={(g === tab ? 'btn-primary' : 'btn-outline') + ' min-h-11'} onClick={() => { setTab(g); setId(null); setMobileDetail(false) }}>{g} ({rows.filter(b => groupFor(b) === g).length})</button>)}</div>
+        <img src="/img/art/booking-envelope.png" alt="" width="80" height="80" className="h-14 w-14 shrink-0 object-contain sm:h-20 sm:w-20" />
+      </div>
       {!selected ? <div className="card p-6">No bookings in this section yet.</div> : <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)]">
-        <div className={(mobileDetail ? 'hidden lg:block ' : '') + 'card min-w-0 space-y-2 p-3'}>{visible.map(b => <button key={b.id} aria-pressed={selected.id === b.id} className="block min-h-11 w-full break-words rounded-lg border border-brand-100 p-3 text-left aria-pressed:bg-brand-50" onClick={() => { setId(b.id); setMobileDetail(true) }}>
+        <div className={(mobileDetail ? 'hidden lg:block ' : '') + 'tutor-paper-note card min-w-0 space-y-2 p-3'}>{visible.map(b => <button key={b.id} aria-pressed={selected.id === b.id} className="block min-h-11 w-full break-words rounded-lg border border-brand-100 border-l-4 bg-white p-3 text-left aria-pressed:border-l-brand-600 aria-pressed:bg-brand-50" onClick={() => { setId(b.id); setMobileDetail(true) }}>
           <strong className="block text-navy">{b.subject} · {b.child.name}</strong><span className="text-sm">{fmtDate(b.startAt)}, {fmtTime(b.startAt)} · {b.parentName}</span>
           <BookingRowStatus booking={b} />
         </button>)}</div>
