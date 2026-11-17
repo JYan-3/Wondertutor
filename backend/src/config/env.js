@@ -78,6 +78,7 @@ export const env = {
     from: process.env.MAIL_FROM || 'WonderTutor <no-reply@wondertutor.local>',
   },
   googleClientId: process.env.GOOGLE_CLIENT_ID,
+  geoapifyApiKey: (process.env.GEOAPIFY_API_KEY || '').trim(),
   recaptchaSecret: process.env.RECAPTCHA_SECRET,
   toyyibpay: readToyyibPayConfig(process.env),
   // Legacy Billplz credentials keep original bills and callbacks verifiable after switching provider.

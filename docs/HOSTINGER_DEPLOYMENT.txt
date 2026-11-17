@@ -218,6 +218,30 @@ private MySQL (or managed DB), supervised worker, shared Redis if needed, encryp
 off-host backups. Someone must own patching, firewall, monitoring and recovery.
 Do not buy extra infrastructure only to make the architecture diagram look complex.
 
+OPTIONAL LESSON-MAP SEARCH (17 November 2026)
+
+- Create a Free project at https://myprojects.geoapify.com/ and obtain its API key.
+- Add GEOAPIFY_API_KEY to backend/.env locally and to the Hostinger Node app's
+  environment variables for deployment. Restart/redeploy the backend afterwards.
+  This is server-only; never put the key in a VITE_ variable, Git or a screenshot.
+- The Free plan currently has 3,000 credits/day and requires no credit card.
+  Keep the visible Geoapify and OpenStreetMap attribution. This application uses
+  a conservative limit of 4 provider calls/second and 2,500 per rolling 24 hours,
+  plus a small temporary cache. These limits are per Node process; account quota
+  may also be used by other projects. A multi-process deployment needs a shared
+  limiter/cache or a provider plan sized for its traffic.
+- Without the key, or during a provider failure, Malaysian town/postcode search,
+  manual map selection and GPS remain available. Building/street suggestions
+  need the configured key. Public Nominatim autocomplete is not used.
+- Only text deliberately entered in the separate place-search box is submitted
+  to Geoapify. The full lesson-address field and child/account details are not
+  sent. Search results move the map; they never confirm an attendance venue.
+- Verify locally and on Hostinger: choose a public building/street result, place
+  the actual entrance pin and reconfirm it. Test search failure and mobile too.
+
+https://www.geoapify.com/get-started-with-maps-api/
+https://www.geoapify.com/pricing/
+
 OFFICIAL REFERENCES checked 9 November 2026
 
 https://www.hostinger.com/support/how-to-deploy-a-nodejs-website-in-hostinger/

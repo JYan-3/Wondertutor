@@ -23,11 +23,11 @@ export default function PublicLayout() {
     <div className={"flex min-h-screen flex-col overflow-x-clip"}>
       {/* A new page starts with closed menus, including browser back/forward. */}
       <PublicHeader key={pathname} user={user} pathname={pathname} />
-      <main className={`${isLogin ? 'flex w-full flex-1 flex-col' : 'mx-auto w-full max-w-[81.25rem] px-3 md:px-6'} ${isHome || isLogin ? '' : 'pb-10'}`}>
+      <main className={`brand-main ${isLogin ? 'flex w-full flex-1 flex-col' : 'mx-auto w-full max-w-[81.25rem] px-3 md:px-6'} ${isHome || isLogin ? '' : 'pb-10'}`}>
         <Outlet />
       </main>
       {!isLogin && (
-      <footer id="about" className={`scroll-mt-24 bg-brand-50 text-sm text-slate-700 ${isHome ? '' : 'mt-2'}`}>
+      <footer id="about" className={`brand-footer scroll-mt-24 bg-brand-50 text-sm text-slate-700 ${isHome ? '' : 'mt-2'}`}>
         <div className="mx-auto grid max-w-[81.25rem] gap-8 px-4 py-8 md:px-8 lg:grid-cols-[26rem_1fr] lg:gap-16">
           <div>
             <Logo className="h-9" />

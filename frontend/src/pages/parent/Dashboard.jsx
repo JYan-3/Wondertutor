@@ -47,7 +47,7 @@ export default function ParentDashboard() {
     <div>
       <div className="relative mb-6 flex items-start justify-between">
         <div className="parent-dashboard-copy">
-          <h1 className="text-3xl font-extrabold tracking-tight text-navy sm:text-4xl">
+          <h1 className="brand-title text-3xl font-extrabold tracking-tight text-navy sm:text-4xl">
             {greeting()}, {user.fullName}! <span className="parent-dashboard-wave inline-block origin-[70%_70%] animate-[wave_2s_ease-in-out_1]">👋</span>
           </h1>
           <p className="mt-1 text-lg text-slate-500">Let's find the right learning support for your child.</p>

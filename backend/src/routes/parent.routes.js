@@ -16,6 +16,7 @@ import * as account from '../controllers/parent/account.controller.js'
 import { rateLimit } from '../middleware/rateLimit.js'
 import { dashboard } from '../controllers/parent/dashboard.controller.js'
 import * as assistant from '../controllers/parent/assistant.controller.js'
+import * as venueSearch from '../controllers/parent/venueSearch.controller.js'
 import { env } from '../config/env.js'
 
 const router = validateIdParams(Router(), { publicIds: [
@@ -47,6 +48,9 @@ router.get('/children/:id/progress', children.childProgress)
 router.get('/children/:id/report', children.childReport)
 
 router.get('/catalog', tutors.catalog)
+// Search text stays in a POST body, outside access-log URLs. The key stays on the server.
+router.get('/venue-search', venueSearch.capabilities)
+router.post('/venue-search', rateLimit({ name: 'venue-search', windowMs: 60_000, max: 30, keyBy: req => req.user.id }), venueSearch.search)
 router.get('/tutors', tutors.browseTutors)
 router.get('/tutors/:id', tutors.getTutor)
 router.get('/tutors/:id/reviews', tutors.tutorReviews)

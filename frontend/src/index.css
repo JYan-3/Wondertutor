@@ -63,6 +63,40 @@ body {
   @apply border-brand-500! bg-brand-500! text-white!;
 }
 
+/* Small gold details tie public, auth and all three portals together. The
+   light-blue surfaces, blue actions and status/error colours keep their roles. */
+.brand-header { border-bottom: 2px solid #ffe7a2; }
+.brand-title::after {
+  content: "";
+  display: block;
+  width: 2.75rem;
+  height: 3px;
+  margin-top: .55rem;
+  border-radius: 999px;
+  background: var(--color-accent);
+}
+.text-center > .brand-title::after { margin-inline: auto; }
+.brand-section-title > svg {
+  color: var(--color-navy);
+  border-radius: .25rem;
+  box-shadow: 0 0 0 4px var(--color-accent-50);
+}
+.brand-main form.shadow-card { border-top: 3px solid #ffdc77; }
+.brand-footer { border-top: 2px solid #ffe7a2; }
+.brand-footer h2::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: .8em;
+  margin-right: .5rem;
+  border-radius: 2px;
+  background: #efb72e;
+}
+@media print {
+  .brand-header, .brand-footer { border-color: transparent; }
+  .brand-title::after, .brand-footer h2::before { display: none; }
+}
+
 /* Dual-handle budget slider: two range inputs stacked on one track */
 .range-dual input[type="range"] {
   position: absolute;

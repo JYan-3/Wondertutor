@@ -33,7 +33,7 @@ export default function PublicHeader({ user, pathname }) {
   }
 
   return (
-    <header ref={header} className="sticky top-0 z-30 w-full bg-white"
+    <header ref={header} className="brand-header sticky top-0 z-30 w-full bg-white"
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false) }}
       onKeyDown={event => {
         if (event.key === 'Escape' && menuOpen) {

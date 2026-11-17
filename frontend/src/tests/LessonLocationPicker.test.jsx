@@ -3,6 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 import LessonLocationPicker from '../components/LessonLocationPicker'
 import { hasLessonPoint, lessonLocationError } from '../lib/lessonLocationInput'
+import api from '../api/client'
+
+vi.mock('../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() }, errorMessage: error => error.message }))
 
 const leaflet = vi.hoisted(() => {
   const handlers = {}
@@ -16,7 +19,11 @@ function Picker({ initial = { address: '', latitude: null, longitude: null, conf
   const [value, onChange] = useState(initial)
   return <LessonLocationPicker value={value} onChange={onChange} initialCenter={initialCenter} />
 }
-beforeEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals() })
+beforeEach(() => {
+  vi.clearAllMocks(); vi.unstubAllGlobals()
+  api.get.mockResolvedValue({ data: { externalSearch: true } })
+  api.post.mockResolvedValue({ data: { results: [], provider: 'geoapify' } })
+})
 
 test('the area viewport is never a selected venue, and tiles wait for the user to open the map', async () => {
   render(<Picker initialCenter={[3.2, 101.5]} />)
@@ -41,6 +48,26 @@ test('map tiles identify the site to OSM without sharing the booking URL or type
     maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     referrerPolicy: 'strict-origin',
   })
+})
+
+test('place search moves the viewport, clears a previous pin and never sends the private address', async () => {
+  const point = { label: 'Example Library, Klang', lat: 3.04, lng: 101.45, zoom: 17 }
+  api.post.mockResolvedValue({ data: { provider: 'geoapify', results: [point] } })
+  render(<Picker initial={{ address: '12 Private Family Street', latitude: 3.1, longitude: 101.6, confirmed: true }} />)
+  fireEvent.click(screen.getByRole('button', { name: /Open map/ }))
+  const input = await screen.findByRole('combobox', { name: 'Find a building, street or postcode' })
+  fireEvent.change(input, { target: { value: 'Example Library' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Search', exact: true }))
+  fireEvent.click(await screen.findByRole('option', { name: /Example Library/ }))
+  expect(screen.getByLabelText('Full lesson address')).toHaveValue('12 Private Family Street')
+  expect(screen.getByRole('checkbox')).not.toBeChecked()
+  expect(screen.getByRole('checkbox')).toBeDisabled()
+  expect(screen.getByText('No lesson pin selected yet.')).toBeVisible()
+  expect(api.post).toHaveBeenCalledWith('/parent/venue-search', { query: 'Example Library' }, expect.anything())
+  expect(leaflet.map.mock.results[0].value.setView).toHaveBeenCalledWith([3.04, 101.45], 17)
+  act(() => leaflet.handlers.click({ latlng: { lat: 3.0401, lng: 101.4501 } }))
+  expect(screen.getByRole('checkbox')).toBeEnabled()
+  expect(screen.getByRole('checkbox')).not.toBeChecked()
 })
 
 test('changing either the street address or coordinates requires confirmation again', () => {

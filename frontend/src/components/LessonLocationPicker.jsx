@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { hasLessonPoint } from '../lib/lessonLocationInput'
+import VenuePlaceSearch from './VenuePlaceSearch'
 
 const DEFAULT_CENTER = [3.139, 101.6869]
 
@@ -20,7 +21,7 @@ function CoordinateField({ label, value, disabled, onChange, id }) {
 }
 
 // Loading tiles is an explicit choice. The address is never sent to a geocoder.
-function VenueMap({ value, onPoint, disabled, initialCenter, focusPoint }) {
+function VenueMap({ value, onPoint, disabled, initialCenter, focusPoint, focusZoom }) {
   const container = useRef(null)
   const mapRef = useRef(null)
   const markerRef = useRef(null)
@@ -94,8 +95,8 @@ function VenueMap({ value, onPoint, disabled, initialCenter, focusPoint }) {
   }, [latitude, longitude, disabled, ready])
 
   useEffect(() => {
-    if (ready && focusPoint) mapRef.current?.setView(focusPoint, 17)
-  }, [focusPoint, ready])
+    if (ready && focusPoint) mapRef.current?.setView(focusPoint, focusZoom || 17)
+  }, [focusPoint, focusZoom, ready])
 
   return <div className="space-y-2">
     {!ready && !error && <p role="status" className="text-sm text-slate-500">Loading the map…</p>}
@@ -111,6 +112,7 @@ export default function LessonLocationPicker({ value, onChange, disabled = false
   const [locating, setLocating] = useState(false)
   const [gpsMessage, setGpsMessage] = useState('')
   const [focusPoint, setFocusPoint] = useState(null)
+  const [focusZoom, setFocusZoom] = useState(17)
   const mounted = useRef(true)
   const latest = useRef({ value, onChange, disabled })
   useEffect(() => { latest.current = { value, onChange, disabled } }, [value, onChange, disabled])
@@ -133,6 +135,7 @@ export default function LessonLocationPicker({ value, onChange, disabled = false
       if (latest.current.disabled) return
       const { latitude, longitude, accuracy } = position.coords
       setFocusPoint([latitude, longitude])
+      setFocusZoom(17)
       if (!Number.isFinite(accuracy) || accuracy > 100) {
         latest.current.onChange({ ...latest.current.value, confirmed: false })
         setGpsMessage(`GPS accuracy is ${Number.isFinite(accuracy) ? Math.round(accuracy) + ' m' : 'unknown'}. Open the map and choose the actual entrance, or enter accurate coordinates. This GPS estimate has not been selected.`)
@@ -157,14 +160,22 @@ export default function LessonLocationPicker({ value, onChange, disabled = false
         placeholder="Unit / house number, building, street, postcode and town" onChange={e => update({ address: e.target.value })} />
     </div>
     <div className="space-y-2">
-      <p className="text-xs text-slate-500">Opening the map shares your IP address and viewed map area with OpenStreetMap tile servers. Your typed street address is not sent to a map search or AI.</p>
+      <p className="text-xs text-slate-500">Opening the map shares your IP address and viewed map area with OpenStreetMap tile servers. The full lesson-address field above is not sent to place search or AI.</p>
       <div className="flex flex-wrap gap-2">
         <button type="button" disabled={disabled} className="btn-outline min-h-11 max-w-full px-3" onClick={() => setMapOpen(open => !open)}>{mapOpen ? 'Hide map' : 'Open map to choose the entrance'}</button>
         <button type="button" disabled={disabled || locating} className="btn-outline min-h-11 max-w-full px-3" onClick={locate}>{locating ? 'Finding your location…' : 'Use my current location'}</button>
       </div>
       <p className="text-xs text-slate-500">Use current location only when you are physically at the lesson venue.</p>
     </div>
-    {mapOpen && <VenueMap value={value} onPoint={choosePoint} disabled={disabled} initialCenter={initialCenter} focusPoint={focusPoint} />}
+    {mapOpen && <>
+      <VenuePlaceSearch disabled={disabled} onChoose={place => {
+        setFocusPoint([place.lat, place.lng])
+        setFocusZoom(Math.max(8, Math.min(18, place.zoom || 16)))
+        setGpsMessage(`Map moved to ${place.label}. Tap the actual entrance to place a new lesson pin, then confirm it below.`)
+        onChange({ ...value, latitude: null, longitude: null, confirmed: false })
+      }} />
+      <VenueMap value={value} onPoint={choosePoint} disabled={disabled} initialCenter={initialCenter} focusPoint={focusPoint} focusZoom={focusZoom} />
+    </>}
     {gpsMessage && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{gpsMessage}</p>}
     <details className="rounded-xl border border-slate-200 p-3">
       <summary className="min-h-8 cursor-pointer text-sm font-semibold text-navy">Enter coordinates instead (if the map is unavailable)</summary>

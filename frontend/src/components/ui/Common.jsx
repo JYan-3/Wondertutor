@@ -90,7 +90,7 @@ export function PageTitle({ title, subtitle, icon, right, sparkle = true }) {
         {icon && <Icon name={icon} className="mt-1 h-9 w-9 shrink-0 text-navy" strokeWidth={1.75} />}
         <div className="min-w-0">
           <div className="page-title-heading">
-            <h1 className="text-3xl font-bold text-navy md:text-[2rem]">
+            <h1 className="brand-title text-3xl font-bold text-navy md:text-[2rem]">
               {title}
               {sparkle && <Icon name="sparkle" fill className="page-title-sparkle mb-3 ml-1.5 hidden h-5 w-5 text-accent sm:inline" />}
             </h1>
@@ -109,7 +109,7 @@ export function SectionCard({ title, icon, action, children, className = '' }) {
     <section className={`card p-5 ${className}`}>
       {(title || action) && (
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-navy">
+          <h2 className="brand-section-title flex items-center gap-2 text-lg font-bold text-navy">
             {icon && <Icon name={icon} className="h-5 w-5 text-brand-500" />}
             {title}
           </h2>

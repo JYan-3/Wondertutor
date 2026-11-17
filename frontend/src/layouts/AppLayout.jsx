@@ -49,7 +49,7 @@ export default function AppLayout() {
   const shell = (
     <div className="flex min-h-screen flex-col">
       {/* Same bar as the public pages (landing, login, signup): flat, full width, white, yellow underline on the current page */}
-      <header className="sticky top-0 z-30 w-full bg-white">
+      <header className="brand-header sticky top-0 z-30 w-full bg-white">
         <div className="mx-auto flex max-w-[81.25rem] items-center justify-between gap-3 px-4 py-2 md:px-8">
           <Link to={items[0]?.[0] || '/'} aria-label="WonderTutor dashboard" className="flex min-h-11 min-w-0 items-center"><Logo className="h-7 max-w-full object-contain sm:h-9" /></Link>
           <nav aria-label="Main" className="hidden items-center gap-4 text-sm font-medium text-navy lg:flex xl:gap-7">
@@ -89,7 +89,7 @@ export default function AppLayout() {
           ))}
         </nav>
       </header>
-      <main className="mx-auto w-full max-w-[81.25rem] flex-1 px-3 pb-16 pt-6 md:px-6">
+      <main className="brand-main mx-auto w-full max-w-[81.25rem] flex-1 px-3 pb-16 pt-6 md:px-6">
         {user.role === 'TUTOR' && <TutorStatusBanner />}
         {isParent ? <ParentPageEffects><Outlet /></ParentPageEffects> : <Outlet />}
       </main>
@@ -301,7 +301,7 @@ function AppFooter({ items }) {
   const link = 'inline-flex min-h-9 items-center text-slate-700 hover:text-brand-600 hover:underline'
 
   return (
-    <footer className="mt-auto border-t border-brand-100 bg-brand-50 text-sm text-slate-700">
+    <footer className="brand-footer mt-auto border-t border-brand-100 bg-brand-50 text-sm text-slate-700">
       <div className="mx-auto grid max-w-[81.25rem] gap-8 px-4 py-8 md:grid-cols-[1.3fr_1fr_1fr_1.4fr] md:px-8">
         <div>
           <Logo className="h-8" />
