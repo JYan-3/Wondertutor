@@ -65,7 +65,7 @@ body {
 
 /* Small gold details tie public, auth and all three portals together. The
    light-blue surfaces, blue actions and status/error colours keep their roles. */
-.brand-header { border-bottom: 2px solid #ffe7a2; }
+.brand-header { border-bottom: 1px solid var(--color-brand-100); }
 .brand-title::after {
   content: "";
   display: block;
