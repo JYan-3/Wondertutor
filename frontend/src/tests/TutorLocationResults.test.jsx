@@ -24,12 +24,39 @@ test('wizard results keep the physical zero-result message separate from online 
   expect(screen.queryByText('No eligible tutors yet')).not.toBeInTheDocument()
 })
 
+test('Klang guided matching identifies an Ipoh tutor as an online alternative, not a nearby physical match', () => {
+  matching.result = { ...original(), temporary: false,
+    criteria: { subject: 'Tamil', level: 'PRIMARY', grade: 1, mode: 'EITHER', location: 'Klang, Selangor' },
+    searchScope: { mode: 'PHYSICAL', radiusKm: 30, location: 'Klang, Selangor' },
+    onlineAlternatives: { total: 1, tutors: [{ ...tutor, id: 30, name: 'Kavitha Devi', mainSubject: 'Tamil', location: 'Ipoh, Perak' }] },
+  }
+  open()
+  expect(screen.getByText('No physical tutors match your current filters near Klang, Selangor. 1 online alternative is available across Malaysia.')).toBeVisible()
+  const alternatives = screen.getByRole('region', { name: 'Online alternatives' })
+  expect(within(alternatives).getByText('Based in Ipoh, Perak')).toBeVisible()
+  expect(within(alternatives).getByText(/The listed city is where the tutor is based; these lessons are online/)).toBeVisible()
+  expect(within(alternatives).getByText('Online', { exact: true })).toBeVisible()
+  expect(within(alternatives).queryByText('Physical', { exact: true })).not.toBeInTheDocument()
+  expect(within(alternatives).getByRole('link', { name: 'Book a Lesson' })).toHaveAttribute('href', '/parent/tutors/30/book?mode=ONLINE')
+  expect(screen.queryByText(/We found 0 tutors/)).not.toBeInTheDocument()
+})
+
+test('nearby physical results stay separate from nationwide online alternatives', () => {
+  matching.result = { ...original(), total: 1, tutors: [{ ...tutor, name: 'Nearby Tutor', location: 'Kuala Terengganu, Terengganu', searchMode: 'PHYSICAL', offersOnline: false }] }
+  open()
+  expect(screen.getByText('We found 1 nearby physical tutor for your search.')).toBeVisible()
+  expect(screen.getByRole('heading', { name: 'Nearby Tutor' })).toBeVisible()
+  expect(screen.queryByRole('region', { name: 'Online alternatives' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/Based in/)).not.toBeInTheDocument()
+})
+
 test('switching result mode recomputes through a read-only preview instead of filtering stale local scores', async () => {
   api.post.mockResolvedValue({ data: { criteria: { ...original().criteria, mode: 'ONLINE' }, total: 1, tutors: [tutor], searchScope: { mode: 'ONLINE' }, onlineAlternatives: { total: 0, tutors: [] } } })
   open()
   fireEvent.click(screen.getByRole('button', { name: 'Teaching Mode' }))
   fireEvent.click(screen.getByRole('button', { name: 'Online', exact: true }))
   expect(await screen.findByText('Online lessons across Malaysia. Distance does not limit these results.')).toBeVisible()
+  expect(screen.getByText('We found 1 online tutor for your search.')).toBeVisible()
   expect(api.post).toHaveBeenCalledWith('/parent/matching/preview', { criteria: expect.objectContaining({ subject: 'English', mode: 'ONLINE', location: 'Kuala Terengganu, Terengganu' }) })
   expect(screen.queryByRole('region', { name: 'Online alternatives' })).not.toBeInTheDocument()
   expect(screen.getByText(/not saved/)).toBeVisible()

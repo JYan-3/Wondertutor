@@ -41,4 +41,13 @@ describe('form validation rules (same as the server)', () => {
     expect(checkText('short', { label: 'The description', min: 10 })).toContain('at least 10')
     expect(checkText('x'.repeat(201), { label: 'Message', max: 200 })).toContain('200 characters')
   })
+
+  test('money rejects sub-sen amounts and non-decimal or nonnumeric input', () => {
+    for (const value of ['0.000000001', '0.001', 0.000000001]) expect(checkRinggit(value)).toContain('at least RM0.01')
+    for (const value of ['1e2', '0x32', '50.500']) expect(checkRinggit(value)).toContain('2 decimal places')
+    for (const value of [true, [], {}, NaN, Infinity, 'abc']) expect(checkRinggit(value)).toContain('Enter a valid')
+    expect(checkRinggit('   ')).toBe('Enter the amount.')
+    expect(checkRinggit('0.01')).toBe('')
+    expect(checkRinggit(' 50.50 ')).toBe('')
+  })
 })

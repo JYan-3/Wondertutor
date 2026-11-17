@@ -246,14 +246,15 @@ function StepSchedule({ c, catalog, patch, onBack, onNext }) {
               </button>
             ))}
           </div>
+          <p className="mt-1.5 text-xs text-slate-500">Online tutors can be anywhere in Malaysia. Physical tutors must be near your lesson area.</p>
         </div>
         <div>
-          <Label>Preferred Location</Label>
+          <Label>Physical Lesson Area</Label>
           <PlaceSearch
             label="Search a town or postcode" value={c.location} onChange={(v) => patch({ location: v })} disabled={c.mode === 'ONLINE'} quiet
             labelClass="sr-only" placeholder="Any location: search a town or postcode"
           />
-          <p className="mt-1.5 text-xs text-slate-500">{c.mode === 'ONLINE' ? 'Not needed for online lessons.' : 'Used to match tutors who can teach within your preferred area.'}</p>
+          <p className="mt-1.5 text-xs text-slate-500">{c.mode === 'ONLINE' ? 'Not needed for online lessons.' : 'Used for nearby physical tutors. Online alternatives are shown separately if none are found.'}</p>
         </div>
       </div>
       <div className="mt-8 flex items-center justify-between">

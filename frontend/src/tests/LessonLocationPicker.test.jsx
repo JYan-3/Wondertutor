@@ -33,6 +33,16 @@ test('the area viewport is never a selected venue, and tiles wait for the user t
   expect(screen.getByText('Selected pin: 3.141200, 101.612300')).toBeInTheDocument()
 })
 
+test('map tiles identify the site to OSM without sharing the booking URL or typed address', async () => {
+  render(<Picker initial={{ address: '12 Jalan Test, 50000 Kuala Lumpur', latitude: 3.1, longitude: 101.6, confirmed: false }} />)
+  fireEvent.click(screen.getByRole('button', { name: /Open map/ }))
+  await waitFor(() => expect(leaflet.tileLayer).toHaveBeenCalled())
+  expect(leaflet.tileLayer).toHaveBeenCalledWith('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    referrerPolicy: 'strict-origin',
+  })
+})
+
 test('changing either the street address or coordinates requires confirmation again', () => {
   render(<Picker initial={{ address: '12 Jalan Test, 50000 Kuala Lumpur', latitude: 3.1, longitude: 101.6, confirmed: true }} />)
   const confirmation = screen.getByRole('checkbox')

@@ -13,7 +13,7 @@ export function OnlineTutorAlternatives({ total, children }) {
   if (!total) return null
   return <section aria-label="Online alternatives" className="mt-6">
     <h2 className="text-xl font-bold text-navy">Online alternatives</h2>
-    <p className="mb-4 mt-1 text-sm text-slate-600">{total} tutor{total === 1 ? '' : 's'} available for online lessons across Malaysia. These results are for online lessons.</p>
+    <p className="mb-4 mt-1 text-sm text-slate-600">{total} tutor{total === 1 ? '' : 's'} available for online lessons across Malaysia. The listed city is where the tutor is based; these lessons are online.</p>
     {children}
   </section>
 }

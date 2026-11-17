@@ -14,6 +14,7 @@ import { childSubjects } from '../../lib/subjects'
 import { checkRinggit } from '../../lib/validation'
 import { matchesRecordRef, recordRef } from '../../lib/recordRef'
 import { ParentHeaderDecor } from '../../components/ParentPageEffects'
+import ProposedPriceField from '../../components/ProposedPriceField'
 
 const TABS = [['about', 'About', 'user'], ['teaching', 'Teaching Information', 'book'], ['availability', 'Availability', 'calendar'], ['reviews', 'Reviews', 'star']]
 
@@ -350,6 +351,7 @@ export function BookingPanel({ tutor, kids }) {
   const [childId, setChildId] = useState(recordRef(kids[0]) || '')
   const [mode, setMode] = useState(['ONLINE', 'PHYSICAL'].includes(requestedMode) ? requestedMode : tutor.offersPhysical ? 'PHYSICAL' : 'ONLINE')
   const [price, setPrice] = useState(String(tutor.hourlyRate))
+  const priceError = checkRinggit(price, 'Proposed price')
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
@@ -425,13 +427,12 @@ export function BookingPanel({ tutor, kids }) {
               ))}
             </div>
           </div>
-          <label className="block"><span className="mb-1 block text-sm font-bold text-navy">Proposed Price (RM per hour) <span className="text-red-500">*</span></span>
-            <input type="number" min="1" className="input h-10" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
+          <ProposedPriceField value={price} onChange={setPrice} />
           <label className="block"><span className="mb-1 block text-sm font-bold text-navy">Message to Tutor <span className="font-normal text-slate-500">(Optional)</span></span>
             <textarea rows={3} maxLength={200} className="input resize-none" placeholder="E.g. My child would like to focus on exam preparation. Thank you!" value={msg} onChange={(e) => setMsg(e.target.value)} />
             <span className="block text-right text-xs text-slate-400">{msg.length}/200</span></label>
           {lesson.mode === 'PHYSICAL' && <p className="rounded-lg bg-brand-50 p-3 text-sm text-navy">Next, confirm the exact lesson address and entrance pin for these lessons.</p>}
-          <button onClick={onContinue} disabled={!teachesChild} className="btn-primary h-12 w-full text-base">Continue Booking <Icon name="arrow-right" className="h-4 w-4" /></button>
+          <button onClick={onContinue} disabled={!teachesChild || Boolean(priceError)} className="btn-primary h-12 w-full text-base">Continue Booking <Icon name="arrow-right" className="h-4 w-4" /></button>
         </div>
       </section>
       <HowItWorks />

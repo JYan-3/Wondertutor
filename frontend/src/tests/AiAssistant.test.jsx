@@ -134,6 +134,42 @@ test('when the AI is off the panel offers Guided Tutor Search', async () => {
   expect(within(panel).getByText(/not available right now/i)).toBeInTheDocument()
 })
 
+test.each([
+  ['Either', 'EITHER', 'Physical near Klang, Selangor • Online across Malaysia'],
+  ['Physical', 'PHYSICAL', 'Physical near Klang, Selangor'],
+  ['Online', 'ONLINE', 'Online across Malaysia'],
+])('guided %s matching explains which lessons use the selected area', async (choice, mode, summary) => {
+  configureApi(false)
+  const get = api.get.getMockImplementation()
+  api.get.mockImplementation(url => url.includes('catalog')
+    ? Promise.resolve({ data: { ...catalog, subjects: ['Tamil'], locations: ['Klang, Selangor'] } })
+    : url.includes('children')
+      ? Promise.resolve({ data: { children: [{ id: 17, name: 'Yan Hsi', educationLevel: 'PRIMARY', grade: 1, subjects: ['Tamil'] }] } })
+      : get(url))
+  api.post.mockResolvedValue({ data: { id: 1, total: 0, tutors: [], criteria: {} } })
+  render(chatTree())
+  const panel = await openPanel()
+  await userEvent.click(await within(panel).findByRole('button', { name: 'Yan Hsi (Primary 1)' }))
+  await userEvent.click(within(panel).getByRole('button', { name: 'Thu', exact: true }))
+  await userEvent.click(within(panel).getByRole('button', { name: 'Done', exact: true }))
+  expect(within(panel).getByText('Online tutors can be anywhere in Malaysia. Physical tutors must be near your lesson area.')).toBeVisible()
+  await userEvent.click(within(panel).getByRole('button', { name: choice, exact: true }))
+  if (mode !== 'ONLINE') {
+    expect(within(panel).getByText('Which area would physical lessons be in?')).toBeVisible()
+    await userEvent.selectOptions(within(panel).getByRole('combobox'), 'Klang, Selangor')
+  } else {
+    expect(within(panel).queryByText('Which area would physical lessons be in?')).not.toBeInTheDocument()
+  }
+  await userEvent.click(within(panel).getByRole('button', { name: 'RM40 – RM60', exact: true }))
+  expect(within(panel).getByText(summary)).toBeVisible()
+  await userEvent.click(within(panel).getByRole('button', { name: /Find My Matches/ }))
+  expect(await screen.findByText(/RESULTS/)).toBeVisible()
+  expect(api.post).toHaveBeenCalledWith('/parent/matching', {
+    source: 'CHATBOT', criteria: expect.objectContaining({ subject: 'Tamil', level: 'PRIMARY', grade: 1, days: [4], mode,
+      location: mode === 'ONLINE' ? null : 'Klang, Selangor', budgetMin: 40, budgetMax: 60 }),
+  })
+})
+
 test('an unavailable reply shows the reason and a retry; clearing drops a late reply', async () => {
   setup()
   localStorage.setItem('wt-ai-notice-v1:1', '1')

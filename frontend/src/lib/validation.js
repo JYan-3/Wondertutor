@@ -57,11 +57,15 @@ export function checkPassword(v) {
 
 // RM amounts: more than 0, at most `max`, and no fractions of a sen
 export function checkRinggit(v, label = 'Amount', max = 1000) {
-  if (v === '' || v == null) return `Enter the ${label.toLowerCase()}.`
+  if (v == null || (typeof v === 'string' && !v.trim())) return `Enter the ${label.toLowerCase()}.`
+  if (typeof v !== 'number' && typeof v !== 'string') return `Enter a valid ${label.toLowerCase()}.`
   const n = Number(v)
-  if (!Number.isFinite(n) || n <= 0) return `${label} must be more than RM0.`
+  if (!Number.isFinite(n)) return `Enter a valid ${label.toLowerCase()}.`
+  if (n <= 0) return `${label} must be more than RM0.`
+  if (n < 0.01) return `${label} must be at least RM0.01.`
   if (n > max) return `${label} cannot be more than RM${max}.`
-  if (Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) return `${label} can have at most 2 decimal places.`
+  if ((typeof v === 'string' && !/^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(v.trim()))
+    || Math.abs(n * 100 - Math.round(n * 100)) > 1e-6) return `${label} can have at most 2 decimal places. Use an amount like 50 or 50.50.`
   return ''
 }
 

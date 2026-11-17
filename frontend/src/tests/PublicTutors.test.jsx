@@ -33,6 +33,7 @@ test('guests see a distinct online alternative group and keep Online through the
   setup('/tutors?subject=English&level=PRIMARY&location=Kuala%20Terengganu%2C%20Terengganu')
   expect(await screen.findByText('No nearby tutors found')).toBeVisible()
   expect(screen.getByRole('region', { name: 'Online alternatives' })).toBeVisible()
+  expect(screen.getByText('Based in Kepong, Kuala Lumpur')).toBeVisible()
   expect(screen.getByRole('link', { name: 'View Profile' })).toHaveAttribute('href', '/tutors/7?mode=ONLINE')
   await user.click(screen.getByRole('link', { name: 'Book a Lesson' }))
   expect(screen.getByTestId('location')).toHaveTextContent('/parent/tutors/7/book?mode=ONLINE')

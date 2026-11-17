@@ -436,7 +436,7 @@ const QUESTIONS = {
   level: 'Great! What education level is your child studying?',
   days: 'Got it! When would you prefer the lessons?',
   mode: 'Would you like online or physical lessons?',
-  location: 'Which area should the tutor be near?',
+  location: 'Which area would physical lessons be in?',
   budget: "What's your budget per hour?",
 }
 
@@ -522,10 +522,13 @@ function StepInput({ msg, c, catalog, kids, onAnswer }) { // eslint-disable-line
       return <DaysInput msg={msg} c={c} onAnswer={onAnswer} />
     case 'mode':
       return (
-        <Chips
-          options={[{ label: 'Online', value: 'ONLINE' }, { label: 'Physical', value: 'PHYSICAL' }, { label: 'Either', value: 'EITHER' }]}
-          onPick={(o) => onAnswer(msg, { mode: o.value }, o.label, 'modeAsked')}
-        />
+        <>
+          <p className="mt-2 text-xs text-slate-500">Online tutors can be anywhere in Malaysia. Physical tutors must be near your lesson area.</p>
+          <Chips
+            options={[{ label: 'Online', value: 'ONLINE' }, { label: 'Physical', value: 'PHYSICAL' }, { label: 'Either', value: 'EITHER' }]}
+            onPick={(o) => onAnswer(msg, { mode: o.value }, o.label, 'modeAsked')}
+          />
+        </>
       )
     case 'location':
       return (
@@ -606,12 +609,13 @@ function DaysInput({ msg, c, onAnswer }) {
 }
 
 function Summary({ c, onFind, onEdit, busy }) {
+  const physicalArea = c.location ? `Physical near ${c.location}` : 'Physical (area not set)'
   const rows = [
     ['book', [c.subject, c.level && (c.grade ? gradeLabel(c.level, c.grade) : levelLabel(c.level))].filter(Boolean).join(' • ')],
     c.days.length || c.timeStart
       ? ['calendar', `${c.days.map((d) => DAY_SHORT[d]).join(' & ') || 'Any day'}${c.timeStart ? ` • ${hhmmLabel(c.timeStart)} - ${hhmmLabel(c.timeEnd)}` : ''}`]
       : null,
-    ['pin', `${c.mode === 'EITHER' ? 'Online or Physical' : c.mode === 'ONLINE' ? 'Online' : 'Physical'}${c.location ? ` • ${c.location}` : ''}`],
+    ['pin', c.mode === 'ONLINE' ? 'Online across Malaysia' : c.mode === 'PHYSICAL' ? physicalArea : `${physicalArea} • Online across Malaysia`],
     ['tag', budgetText(c)],
   ].filter(Boolean)
 

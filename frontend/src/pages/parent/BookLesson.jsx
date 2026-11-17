@@ -13,6 +13,7 @@ import { childSubjects } from '../../lib/subjects'
 import { checkRinggit, checkText } from '../../lib/validation'
 import { matchesRecordRef, recordRef } from '../../lib/recordRef'
 import LessonLocationPicker from '../../components/LessonLocationPicker'
+import ProposedPriceField from '../../components/ProposedPriceField'
 import { lessonLocationError, lessonLocationPayload } from '../../lib/lessonLocationInput'
 
 // Parents select dated one-hour lessons; the server rechecks every selection.
@@ -83,6 +84,7 @@ export default function BookLesson() {
   }
   const teachesChild = !child || tutor.grades.includes(gradeLabel(child.educationLevel, child.grade))
   const lesson = bookingMode(selectedSlots, mode) // an hour set to one mode decides the mode
+  const priceError = checkRinggit(price, 'Proposed price')
 
   async function send() {
     setError('')
@@ -184,7 +186,7 @@ export default function BookLesson() {
                   <span>{dateLabel(slot.date)} · {hhmmLabel(slot.start)} (1 hour)</span>
                   <button type="button" className="btn-outline" onClick={() => toggleSlot(slot)} aria-label={'Remove ' + slot.date + ' ' + slot.start}>Remove</button>
                 </div>)}
-                <p className="text-sm">Proposed total: RM{(Number(price || 0) * selectedSlots.length).toFixed(2)}. Each lesson is confirmed and paid separately.</p>
+                <p className="text-sm">{priceError ? 'Enter a valid hourly price to calculate the total.' : `Proposed total: RM${(Math.round(Number(price) * 100) * selectedSlots.length / 100).toFixed(2)}. Each lesson is confirmed and paid separately.`}</p>
               </div>
               <label className="block"><span className="mb-1 block text-sm font-bold text-navy">Child <span className="text-red-500">*</span></span>
                 {kids.length === 0 ? <Link to="/parent/children?add=1" className="btn-outline w-full"><Icon name="plus" className="h-4 w-4" /> Add a child first</Link> : (
@@ -207,13 +209,11 @@ export default function BookLesson() {
                 </div>
               </div>
               {lesson.mode === 'PHYSICAL' && <p className="rounded-lg bg-brand-50 p-3 text-sm text-navy">Confirm the physical lesson address and entrance pin in the venue section before sending.</p>}
-              <label className="block"><span className="mb-1 block text-sm font-bold text-navy">Proposed Price (RM per hour) <span className="text-red-500">*</span></span>
-                <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">RM</span>
-                  <input type="number" min="1" className="input h-10 pl-11" value={price} onChange={(e) => setPrice(e.target.value)} /></div></label>
+              <ProposedPriceField value={price} onChange={setPrice} />
               <label className="block"><span className="mb-1 block text-sm font-bold text-navy">Message to Tutor <span className="font-normal text-slate-500">(Optional)</span></span>
                 <textarea rows={3} maxLength={200} className="input resize-none" placeholder="E.g. My child would like to focus on exam preparation. Thank you!" value={msg} onChange={(e) => setMsg(e.target.value)} />
                 <span className="block text-right text-xs text-slate-400">{msg.length}/200</span></label>
-              <button onClick={send} disabled={busy || !teachesChild} className="btn-primary h-12 w-full text-base">{busy ? 'Sending…' : 'Send Booking Request'} {!busy && <Icon name="arrow-right" className="h-4 w-4" />}</button>
+              <button onClick={send} disabled={busy || !teachesChild || Boolean(priceError)} className="btn-primary h-12 w-full text-base">{busy ? 'Sending…' : 'Send Booking Request'} {!busy && <Icon name="arrow-right" className="h-4 w-4" />}</button>
             </div>
           </section>
 

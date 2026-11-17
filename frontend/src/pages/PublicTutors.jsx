@@ -21,7 +21,7 @@ function PublicTutorCards({ tutors, fromSearch }) {
           <div className="min-w-0 flex-1"><h2 className="flex items-start gap-1.5 break-words text-lg font-bold text-navy"><span>{tutor.name}</span>{tutor.verified && <VerifiedTick />}</h2><p className="mt-1 flex flex-wrap items-center gap-1 text-sm"><Icon name="star" className="h-4 w-4 text-accent-600" fill /><b>{Number(tutor.rating).toFixed(1)}</b><span className="text-slate-500">({tutor.reviewCount} reviews)</span></p></div>
         </div>
         <p className="mt-4 text-sm text-slate-700">{tutor.mainSubject} · {tutor.levels}</p>
-        <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-600"><Icon name="pin" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />{tutor.location}</p>
+        <p className="mt-2 flex items-start gap-1.5 text-sm text-slate-600"><Icon name="pin" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />{tutor.searchMode === 'ONLINE' ? 'Based in ' : ''}{tutor.location}</p>
         <div className="mt-3"><ModePills online={tutor.searchMode !== 'PHYSICAL' && tutor.offersOnline} physical={tutor.searchMode !== 'ONLINE' && tutor.offersPhysical} /></div>
         <p className="mt-auto pt-4 text-lg font-bold text-navy">RM {tutor.hourlyRate} <span className="text-xs font-normal text-slate-500">/ hour</span></p>
         <div className="mt-3 grid gap-2">

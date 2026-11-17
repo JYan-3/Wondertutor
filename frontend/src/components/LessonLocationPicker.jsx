@@ -45,6 +45,9 @@ function VenueMap({ value, onPoint, disabled, initialCenter, focusPoint }) {
       mapRef.current = map
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        // OSM requires a Referer. Override the site's no-referrer policy only
+        // for these tiles, sharing the origin without booking paths or queries.
+        referrerPolicy: 'strict-origin',
       }).on('tileerror', () => { if (!disposed) setError('Map tiles could not load. You can still use GPS or enter coordinates below.') }).addTo(map)
       map.on('click', event => { if (!latest.current.disabled) latest.current.onPoint(event.latlng.lat, event.latlng.lng) })
       if (typeof ResizeObserver !== 'undefined') {

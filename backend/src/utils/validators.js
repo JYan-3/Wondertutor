@@ -79,6 +79,7 @@ export const hhmm = (message = 'Choose a valid time') => z.string().regex(/^([01
 export const ringgit = (label = 'Amount', max = 1000) =>
   z.number({ message: `Enter the ${label.toLowerCase()}` })
     .positive(`${label} must be more than RM0`)
+    .min(0.01, `${label} must be at least RM0.01`)
     .max(max, `${label} cannot be more than RM${max}`)
     .refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6, `${label} can have at most 2 decimal places (sen)`)
 

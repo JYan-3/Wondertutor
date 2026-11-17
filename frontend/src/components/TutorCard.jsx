@@ -54,7 +54,7 @@ export default function TutorCard({ tutor, match, query = '', saved = false, onT
           <div className="mt-2"><ModePills online={tutor.searchMode !== 'PHYSICAL' && tutor.offersOnline} physical={tutor.searchMode !== 'ONLINE' && tutor.offersPhysical} /></div>
           <div className="mt-2 flex items-center gap-1.5 text-xs text-slate-600">
             <Icon name="pin" className="h-3.5 w-3.5 shrink-0 text-brand-500" />
-            <span className="min-w-0 break-words">{tutor.location}{distance && tutor.offersPhysical ? ` · ${distance}` : ''}</span>
+            <span className="min-w-0 break-words">{tutor.searchMode === 'ONLINE' ? 'Based in ' : ''}{tutor.location}{distance && tutor.offersPhysical ? ` · ${distance}` : ''}</span>
           </div>
           {!match && (
             <div className="mt-1 flex items-center gap-1.5 text-xs text-emerald-700">

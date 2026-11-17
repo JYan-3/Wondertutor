@@ -112,6 +112,11 @@ export default function MatchResults() {
       </EmptyState></div>
     )
 
+  const resultType = result.searchScope?.mode === 'PHYSICAL' ? 'nearby physical ' : result.searchScope?.mode === 'ONLINE' ? 'online ' : ''
+  const subtitle = tutors.length === 0 && alternatives.length > 0
+    ? `No physical tutors match your current filters${result.searchScope?.location ? ` near ${result.searchScope.location}` : ''}. ${alternatives.length} online alternative${alternatives.length === 1 ? ' is' : 's are'} available across Malaysia.`
+    : `We found ${result.total} ${resultType}tutor${result.total === 1 ? '' : 's'} for your search.${tutors.length !== result.total && result.total > 0 ? ` Showing ${tutors.length} with your filters.` : ''}`
+
   return (
     <div>
       <Link to="/parent/find-tutor/match" className="mb-3 inline-flex items-center gap-2 text-sm font-semibold text-brand-500 hover:underline">
@@ -125,7 +130,7 @@ export default function MatchResults() {
       )}
       <PageTitle
         title="Here are your recommended tutors"
-        subtitle={`We found ${result.total} tutor${result.total === 1 ? '' : 's'} that match your requirements.${tutors.length !== result.total && result.total > 0 ? ` Showing ${tutors.length} with your filters.` : ''}`}
+        subtitle={subtitle}
         right={<button onClick={() => navigate('/parent/find-tutor/match')} className="btn-outline h-11 px-5"><Icon name="edit" className="h-4 w-4" /> Edit Matching Preferences</button>}
       />
 
