@@ -15,6 +15,8 @@ const show = (bookings) => {
   api.get.mockResolvedValue({ data: { bookings } })
   return render(<MemoryRouter><Students /></MemoryRouter>)
 }
+const student = name => screen.findByText(name, { selector: 'summary strong' })
+const openStudent = group => { if (!group.open) fireEvent.click(group.querySelector('summary')) }
 const summaries = () => Array.from(document.querySelectorAll('summary strong'), n => n.textContent)
 
 beforeEach(() => { vi.resetAllMocks() })
@@ -27,7 +29,7 @@ test('loads the tutor lesson list', async () => {
 
 test('groups lessons by student and shows the grade and lesson count', async () => {
   show([lesson(1, sarah, 'CONFIRMED'), lesson(2, sarah, 'COMPLETED'), lesson(3, adam, 'CONFIRMED')])
-  const group = (await screen.findByText('Sarah Lim')).closest('details')
+  const group = (await student('Sarah Lim')).closest('details')
   expect(within(group).getByText('1 upcoming')).toBeInTheDocument()
   expect(within(group).getByText('1 completed')).toBeInTheDocument()
   expect(summaries()).toEqual(['Sarah Lim', 'Adam Tan'])
@@ -38,9 +40,9 @@ test('lists confirmed, completed and disputed lessons only', async () => {
     lesson(1, sarah, 'CONFIRMED'), lesson(2, sarah, 'COMPLETED'), lesson(3, sarah, 'DISPUTED'),
     lesson(4, sarah, 'PENDING'), lesson(5, sarah, 'CANCELLED'), lesson(6, sarah, 'REJECTED'), lesson(7, sarah, 'AWAITING_PAYMENT'),
   ])
-  const group = (await screen.findByText('Sarah Lim')).closest('details')
-  fireEvent.click(group.querySelector('summary'))
-  expect(within(group).getAllByRole('link')).toHaveLength(3)
+  const group = (await student('Sarah Lim')).closest('details')
+  openStudent(group)
+  expect(within(group.querySelector('ul')).getAllByRole('link')).toHaveLength(3)
 })
 
 test('a child with only requests or cancelled lessons is not listed', async () => {
@@ -50,7 +52,7 @@ test('a child with only requests or cancelled lessons is not listed', async () =
 
 test('each lesson links to its session page with date, subject and status', async () => {
   show([lesson(9, sarah, 'COMPLETED', '2026-12-07T09:00:00.000Z', 'Science')])
-  fireEvent.click(await screen.findByText('Sarah Lim'))
+  openStudent((await student('Sarah Lim')).closest('details'))
   const link = screen.getByRole('link', { name: /Science · completed/ })
   expect(link).toHaveAttribute('href', '/tutor/bookings/9/session')
   expect(link).toHaveTextContent('7 Dec 2026')
@@ -58,14 +60,14 @@ test('each lesson links to its session page with date, subject and status', asyn
 
 test('search finds a student by part of the name, ignoring case', async () => {
   show([lesson(1, sarah, 'CONFIRMED'), lesson(2, adam, 'CONFIRMED')])
-  await screen.findByText('Adam Tan')
+  await student('Adam Tan')
   fireEvent.change(screen.getByLabelText('Find a student'), { target: { value: 'sAr' } })
   expect(summaries()).toEqual(['Sarah Lim'])
 })
 
 test('search with no match says so and clearing it shows everyone again', async () => {
   show([lesson(1, sarah, 'CONFIRMED'), lesson(2, adam, 'CONFIRMED')])
-  await screen.findByText('Adam Tan')
+  await student('Adam Tan')
   const box = screen.getByLabelText('Find a student')
   fireEvent.change(box, { target: { value: 'zzz' } })
   expect(screen.getByText('No matching students.')).toBeInTheDocument()
@@ -75,15 +77,15 @@ test('search with no match says so and clearing it shows everyone again', async 
 
 test('two children with the same name stay separate', async () => {
   show([lesson(1, sarah, 'CONFIRMED'), lesson(2, { ...sarah, id: 3, grade: 2 }, 'CONFIRMED')])
-  expect(await screen.findAllByText('Sarah Lim')).toHaveLength(2)
-  expect(screen.getByText(/Primary 2/)).toBeInTheDocument()
+  expect(await screen.findAllByText('Sarah Lim', { selector: 'summary strong' })).toHaveLength(2)
+  expect(screen.getByText(/Primary 2/, { selector: 'summary' })).toBeInTheDocument()
 })
 
 test("a student's lessons stay in the order the server sent them", async () => {
   show([lesson(1, sarah, 'COMPLETED', '2026-11-02T09:00:00.000Z'), lesson(2, sarah, 'CONFIRMED', '2026-12-07T09:00:00.000Z')])
-  const group = (await screen.findByText('Sarah Lim')).closest('details')
-  fireEvent.click(within(group).getByText('Sarah Lim'))
-  const links = within(group).getAllByRole('link').map((a) => a.getAttribute('href'))
+  const group = (await student('Sarah Lim')).closest('details')
+  openStudent(group)
+  const links = within(group.querySelector('ul')).getAllByRole('link').map((a) => a.getAttribute('href'))
   expect(links).toEqual(['/tutor/bookings/1/session', '/tutor/bookings/2/session'])
 })
 
@@ -92,16 +94,16 @@ test('a failed load can be retried', async () => {
   render(<MemoryRouter><Students /></MemoryRouter>)
   expect(await screen.findByText('Network error')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: /try again|retry/i }))
-  expect(await screen.findByText('Sarah Lim')).toBeInTheDocument()
+  expect(await student('Sarah Lim')).toBeInTheDocument()
 })
 
 test('Ben’s disputed Mathematics lesson stays accessible and never counts as completed', async () => {
   const ben = { id: 3, name: 'Ben Lee (Demo)', educationLevel: 'PRIMARY', grade: 5 }
   const disputed = { ...lesson(9, ben, 'DISPUTED', '2026-10-27T09:00:00Z'), publicId: 'ben-session' }
   show([disputed, lesson(10, ben, 'CONFIRMED'), lesson(11, ben, 'CONFIRMED', '2020-01-01T09:00:00Z')])
-  const group = (await screen.findByText(ben.name)).closest('details')
+  const group = (await student(ben.name)).closest('details')
   for (const count of ['1 upcoming', '0 completed', '1 disputed', '1 awaiting completion']) expect(within(group).getByText(count)).toBeVisible()
-  fireEvent.click(group.querySelector('summary'))
+  openStudent(group)
   expect(within(group).getByRole('link', { name: /Mathematics · disputed/ })).toHaveAttribute('href', '/tutor/bookings/ben-session/session')
 })
 
@@ -114,7 +116,7 @@ test('Iris sees Alya’s last completed report beside her earliest upcoming conf
     { ...lesson(3, alya, 'DISPUTED', '2020-11-05'), report: { progressNote: 'Disputed report.' } },
     lesson(4, alya, 'CONFIRMED', '2020-11-06'), lesson(5, alya, 'CONFIRMED', future(1), 'Mathematics'), lesson(6, alya, 'CONFIRMED', future(2), 'Science'),
   ])
-  fireEvent.click(await screen.findByText(alya.name))
+  openStudent((await student(alya.name)).closest('details'))
   expect(screen.getByText('Solved four of five problems independently.')).toBeVisible()
   expect(screen.getByText('Complete five fraction exercises.')).toBeVisible()
   expect(screen.queryByText('Older report.')).toBeNull()
@@ -124,7 +126,7 @@ test('Iris sees Alya’s last completed report beside her earliest upcoming conf
 
 test('a missing latest report does not substitute older homework', async () => {
   show([{ ...lesson(1, sarah, 'COMPLETED', '2020-01-01'), report: { homework: 'Older homework' } }, lesson(2, sarah, 'COMPLETED', '2020-01-02')])
-  fireEvent.click(await screen.findByText(sarah.name))
+  openStudent((await student(sarah.name)).closest('details'))
   expect(screen.getByText('No report recorded for this lesson.')).toBeVisible()
   expect(screen.getByText('No upcoming confirmed lesson.')).toBeVisible()
   expect(screen.queryByText('Older homework')).toBeNull()
@@ -135,11 +137,21 @@ test('lesson history filters disputes without hiding the last completed report',
     { ...lesson(1, sarah, 'COMPLETED', '2020-01-01'), report: { progressNote: 'Understands fractions', homework: 'Five exercises' } },
     lesson(2, sarah, 'DISPUTED', '2020-02-01'), lesson(3, sarah, 'CONFIRMED'),
   ])
-  fireEvent.click(await screen.findByText('Sarah Lim'))
+  openStudent((await student('Sarah Lim')).closest('details'))
   fireEvent.change(screen.getByRole('combobox', { name: 'Show lessons for Sarah Lim' }), { target: { value: 'disputed' } })
-  expect(screen.getAllByRole('link')).toHaveLength(1)
-  expect(screen.getByRole('link')).toHaveAttribute('href', '/tutor/bookings/2/session')
+  expect(within(document.querySelector('details ul')).getAllByRole('link')).toHaveLength(1)
+  expect(within(document.querySelector('details ul')).getByRole('link')).toHaveAttribute('href', '/tutor/bookings/2/session')
   expect(screen.getByText('Five exercises')).toBeVisible()
   fireEvent.change(screen.getByRole('combobox'), { target: { value: 'all' } })
-  expect(screen.getAllByRole('link')).toHaveLength(3)
+  expect(within(document.querySelector('details ul')).getAllByRole('link')).toHaveLength(3)
+})
+
+
+test('the student selector opens another student without mixing their report', async () => {
+  show([{ ...lesson(1, sarah, 'COMPLETED'), report: { homework: 'Sarah homework' } }, { ...lesson(2, adam, 'COMPLETED'), report: { homework: 'Adam homework' } }])
+  await student('Sarah Lim')
+  fireEvent.click(within(screen.getByRole('complementary', { name: 'Choose a student' })).getByRole('button', { name: /Adam Tan/ }))
+  expect((await student('Adam Tan')).closest('details')).toHaveAttribute('open')
+  expect((await student('Sarah Lim')).closest('details')).not.toHaveAttribute('open')
+  expect(screen.getByText('Adam homework')).toBeVisible()
 })

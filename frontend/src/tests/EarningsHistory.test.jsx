@@ -19,18 +19,18 @@ const show = (data = view) => {
 beforeEach(() => { vi.resetAllMocks(); vi.spyOn(window, 'scrollTo').mockImplementation(() => {}) })
 afterEach(() => vi.restoreAllMocks())
 
-test('shows the four balance cards with the tutor and base commission rates', async () => {
+test('shows available, held and transferred amounts with saved-rate guidance', async () => {
   show()
   expect(await screen.findByText('Available to withdraw')).toBeInTheDocument()
-  expect(screen.getByText('Total earned: RM 90.00')).toBeInTheDocument()
-  expect(screen.getByText('12%')).toBeInTheDocument()
-  expect(screen.getByText('Platform base rate: 15%')).toBeInTheDocument()
+  expect(screen.getByText(/Total earned: RM 90.00/)).toBeInTheDocument()
+  expect(screen.getByText(/current commission rate: 12%/)).toBeInTheDocument()
+  expect(screen.getByText(/platform base: 15%/)).toBeInTheDocument()
   expect(screen.getByText('Total paid: RM 45.00')).toBeInTheDocument()
 })
 
 test('a new tutor sees empty states and cannot request a withdrawal without a bank', async () => {
   show({ ...view, available: '0.00', bank: null })
-  expect(await screen.findByText('Add a bank account below to withdraw.')).toBeInTheDocument()
+  expect(await screen.findAllByText('Add a bank account to request a withdrawal.')).toHaveLength(2)
   expect(screen.getByText('No lesson payments for this period.')).toBeInTheDocument()
   expect(screen.getByText('No withdrawals yet.')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Request withdrawal' })).toBeDisabled()
@@ -41,7 +41,8 @@ test('a new tutor sees empty states and cannot request a withdrawal without a ba
 
 test('the withdraw button stays off until an amount is typed', async () => {
   show()
-  const button = await screen.findByRole('button', { name: 'Request withdrawal' })
+  fireEvent.click(await screen.findByRole('button', { name: 'Request withdrawal' }))
+  const button = screen.getByRole('button', { name: 'Confirm withdrawal' })
   expect(button).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Amount (RM)'), { target: { value: '5' } })
   expect(button).toBeEnabled()
@@ -51,8 +52,9 @@ test('the withdraw button stays off until an amount is typed', async () => {
 test('a refused withdrawal shows the reason and reloads the balance', async () => {
   show()
   api.post.mockRejectedValue(new Error('Your balance changed. Refresh and check your withdrawal history.'))
+  fireEvent.click(await screen.findByRole('button', { name: 'Request withdrawal' }))
   fireEvent.change(await screen.findByLabelText('Amount (RM)'), { target: { value: '5' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Request withdrawal' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
   expect(await screen.findByText(/Your balance changed/)).toBeInTheDocument()
   expect(api.get).toHaveBeenCalledTimes(2)
 })
@@ -61,9 +63,9 @@ test('a lesson with a refund shows the refund and the original commission', asyn
   show({ ...view, transactions: [row(1, new Date().toISOString(), { refunded: '33.33', originalShare: 88, tutorRefundShare: 29.33, platformRefundShare: 4, commission: '8.00', net: '58.67' })] })
   const item = (await screen.findByText('Mathematics · Sarah')).closest('li')
   expect(within(item).getByText('Refund to parent')).toBeInTheDocument()
-  expect(within(item).getByText('RM 33.33')).toBeInTheDocument()
+  expect(within(item).getByText('RM 33.33', { selector: 'dd' })).toBeInTheDocument()
   expect(within(item).getByText('RM 29.33')).toBeInTheDocument()
-  expect(within(item).getByText('RM 58.67')).toBeInTheDocument()
+  expect(within(item).getByText('RM 58.67', { selector: 'dd' })).toBeInTheDocument()
   expect(within(item).getByText(/Booking #101/)).toBeInTheDocument()
 })
 
@@ -103,11 +105,11 @@ test('withdrawal history shows each status and the rejection reason', async () =
   expect(await screen.findByText('RM 20.00 · Rejected')).toBeInTheDocument()
   expect(screen.getByText('Reason: Name does not match')).toBeInTheDocument()
   expect(screen.getByText('RM 10.00 · Paid')).toBeInTheDocument()
-  const pending = within(screen.getByRole('heading', { name: 'Pending withdrawals' }).closest('section'))
+  const pending = within(screen.getByRole('heading', { name: 'Pending withdrawals' }).parentElement)
   expect(pending.getByText(/Bank change under review/)).toBeInTheDocument()
   expect(pending.queryByText(/Paid/)).toBeNull()
   const history = within(screen.getByRole('heading', { name: 'Withdrawal history' }).closest('section'))
-  expect(history.queryByText(/Bank change under review/)).toBeNull()
+  expect(history.getByText(/Bank change under review/)).toBeInTheDocument()
 })
 
 test('removing the bank account sends no details and confirms', async () => {

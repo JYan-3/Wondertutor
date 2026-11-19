@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext'
 import TutorPageHeader from '../../components/TutorPageHeader'
 import Icon from '../../components/ui/Icon'
 import { LoadError, SectionCard, Spinner } from '../../components/ui/Common'
+import { recordRef } from '../../lib/recordRef'
 import { fmtDate, fmtTimeRange, greeting } from '../../lib/format'
 
 const ACTIONS = [
@@ -15,11 +16,30 @@ const ACTIONS = [
 
 function LessonRow({ lesson, showDate = false, featured = false }) {
   return <div className="flex min-w-0 flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-    <div className="min-w-0 break-words"><strong className={featured ? 'text-xl text-navy sm:text-2xl' : 'text-navy'}>{lesson.subject} · {lesson.student}</strong>
+    <div className="min-w-0 break-words"><strong className={featured ? 'font-display text-2xl text-navy sm:text-3xl' : 'text-navy'}>{lesson.student} · {lesson.subject}</strong>
       <p className="text-sm text-slate-600">{showDate && fmtDate(lesson.startAt) + ' · '}{fmtTimeRange(lesson.startAt, lesson.endAt)} (MYT)</p>
     </div>
     <Link to={lesson.to} className={featured ? 'btn-primary min-h-11 sm:shrink-0' : 'inline-flex min-h-11 items-center gap-2 self-start text-sm font-semibold text-brand-700 hover:underline sm:self-center'}>{lesson.action}{!featured && <Icon name="arrow-right" className="h-4 w-4 shrink-0" />}</Link>
   </div>
+}
+
+function ContinueLesson() {
+  const [last, setLast] = useState(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    const controller = new AbortController()
+    api.get('/tutor/bookings', { signal: controller.signal }).then(({ data }) => {
+      if (controller.signal.aborted) return
+      const completed = (data.bookings || []).filter(b => b.status === 'COMPLETED' && b.report)
+      completed.sort((a, b) => Date.parse(b.startAt) - Date.parse(a.startAt))
+      setLast(completed[0] || null)
+    }).catch(() => { if (!controller.signal.aborted) setFailed(true) })
+    return () => controller.abort()
+  }, [])
+  return <SectionCard title="Continue where you left off" className="tutor-paper-note">
+    {last ? <><p className="font-semibold text-navy">{last.child.name} · {last.subject}</p><p className="mt-2 whitespace-pre-line break-words text-sm">{last.report.progressNote || 'No progress note recorded.'}</p><p className="mt-2 whitespace-pre-line break-words text-sm"><strong>Homework:</strong> {last.report.homework || 'No homework recorded.'}</p><Link className="mt-3 inline-flex min-h-11 items-center gap-2 font-semibold text-brand-700" to={'/tutor/bookings/' + recordRef(last) + '/session'}>View lesson report <Icon name="arrow-right" className="h-5 w-5" /></Link></>
+      : <><p className="text-sm">{failed ? 'Open My Students to review the latest lesson notes.' : 'Your latest completed lesson report will appear here.'}</p><Link className="mt-3 inline-flex min-h-11 items-center font-semibold text-brand-700" to="/tutor/students">Open My Students →</Link></>}
+  </SectionCard>
 }
 
 export default function TutorDashboard() {
@@ -56,21 +76,22 @@ export default function TutorDashboard() {
 
   return (
     <div className="space-y-6">
-      <TutorPageHeader dashboard title={`${greeting()}, ${user.fullName}!`} subtitle="Your next lesson and the actions that need you. All times are in Malaysia time." />
+      <TutorPageHeader dashboard title={`${greeting()}, ${user.fullName}!`} subtitle="Your teaching day, at a glance." />
       {hasSchedule ? <>
       <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2">
       <SectionCard title="Next lesson" icon="calendar" className="tutor-next-lesson">
         {data.nextLesson ? <LessonRow lesson={data.nextLesson} showDate featured /> : <p>No upcoming confirmed lessons.</p>}
       </SectionCard>
-        <SectionCard title="Action needed" icon="clock" className={data.actions?.length ? 'tutor-needs-attention' : ''}>
+        <SectionCard title="Needs your reply" icon="clock" className={data.actions?.length ? 'tutor-needs-attention' : ''}>
           {data.actions?.length ? <div className="divide-y divide-slate-100">{data.actions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} showDate />)}</div> : <p>No outstanding requests or session follow-ups.</p>}
           <Link to="/tutor/bookings" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-700 hover:underline">View all bookings</Link>
         </SectionCard>
       </div>
-      <div>
-        <SectionCard title="Today's sessions" icon="calendar" className="tutor-paper-blue">
+      <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <SectionCard title="Today's lessons" icon="calendar" className="tutor-today-list">
           {data.todaySessions?.length ? <div className="divide-y divide-slate-100">{data.todaySessions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} />)}</div> : <p>No sessions scheduled today.</p>}
         </SectionCard>
+        <ContinueLesson />
       </div>
       </> : <SectionCard title="Lesson schedule" icon="calendar">
         <p>The dashboard could only load your totals. Open Bookings to see your lessons and requests.</p>

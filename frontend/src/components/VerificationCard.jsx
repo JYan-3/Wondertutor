@@ -20,7 +20,7 @@ function documentStatus(profile, kind) {
   return docs.length ? 'Replacement needed' : 'None uploaded'
 }
 
-const VerificationCard = forwardRef(function VerificationCard({ profile, onUpload }, ref) {
+const VerificationCard = forwardRef(function VerificationCard({ profile, onUpload, compact = false }, ref) {
   const [badge, badgeCls, text] = STATUS[profile.status]
   const docs = profile.documents
   const usable = (kind) => docs.some((d) => d.kind === kind && d.status !== 'REJECTED')
@@ -35,10 +35,10 @@ const VerificationCard = forwardRef(function VerificationCard({ profile, onUploa
     <section ref={ref} aria-labelledby="verification-title" className="tutor-verification card mb-5 min-w-0 p-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2 id="verification-title" className="font-display text-lg font-bold text-navy">Verification</h2>
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${badgeCls}`}>
+        {!compact && <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${badgeCls}`}>
           <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" /> {badge}
-        </span>
-        {profile.submittedAt && <span className="text-xs text-slate-600">Submitted {fmtDateLong(profile.submittedAt)}</span>}
+        </span>}
+        {!compact && profile.submittedAt && <span className="text-xs text-slate-600">Submitted {fmtDateLong(profile.submittedAt)}</span>}
       </div>
       <dl className="mt-4 grid min-w-0 gap-3 sm:grid-cols-3">
         {[
@@ -52,7 +52,7 @@ const VerificationCard = forwardRef(function VerificationCard({ profile, onUploa
       </dl>
       <p className="mt-3 text-sm"><strong>Identity document:</strong> {documentStatus(profile, 'IDENTITY')}. The badge requires an approved identity document and at least one approved qualification.</p>
       {!profile.isVerified && <p className="mt-3 rounded-lg bg-amber-50 p-3 font-semibold text-navy">You can accept booking requests before you earn the badge.</p>}
-      <p className="mt-2 text-sm text-slate-600">{text}</p>
+      {!compact && <p className="mt-2 text-sm text-slate-600">{text}</p>}
 
       {needsDocument && (
         <ul className="mt-3 space-y-1 rounded-lg bg-red-50 px-3 py-2.5 text-sm text-navy">

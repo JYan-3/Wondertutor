@@ -52,7 +52,22 @@ test('shows the next confirmed lesson with Malaysia time and its booking action'
   const lesson = { ref: 'abc', subject: 'Mathematics', student: 'Alya', startAt: '2027-01-04T06:00:00Z', endAt: '2027-01-04T07:00:00Z', action: 'Add class link', to: '/tutor/bookings?booking=abc&action=link' }
   api.get.mockResolvedValue({ data: { ...overview, nextLesson: lesson, todaySessions: [lesson], actions: [] } })
   show()
-  expect(await screen.findAllByText('Mathematics · Alya')).toHaveLength(2)
+  expect(await screen.findAllByText('Alya · Mathematics')).toHaveLength(2)
   expect(screen.getAllByText(/2:00 PM – 3:00 PM/)).toHaveLength(2)
   expect(screen.getAllByRole('link', { name: 'Add class link' })[0]).toHaveAttribute('href', lesson.to)
+})
+
+
+test('continues from the latest completed report, excluding disputed reports', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/bookings' ? { bookings: [
+    { id: 1, status: 'COMPLETED', startAt: '2026-01-01', child: { name: 'Alya' }, subject: 'Maths', report: { homework: 'Older homework' } },
+    { id: 2, publicId: 'latest-report', status: 'COMPLETED', startAt: '2026-01-02', child: { name: 'Alya' }, subject: 'Maths', report: { progressNote: 'Equivalent fractions', homework: 'Questions 1–5' } },
+    { id: 3, status: 'DISPUTED', startAt: '2026-01-03', child: { name: 'Ben' }, subject: 'Maths', report: { homework: 'Disputed homework' } },
+  ] } : { ...overview, nextLesson: null, todaySessions: [], actions: [] } }))
+  show()
+  expect(await screen.findByText('Equivalent fractions')).toBeVisible()
+  expect(screen.getByText('Homework:').parentElement).toHaveTextContent('Questions 1–5')
+  expect(screen.getByRole('link', { name: /View lesson report/ })).toHaveAttribute('href', '/tutor/bookings/latest-report/session')
+  expect(screen.queryByText('Older homework')).toBeNull()
+  expect(screen.queryByText('Disputed homework')).toBeNull()
 })

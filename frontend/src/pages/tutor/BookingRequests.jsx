@@ -168,22 +168,33 @@ export default function BookingRequests() {
     setId(b.id)
   }
   return <div className="min-w-0 space-y-4">
-    <TutorPageHeader title="Booking requests" subtitle="Know what needs your reply and what happens next." />
+    <TutorPageHeader title="My bookings" subtitle="Know what needs your reply and what happens next." />
     {error ? <LoadError message={error} onRetry={load} /> : !rows ? <Spinner /> : <>
       <div className="tutor-filter-bar flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2" aria-label="Booking filters">{Object.keys(groups).map(g => <button key={g} aria-pressed={!replyOnly && g === tab} className={(!replyOnly && g === tab ? 'btn-primary' : 'btn-outline') + ' min-h-11'} onClick={() => { setTab(g); setReplyOnly(false); setId(null); setMobileDetail(false) }}>{g} ({rows.filter(b => groupFor(b) === g).length})</button>)}</div>
         <button type="button" aria-pressed={replyOnly} className={(replyOnly ? 'btn-primary' : 'btn-outline') + ' min-h-11'} onClick={() => { setReplyOnly(!replyOnly); setMobileDetail(false); setId(null) }}>Needs my reply ({rows.filter(needsReply).length})</button>
         <label className="min-w-0 flex-1 basis-full text-sm font-semibold sm:basis-48">Find a student or subject<input type="search" className="input mt-1 min-h-11 w-full text-base" value={query} onChange={e => { setQuery(e.target.value); setMobileDetail(false) }} placeholder="Name or subject" /></label>
       </div>
-      {!selected ? <div className="card p-6">No bookings in this section yet.</div> : <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)]">
-        <div className={(mobileDetail ? 'hidden lg:block ' : '') + 'card min-w-0 space-y-2 p-3'}>{visible.map(b => <button key={b.id} aria-pressed={selected.id === b.id} className="block min-h-11 w-full break-words rounded-lg border border-brand-100 border-l-4 bg-white p-3 text-left aria-pressed:border-l-brand-600 aria-pressed:bg-brand-50" onClick={() => { setId(b.id); setMobileDetail(true) }}>
-          <strong className="block text-navy">{b.subject} · {b.child.name}</strong><span className="text-sm">{fmtDate(b.startAt)}, {fmtTime(b.startAt)} · {b.parentName}</span>
-          <span className="mt-1 block text-xs text-slate-600">{b.teachingMode === 'ONLINE' ? 'Online lesson' : 'Physical lesson'}</span>
-          <BookingRowStatus booking={b} />
-          <span className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-brand-700">{needsReply(b) ? b.status === 'PENDING' ? 'Review request →' : 'Review time change →' : 'View details →'}</span>
-        </button>)}</div>
-        <div className={(mobileDetail ? '' : 'hidden lg:block ') + 'min-w-0 space-y-2'}>
-          <button className="btn-outline min-h-11 lg:hidden" onClick={() => setMobileDetail(false)}>Back to list</button>
+      {!selected ? <div className="card p-6">No bookings in this section yet.</div> : <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className={(mobileDetail ? 'hidden ' : '') + 'min-w-0 space-y-5'}>
+          {[['Needs your reply', visible.filter(needsReply)], [tab === 'History' ? 'Past lessons' : tab === 'Lessons' ? 'Your lessons' : 'Waiting for others', visible.filter(b => !needsReply(b))]].map(([heading, items]) => items.length > 0 && <section key={heading}>
+            <h2 className="mb-3 font-display text-2xl font-bold text-navy">{heading}</h2>
+            <div className="card min-w-0 divide-y divide-brand-100 px-4">{items.map(b => <button key={b.id} aria-pressed={selected.id === b.id && mobileDetail} className="tutor-booking-row grid min-h-11 w-full min-w-0 gap-3 py-5 text-left sm:grid-cols-[minmax(0,1fr)_minmax(0,.85fr)_10rem] sm:items-center" onClick={() => { setId(b.id); setMobileDetail(true) }}>
+              <span className="min-w-0 break-words"><strong className="block text-lg text-navy">{b.child.name} · {b.subject}</strong><span className="mt-1 block text-sm">{fmtDate(b.startAt)} · {fmtTimeRange(b.startAt, b.endAt)}</span><span className="mt-1 block text-sm">{b.teachingMode === 'ONLINE' ? 'Online lesson' : 'Physical lesson'}</span></span>
+              <span className="min-w-0 break-words sm:border-l sm:border-brand-100 sm:pl-4"><BookingRowStatus booking={b} /></span>
+              <span className={(needsReply(b) ? 'btn-primary' : 'btn-outline') + ' min-h-11 w-full text-center text-sm'}>{needsReply(b) ? b.status === 'PENDING' ? 'Review request' : 'Review time change' : 'View details'}</span>
+            </button>)}</div>
+          </section>)}
+          <p className="text-sm text-slate-600">All lesson times are shown in Malaysia time.</p>
+        </div>
+        <aside className={(mobileDetail ? 'hidden ' : '') + 'tutor-paper-note card min-w-0 space-y-4 p-5'}>
+          <h2 className="font-display text-2xl font-bold text-navy">Before your next lesson</h2>
+          <p className="text-sm">□ Confirm the venue for physical lessons.</p>
+          <p className="text-sm">□ Add the online class link.</p>
+          <button className="min-h-11 border-t border-brand-100 text-left font-semibold text-brand-700" onClick={() => { setTab('Lessons'); setReplyOnly(false); setId(null) }}>Open upcoming lessons →</button>
+        </aside>
+        <div className={(mobileDetail ? '' : 'hidden ') + 'min-w-0 space-y-3 lg:col-span-2'}>
+          <button className="btn-outline min-h-11" onClick={() => setMobileDetail(false)}>Back to list</button>
           <BookingDetails key={selected.id} b={selected} openLinkForm={params.get('action') === 'link' && matchesRecordRef(selected, params.get('booking'))} onUpdate={updated} onReload={() => load(recordRef(selected))} />
         </div>
       </div>}

@@ -332,7 +332,7 @@ export default function Availability() {
     <div>
       <TutorPageHeader
         title="My availability"
-        subtitle="Set the hours parents can book. Keep a usual schedule or adjust a particular week."
+        subtitle="Set the hours parents can book."
         right={<Link to="/tutor/availability/dates" className="btn-outline min-h-11"><Icon name="edit" className="h-4 w-4" />Set different hours for one date</Link>}
       />
 
@@ -689,19 +689,36 @@ function AddHours({ onAdd, target, modeLabel, teachAs, onPickMode, presets, onSa
   }
 
   return (
-    <section className="tutor-paper-note card h-fit p-5" aria-labelledby="add-hours-title">
+    <section className="tutor-quick-add card h-fit min-w-0 p-5" aria-labelledby="add-hours-title">
       <div className="mb-3 flex items-center gap-2 border-b border-brand-100 pb-3">
         <h2 id="add-hours-title" className="text-lg font-bold text-navy">Add many hours at once</h2>
-        <img src="/img/art/weekly-planner.png" alt="" width="80" height="80" className="ml-auto h-16 w-16 shrink-0 object-contain sm:h-20 sm:w-20" />
+
       </div>
+      <h3 className="mt-5 text-sm font-semibold text-navy">Use a preset</h3>
+      {presets.length === 0 && <p className="mt-1 text-xs text-slate-600">No quick adds yet. Choose days and times above, then save them here.</p>}
+      <ul className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-1">
+        {presets.map((p, i) => (
+          <li key={`${p.label}-${i}`} className="flex min-w-0 flex-col gap-1 lg:flex-row lg:items-stretch">
+            <button type="button" aria-label={p.label} onClick={() => { setError(''); onAdd(p.days, p.from, p.to, p.mode) }} className="btn-outline min-h-11 min-w-0 flex-1 flex-col gap-0 px-2 text-sm [overflow-wrap:anywhere] lg:px-3">
+              <span className="block">{p.label}</span>
+              {p.mode && <span className="block text-xs font-normal">{quickAddDetails(p)}</span>}
+            </button>
+            <div className="flex gap-1 lg:contents">
+              <button type="button" aria-label={`Edit ${p.label}`} title="Edit" onClick={() => startEdit(i)} disabled={saving} className="flex min-h-11 flex-1 items-center justify-center rounded-lg text-slate-600 hover:bg-brand-50 lg:w-11 lg:flex-none"><Icon name="edit" className="h-4 w-4" /></button>
+              <button type="button" aria-label={`Delete ${p.label}`} title="Delete" onClick={() => remove(i)} disabled={saving} className="flex min-h-11 flex-1 items-center justify-center rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-600 lg:w-11 lg:flex-none"><Icon name="trash" className="h-4 w-4" /></button>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <h3 className="mt-5 border-t border-brand-100 pt-4 font-semibold text-navy">Add custom hours</h3>
       <p className="mt-1 text-xs text-slate-600">Adding to: {target}</p>
       <p className="text-xs text-slate-600">Added as: {modeLabel}</p>
       <fieldset className="mt-3">
         <legend className="mb-1 text-sm font-semibold text-navy">Days</legend>
-        <div className="grid grid-cols-2 gap-x-3">
+        <div className="grid grid-cols-4 gap-1">
           {DAYS.map((day) => (
-            <label key={day.value} className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-navy">
-              <input type="checkbox" className="h-4 w-4 accent-brand-500" checked={days.includes(day.value)} onChange={(e) => toggleDay(day.value, e.target.checked)} /> {day.label}
+            <label key={day.value} className="relative flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-brand-200 text-sm text-navy has-checked:bg-brand-600 has-checked:text-white has-focus-visible:ring-2 has-focus-visible:ring-brand-600">
+              <input type="checkbox" className="sr-only" checked={days.includes(day.value)} onChange={(e) => toggleDay(day.value, e.target.checked)} /> <span aria-hidden="true">{day.label.slice(0, 3)}</span><span className="sr-only">{day.label}</span>
             </label>
           ))}
         </div>
@@ -738,22 +755,7 @@ function AddHours({ onAdd, target, modeLabel, teachAs, onPickMode, presets, onSa
         <p className="mt-2 text-xs text-slate-600">You have {MAX_QUICK_ADD} quick adds, the most you can keep. Delete one to save another.</p>
       )}
 
-      <h3 className="mt-5 text-sm font-semibold text-navy">Quick add</h3>
-      {presets.length === 0 && <p className="mt-1 text-xs text-slate-600">No quick adds yet. Choose days and times above, then save them here.</p>}
-      <ul className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-1">
-        {presets.map((p, i) => (
-          <li key={`${p.label}-${i}`} className="flex min-w-0 flex-col gap-1 lg:flex-row lg:items-stretch">
-            <button type="button" aria-label={p.label} onClick={() => { setError(''); onAdd(p.days, p.from, p.to, p.mode) }} className="btn-outline min-h-11 min-w-0 flex-1 flex-col gap-0 px-2 text-sm [overflow-wrap:anywhere] lg:px-3">
-              <span className="block">{p.label}</span>
-              {p.mode && <span className="block text-xs font-normal">{quickAddDetails(p)}</span>}
-            </button>
-            <div className="flex gap-1 lg:contents">
-              <button type="button" aria-label={`Edit ${p.label}`} title="Edit" onClick={() => startEdit(i)} disabled={saving} className="flex min-h-11 flex-1 items-center justify-center rounded-lg text-slate-600 hover:bg-brand-50 lg:w-11 lg:flex-none"><Icon name="edit" className="h-4 w-4" /></button>
-              <button type="button" aria-label={`Delete ${p.label}`} title="Delete" onClick={() => remove(i)} disabled={saving} className="flex min-h-11 flex-1 items-center justify-center rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-600 lg:w-11 lg:flex-none"><Icon name="trash" className="h-4 w-4" /></button>
-            </div>
-          </li>
-        ))}
-      </ul>
+
     </section>
   )
 }
