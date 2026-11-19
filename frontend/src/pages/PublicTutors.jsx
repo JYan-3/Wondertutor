@@ -49,6 +49,7 @@ function TutorFilters({ initial, catalog, onSearch, onClear }) {
   const [draft, setDraft] = useState(initial)
   const allowedSubjects = subjectsForLevel(catalog.subjects, catalog.subjectLevels, draft.level)
   const level = LEVELS.find(item => item.value === draft.level)
+  const dirty = Object.keys(initial).some(key => initial[key] !== draft[key])
   const change = (field, value) => setDraft(previous => {
     const next = { ...previous, [field]: value }
     if (field === 'level') {
@@ -98,6 +99,7 @@ function TutorFilters({ initial, catalog, onSearch, onClear }) {
           <select className="input mt-1" value={draft.sort} onChange={event => change('sort', event.target.value)}>{SORTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </label>
       </div>
+      {dirty && <p role="status" className="mt-4 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Your filters have changed. Select Search Tutors to update the results.</p>}
       <button type="submit" className="btn-primary mt-5 min-h-11 w-full px-6 sm:w-auto">Search Tutors <Icon name="search" className="h-4 w-4" /></button>
     </form>
   )
@@ -156,7 +158,7 @@ export default function PublicTutors() {
       <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">Browse teaching information, qualifications, rates and parent reviews. Log in or create a parent account when you are ready to book.</p>
       <TutorFilters key={queryKey} initial={filters} catalog={catalog} onSearch={search} onClear={() => setParams({})} />
       {catalogError && <p role="status" className="mt-3 text-sm text-amber-800">{catalogError}</p>}
-      <div ref={resultsTop} className="mt-6 scroll-mt-24">
+      <div ref={resultsTop} aria-busy={loading} className="mt-6 scroll-mt-24">
         {loading && <p role="status" className="rounded-xl bg-brand-50 p-4 text-sm text-navy">Loading tutors…</p>}
         {error && <div role="alert" className="card p-5 text-sm text-red-700"><p>{error}</p><button type="button" onClick={() => setRetry(value => value + 1)} className="btn-outline mt-3 min-h-11">Try again</button></div>}
         {!loading && !error && data && <>

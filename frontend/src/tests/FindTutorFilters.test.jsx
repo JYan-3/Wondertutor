@@ -103,6 +103,50 @@ test('opening AI matching from an empty browse search does not pass an invalid g
   expect(patchCriteria).toHaveBeenCalledWith({ subject: '', level: '', grade: null, location: '', childId: null })
 })
 
+test('editing the search shows an unapplied-change notice and submitting the form applies it', async () => {
+  open()
+  await screen.findByRole('heading', { name: 'No tutors found' })
+  const before = api.get.mock.calls.length
+  fireEvent.change(screen.getByRole('combobox', { name: /Subject/ }), { target: { value: 'Mathematics' } })
+  expect(screen.getByText(/Your filters have changed/)).toBeVisible()
+  expect(api.get).toHaveBeenCalledTimes(before)
+  fireEvent.submit(screen.getByRole('form', { name: 'Search tutors' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params.subject).toBe('Mathematics'))
+  expect(screen.queryByText(/Your filters have changed/)).not.toBeInTheDocument()
+})
+
+test('a failed search hides stale cards and retry retains the applied search fields', async () => {
+  api.get.mockResolvedValueOnce({ data: { tutors: [remoteTutor], total: 1, page: 1, totalPages: 1, pageSize: 9 } })
+  open()
+  await screen.findByRole('heading', { name: remoteTutor.name })
+  api.get.mockRejectedValueOnce(new Error('Please try again later'))
+  fireEvent.change(screen.getByRole('combobox', { name: /Subject/ }), { target: { value: 'Mathematics' } })
+  fireEvent.submit(screen.getByRole('form', { name: 'Search tutors' }))
+  expect(await screen.findByText("We couldn't load tutors")).toBeVisible()
+  expect(screen.queryByRole('heading', { name: remoteTutor.name })).not.toBeInTheDocument()
+  expect(screen.getByRole('combobox', { name: /Subject/ })).toHaveValue('Mathematics')
+  const failedQuery = api.get.mock.lastCall[1].params
+  fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual(failedQuery))
+  expect(await screen.findByRole('heading', { name: 'No tutors found' })).toBeVisible()
+})
+
+test('old tutor cards cannot be acted on while a replacement search is pending', async () => {
+  api.get.mockResolvedValueOnce({ data: { tutors: [remoteTutor], total: 1, page: 1, totalPages: 1, pageSize: 9 } })
+  open()
+  await screen.findByRole('heading', { name: remoteTutor.name })
+  let resolveSearch
+  api.get.mockImplementationOnce(() => new Promise(resolve => { resolveSearch = resolve }))
+  fireEvent.change(screen.getByRole('combobox', { name: /Subject/ }), { target: { value: 'Mathematics' } })
+  fireEvent.submit(screen.getByRole('form', { name: 'Search tutors' }))
+  expect(screen.getByRole('region', { name: 'Tutor results' })).toHaveAttribute('aria-busy', 'true')
+  expect(screen.getByText('Updating tutor results…')).toBeVisible()
+  expect(screen.getByRole('heading', { name: remoteTutor.name }).closest('[inert]')).not.toBeNull()
+  resolveSearch({ data: { tutors: [], total: 0, page: 1, totalPages: 1, pageSize: 9 } })
+  await screen.findByRole('heading', { name: 'No tutors found' })
+  expect(screen.getByRole('region', { name: 'Tutor results' })).toHaveAttribute('aria-busy', 'false')
+})
+
 const remoteTutor = { id: 18, name: 'Remote English Tutor', photoUrl: null, rating: 4.5, reviewCount: 2, hourlyRate: 55, mainSubject: 'English', levels: 'Primary 1–6', offersOnline: true, offersPhysical: true, location: 'Bayan Lepas, Pulau Pinang', availableDays: ['Mon'], characteristics: [], searchMode: 'ONLINE', match: { score: 90, label: 'Highly suitable', reasons: ['Offers online lessons'], distanceKm: null } }
 
 test('no nearby result shows online alternatives separately and carries Online into booking', async () => {

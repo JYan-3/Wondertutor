@@ -57,10 +57,11 @@ export function StatusPill({ status, label }) {
   )
 }
 
-export function Spinner({ className = '' }) {
+export function Spinner({ className = '', label = 'Loading content…' }) {
   return (
-    <div className={`flex items-center justify-center p-10 ${className}`}>
-      <span className="h-8 w-8 animate-spin rounded-full border-4 border-brand-100 border-t-brand-500" />
+    <div role="status" className={`flex items-center justify-center p-10 ${className}`}>
+      <span aria-hidden="true" className="h-8 w-8 animate-spin rounded-full border-4 border-brand-100 border-t-brand-500" />
+      <span className="sr-only">{label}</span>
     </div>
   )
 }
@@ -72,11 +73,11 @@ export function ErrorBox({ children, className = '' }) {
 }
 
 // Shown instead of an endless spinner when a page's data could not be loaded (server down, no internet)
-export function LoadError({ message, onRetry }) {
+export function LoadError({ message, onRetry, title = "We couldn't load this page" }) {
   return (
     <div role="alert" className="card mx-auto my-6 flex max-w-md flex-col items-center gap-3 p-8 text-center">
       <span className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50 text-red-600"><Icon name="info" className="h-7 w-7" /></span>
-      <div className="font-bold text-navy">We couldn't load this page</div>
+      <div className="font-bold text-navy">{title}</div>
       <p className="text-sm text-slate-600">{message || 'Please check your internet connection and try again.'}</p>
       {onRetry && <button onClick={onRetry} className="btn-primary mt-1 px-6"><Icon name="refresh" className="h-4 w-4" /> Try again</button>}
     </div>
@@ -108,7 +109,7 @@ export function SectionCard({ title, icon, action, children, className = '' }) {
   return (
     <section className={`card p-5 ${className}`}>
       {(title || action) && (
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="brand-section-title flex items-center gap-2 text-lg font-bold text-navy">
             {icon && <Icon name={icon} className="h-5 w-5 text-brand-500" />}
             {title}
@@ -163,7 +164,7 @@ export function FilterDropdown({ label, active, children, width = 'w-64' }) {
         aria-expanded={open}
         aria-haspopup="true"
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-10 items-center gap-2 rounded-lg border bg-white px-4 text-sm font-medium transition hover:border-brand-500 ${
+        className={`flex min-h-11 items-center gap-2 rounded-lg border bg-white px-4 py-2 text-sm font-medium transition hover:border-brand-500 ${
           active ? 'border-brand-500 text-brand-500' : 'border-slate-200 text-navy'
         }`}
       >

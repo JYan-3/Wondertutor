@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import Logo from '../components/Logo'
 import PublicHeader from '../components/PublicHeader'
+import SkipLink from '../components/SkipLink'
 import { useAuth } from '../context/AuthContext'
 import { homeFor } from '../components/ProtectedRoute'
 
@@ -21,9 +22,10 @@ export default function PublicLayout() {
   }, [pathname, hash])
   return (
     <div className={"flex min-h-screen flex-col overflow-x-clip"}>
+      <SkipLink />
       {/* A new page starts with closed menus, including browser back/forward. */}
       <PublicHeader key={pathname} user={user} pathname={pathname} />
-      <main className={`brand-main ${isLogin ? 'flex w-full flex-1 flex-col' : 'mx-auto w-full max-w-[81.25rem] px-3 md:px-6'} ${isHome || isLogin ? '' : 'pb-10'}`}>
+      <main id="main-content" tabIndex={-1} className={`brand-main ${isLogin ? 'flex w-full flex-1 flex-col' : 'mx-auto w-full max-w-[81.25rem] px-3 md:px-6'} ${isHome || isLogin ? '' : 'pb-10'}`}>
         <Outlet />
       </main>
       {!isLogin && (

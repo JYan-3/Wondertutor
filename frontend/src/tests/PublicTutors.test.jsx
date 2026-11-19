@@ -100,6 +100,18 @@ test('Clear filters also discards unsubmitted edits when the URL already has no 
   expect(screen.getByLabelText('Teaching mode')).toHaveValue('')
 })
 
+test('guests can distinguish edited filters from the results currently displayed', async () => {
+  setup()
+  await screen.findByRole('heading', { name: 'Daniel Tan' })
+  const before = api.get.mock.calls.filter(([url]) => url === '/public/tutors').length
+  await userEvent.selectOptions(screen.getByLabelText('Subject'), 'English')
+  expect(screen.getByText(/Your filters have changed/)).toBeVisible()
+  expect(api.get.mock.calls.filter(([url]) => url === '/public/tutors')).toHaveLength(before)
+  await userEvent.click(screen.getByRole('button', { name: 'Search Tutors' }))
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith('/public/tutors', { params: expect.objectContaining({ subject: 'English' }) }))
+  expect(screen.queryByText(/Your filters have changed/)).not.toBeInTheDocument()
+})
+
 test('failed searches offer a retry and recover without logging in', async () => {
   let fail = true
   api.get.mockImplementation(async url => {

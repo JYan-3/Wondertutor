@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
 import Avatar from '../components/ui/Avatar'
 import Icon from '../components/ui/Icon'
@@ -11,6 +11,7 @@ import { MatchingProvider } from '../assistant/MatchingContext'
 import AssistantWidget from '../assistant/AssistantWidget'
 import TutorStatusBanner from '../components/TutorStatusBanner'
 import ParentPageEffects from '../components/ParentPageEffects'
+import SkipLink from '../components/SkipLink'
 
 // Top nav items per role (matches the UI_v1 mockups)
 const NAV = {
@@ -45,9 +46,24 @@ export default function AppLayout() {
   const { user } = useAuth()
   const items = NAV[user.role] || []
   const isParent = user.role === 'PARENT'
+  const { pathname } = useLocation()
+  const mobileNav = useRef(null)
+  useEffect(() => {
+    const showCurrent = () => {
+      const nav = mobileNav.current
+      const current = nav?.querySelector('[aria-current="page"]')
+      if (!current || !nav.clientWidth) return
+      const left = current.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft - (nav.clientWidth - current.clientWidth) / 2
+      nav.scrollTo({ left: Math.max(0, left), behavior: 'auto' })
+    }
+    showCurrent()
+    window.addEventListener('resize', showCurrent)
+    return () => window.removeEventListener('resize', showCurrent)
+  }, [pathname])
 
   const shell = (
     <div className={`flex min-h-screen flex-col ${user.role === 'TUTOR' ? 'tutor-portal' : ''}`}>
+      <SkipLink />
       {/* Same bar as the public pages (landing, login, signup): flat, full width, white, yellow underline on the current page */}
       <header className="brand-header sticky top-0 z-30 w-full bg-white">
         <div className="mx-auto flex max-w-[81.25rem] items-center justify-between gap-3 px-4 py-2 md:px-8">
@@ -74,14 +90,14 @@ export default function AppLayout() {
           </div>
         </div>
         {/* Phone: nav moves to a horizontal scroller */}
-        <nav aria-label="Main" className="mx-auto flex max-w-[81.25rem] gap-2 overflow-x-auto px-4 pb-2 lg:hidden">
+        <nav ref={mobileNav} aria-label="Main" className="portal-mobile-nav mx-auto flex max-w-[81.25rem] gap-2 overflow-x-auto px-4 pb-2 lg:hidden">
           {items.map(([to, label]) => (
             <NavLink
               key={to}
               to={to}
               end={to.split('/').length === 2}
               className={({ isActive }) =>
-                `flex min-h-10 shrink-0 items-center rounded-full px-4 text-sm font-medium ${isActive ? 'bg-brand-500 text-white' : 'bg-brand-50 text-navy'}`
+                `flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-medium ${isActive ? 'bg-brand-500 text-white' : 'bg-brand-50 text-navy'}`
               }
             >
               {label}
@@ -89,7 +105,7 @@ export default function AppLayout() {
           ))}
         </nav>
       </header>
-      <main className="brand-main mx-auto w-full max-w-[81.25rem] flex-1 px-3 pb-16 pt-6 md:px-6">
+      <main id="main-content" tabIndex={-1} className="brand-main mx-auto w-full max-w-[81.25rem] flex-1 px-3 pb-16 pt-6 md:px-6">
         {user.role === 'TUTOR' && <TutorStatusBanner />}
         {isParent ? <ParentPageEffects><Outlet /></ParentPageEffects> : <Outlet />}
       </main>

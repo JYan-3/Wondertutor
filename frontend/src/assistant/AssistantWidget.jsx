@@ -108,8 +108,8 @@ export default function AssistantWidget() {
       {chatVisited && <ChatPanel open={chatOpen} onMinimise={minimise} />}
       <div className={`fixed z-40 flex w-[76px] flex-col ${onLeft ? 'items-start' : 'items-end'}`} style={{ right: pos.right, bottom: pos.bottom }}>
         {bubble && !chatOpen && !dragging && (
-          <div className={`pop-in relative mb-1 w-48 rounded-xl bg-white px-3 py-2 text-left shadow-lg ring-1 ring-brand-100 ${onLeft ? 'ml-2' : 'mr-2'}`}>
-            <button onClick={() => setBubble(false)} className="absolute right-1.5 top-1.5 text-slate-400 hover:text-slate-600" aria-label="Dismiss">
+          <div className={`pop-in relative mb-1 hidden w-48 rounded-xl bg-white py-2 pl-3 pr-10 text-left shadow-lg ring-1 ring-brand-100 sm:block ${onLeft ? 'ml-2' : 'mr-2'}`}>
+            <button onClick={() => setBubble(false)} className="absolute right-0.5 top-0.5 flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-brand-50 hover:text-slate-700" aria-label="Dismiss">
               <Icon name="x" className="h-3.5 w-3.5" />
             </button>
             <div className="text-xs font-bold text-navy">AI Tutor Assistant</div>

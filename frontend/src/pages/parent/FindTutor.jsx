@@ -42,6 +42,8 @@ export default function FindTutor() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [requestError, setRequestError] = useState('')
+  const [retry, setRetry] = useState(0)
   const initialised = useRef(false)
   // Tutors whose heart was just clicked: a second click waits until the first save/unsave has finished
   const [saving, setSaving] = useState(() => new Set())
@@ -88,12 +90,13 @@ export default function FindTutor() {
     let cancelled = false
     setLoading(true)
     setError('')
+    setRequestError('')
     api.get('/parent/tutors', { params: query })
       .then((r) => !cancelled && setData(r.data))
-      .catch((e) => !cancelled && setError(errorMessage(e)))
+      .catch((e) => !cancelled && setRequestError(errorMessage(e)))
       .finally(() => !cancelled && setLoading(false))
     return () => { cancelled = true }
-  }, [query])
+  }, [query, retry])
 
   if (!bar || !catalog) return loadError ? <LoadError message={loadError} onRetry={reloadShared} /> : <Spinner />
 
@@ -145,12 +148,14 @@ export default function FindTutor() {
   }
 
   const dateTimeLabel = bar.date && bar.time ? `${bar.date} · ${hhmmLabel(bar.time)}` : 'Select date & time'
+  const dirty = applied && Object.keys(bar).some(key => bar[key] !== applied[key])
 
   return (
     <div>
       <PageTitle title="Find the Right Tutor for Your Child" subtitle="Browse qualified tutors or let our AI Tutor Assistant help you find suitable matches." />
 
       <section className="card p-5">
+        <form aria-label="Search tutors" onSubmit={event => { event.preventDefault(); search() }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold text-navy">Search tutors</h2>
           <button type="button" onClick={clearFilters} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-brand-600 hover:bg-brand-50 hover:underline">Clear filters</button>
@@ -180,10 +185,12 @@ export default function FindTutor() {
             <span className="mb-1.5 block text-sm font-semibold text-navy">Availability</span>
             <AvailabilityPicker bar={bar} setBar={setBar} label={dateTimeLabel} />
           </div>
-          <button onClick={search} className="btn-primary h-11 px-8 text-base"><Icon name="search" className="h-[18px] w-[18px]" /> Search Tutors</button>
+          <button type="submit" aria-label="Search Tutors" disabled={loading && !dirty} className="btn-primary h-11 px-8 text-base"><Icon name="search" className="h-[18px] w-[18px]" /> {loading ? 'Searching…' : 'Search Tutors'}</button>
         </div>
         <p className="mt-3 text-sm text-slate-600">Leave filters empty to browse all tutors.</p>
+        {dirty && <p role="status" className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Your filters have changed. Select Search Tutors to update the results.</p>}
         <ErrorBox className="mt-3">{error}</ErrorBox>
+        </form>
 
         <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-brand-100 bg-brand-25 p-3">
           <Robot className="h-14 w-14 shrink-0" />
@@ -198,8 +205,8 @@ export default function FindTutor() {
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div ref={resultsTop} className="scroll-mt-24">
           {/* "Showing 1–9 of 11 tutors": what is on screen out of everything that matches */}
-          <h2 className="text-xl font-bold text-navy" aria-live="polite">{error && !data ? 'Tutors could not be loaded' : resultsHeading(data)}</h2>
-          {data?.total > 0 && sort === 'recommended' && (
+          <h2 className="text-xl font-bold text-navy" aria-live="polite">{requestError ? 'Tutors could not be loaded' : loading ? 'Searching…' : resultsHeading(data)}</h2>
+          {!loading && !requestError && data?.total > 0 && sort === 'recommended' && (
             <p className="text-sm text-slate-600">
               {(data.personalised ?? data.tutors.some(tutor => tutor.match))
                 ? <>Best match first{data.rankedBy?.length ? `, based on ${data.rankedBy.join(' and ')}` : ''}. Every card shows its match score and why.</>
@@ -222,17 +229,18 @@ export default function FindTutor() {
         <FilterChips extra={extra} setExtra={setExtra} locationName={applied.location} showClear={false} />
       </div>
 
-      <div className="mt-4">
-        {loading && !data ? <Spinner /> : null}
+      <section aria-label="Tutor results" aria-busy={loading} className="mt-4">
+        {requestError ? <LoadError title="We couldn't load tutors" message={requestError} onRetry={() => setRetry(value => value + 1)} /> : <>
+        {loading && (data ? <p role="status" className="mb-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Updating tutor results…</p> : <Spinner label="Searching for tutors…" />)}
         <TutorSearchNotice scope={data?.searchScope} hasResults={data?.total > 0} />
         {data && data.tutors.length === 0 && !loading && data.searchScope?.mode !== 'PHYSICAL' && (
           <div className="card"><EmptyState icon="search" title="No tutors match these filters">Try another subject or level, or remove some filters.</EmptyState></div>
         )}
-        <div className={`grid gap-4 md:grid-cols-2 xl:grid-cols-3 ${loading ? 'opacity-60' : ''}`}>
+        <div inert={loading} className={`grid gap-4 md:grid-cols-2 xl:grid-cols-3 ${loading ? 'opacity-60' : ''}`}>
           {data?.tutors.map((t) => <TutorCard key={t.id} tutor={t} match={t.match} saved={t.isFavourite} onToggleSave={toggleSave} compare={compare} />)}
         </div>
         {data?.total === 0 && <OnlineTutorAlternatives total={data.onlineAlternatives?.total}>
-          <div className={`grid gap-4 md:grid-cols-2 xl:grid-cols-3 ${loading ? 'opacity-60' : ''}`}>
+          <div inert={loading} className={`grid gap-4 md:grid-cols-2 xl:grid-cols-3 ${loading ? 'opacity-60' : ''}`}>
             {data.onlineAlternatives?.tutors.map(t => <TutorCard key={t.id} tutor={t} match={t.match} saved={t.isFavourite} onToggleSave={toggleSave} compare={compare} />)}
           </div>
         </OnlineTutorAlternatives>}
@@ -247,7 +255,8 @@ export default function FindTutor() {
             />
           </div>
         )}
-      </div>
+        </>}
+      </section>
     </div>
   )
 }
@@ -279,8 +288,8 @@ function AvailabilityPicker({ bar, setBar, label }) {
             </select>
           </label>
           <div className="flex justify-between">
-            <button className="text-sm font-semibold text-slate-500 hover:underline" onClick={() => { setBar({ ...bar, date: '', time: '' }); close() }}>Clear</button>
-            <button className="btn-primary px-4 py-1.5" onClick={close}>Done</button>
+            <button type="button" className="min-h-11 rounded-lg px-3 text-sm font-semibold text-slate-600 hover:underline" onClick={() => { setBar({ ...bar, date: '', time: '' }); close() }}>Clear</button>
+            <button type="button" className="btn-primary px-4 py-1.5" onClick={close}>Done</button>
           </div>
           <p className="text-xs text-slate-500">Press “Search Tutors” to apply. Only tutors free at that time are shown.</p>
         </div>

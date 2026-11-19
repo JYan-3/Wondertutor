@@ -65,13 +65,15 @@ export default function ParentDashboard() {
         <Link to="/parent/bookings?tab=attention" className="btn-outline min-h-11 w-full px-4 sm:w-auto">Review lessons</Link>
       </div>}
 
+      {upcoming.length > 0 && <UpcomingLessons lessons={upcoming} onView={setDetail} className="mb-6" />}
+
       <div className="grid gap-6 lg:grid-cols-[1.12fr_1fr]">
         {/* ───── left column ───── */}
         <div className="space-y-6">
           <section className="card relative overflow-hidden border-accent/30 bg-gradient-to-r from-accent-50 to-white p-6">
             <Icon name="sparkle" fill className="absolute left-5 top-5 h-7 w-7 text-accent" />
             <div className="pl-12 sm:pr-44">
-              <h2 className="text-2xl font-extrabold text-navy">Find the Right Tutor for Your Child</h2>
+              <h2 className="text-2xl font-extrabold text-navy">Find a Tutor</h2>
               <p className="mt-1 text-sm text-slate-600">Tell us what your child needs and we'll recommend suitable tutors.</p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link to="/parent/find-tutor" className="btn-primary h-12 px-7 text-base">Find a Tutor <Icon name="arrow-right" className="h-4 w-4" /></Link>
@@ -89,14 +91,14 @@ export default function ParentDashboard() {
           </section>
 
           <SectionCard title={children.length > 2 ? `Your Children (${children.length})` : 'Your Children'} action={<Link to="/parent/children" className="flex items-center gap-1 text-sm font-semibold text-brand-500 hover:underline">Manage Children <Icon name="arrow-right" className="h-4 w-4" /></Link>}>
-            <div className="grid gap-3 sm:grid-cols-3">
-              {/* Two children fit beside the Add card; the title shows how many there are in total */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {/* Names remain readable; the title and Manage link expose additional children. */}
               {children.slice(0, 2).map((c) => (
                 <div key={c.id} className="rounded-xl border border-slate-100 bg-white p-4">
                   <div className="flex items-center gap-3">
-                    <Avatar src={c.photoUrl} name={c.name} className="h-16 w-16" />
+                    <Avatar src={c.photoUrl} name={c.name} className="h-12 w-12 shrink-0" />
                     <div className="min-w-0">
-                      <div className="truncate text-lg font-bold text-navy">{c.name}</div>
+                      <div className="break-words text-base font-bold text-navy">{c.name}</div>
                       <div className="flex items-center gap-1.5 text-sm text-slate-500"><Icon name="calendar" className="h-3.5 w-3.5 text-brand-500" /> {gradeLabel(c.educationLevel, c.grade)}</div>
                       {childSubjects(c).length > 0 && <div className="flex items-center gap-1.5 text-sm text-slate-500"><Icon name="book" className="h-3.5 w-3.5 shrink-0 text-brand-500" /> <span className="truncate">{childSubjects(c).slice(0, 2).join(', ')}{childSubjects(c).length > 2 ? ` +${childSubjects(c).length - 2}` : ''}</span></div>}
                     </div>
@@ -104,10 +106,9 @@ export default function ParentDashboard() {
                   <Link to={`/parent/children?edit=${recordRef(c)}`} className="btn-outline mt-3 w-full">View Profile <Icon name="arrow-right" className="h-4 w-4" /></Link>
                 </div>
               ))}
-              <Link to="/parent/children?add=1" className="parent-hover-lift flex flex-col items-center justify-center rounded-xl border border-dashed border-brand-200 bg-brand-50/60 p-4 text-center transition hover:bg-brand-50">
-                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-brand-500"><Icon name="plus" className="h-6 w-6" /></span>
-                <span className="mt-1 font-bold text-navy">Add Child</span>
-                <span className="text-xs text-slate-500">Add another child to find suitable tutors for their learning needs.</span>
+              <Link to="/parent/children?add=1" className="parent-hover-lift flex items-center gap-3 rounded-xl border border-dashed border-brand-200 bg-brand-50/60 p-3 transition hover:bg-brand-50 sm:col-span-2">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-500"><Icon name="plus" className="h-5 w-5" /></span>
+                <span><span className="block font-bold text-navy">Add Child</span><span className="text-sm text-slate-600">Add another child profile.</span></span>
               </Link>
             </div>
           </SectionCard>
@@ -143,46 +144,21 @@ export default function ParentDashboard() {
         {/* ───── right column ───── */}
         <div className="space-y-6">
           <SectionCard title="Booking Summary" action={<Link to="/parent/bookings?tab=all" className="flex items-center gap-1 text-sm font-semibold text-brand-500 hover:underline">View All Bookings <Icon name="arrow-right" className="h-4 w-4" /></Link>}>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
               {[
                 ['calendar', counts.upcoming, 'Upcoming', 'bg-brand-50', 'bg-brand-100 text-brand-500', 'upcoming'],
                 ['clock', counts.pending, 'Pending', 'bg-accent-50', 'bg-accent-100 text-accent-600', 'pending'],
                 ['check', counts.completed, 'Completed', 'bg-ok-50', 'bg-ok text-white', 'completed'],
               ].map(([icon, n, label, bg, tone, tab]) => (
-                <button key={label} onClick={() => navigate(`/parent/bookings?tab=${tab}`)} className={`parent-hover-lift flex items-center gap-3 rounded-xl p-3 text-left ${bg} transition hover:shadow-md`}>
-                  <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${tone}`}><Icon name={icon} className="h-6 w-6" /></span>
-                  <span className="flex-1"><span className="block text-3xl font-extrabold leading-8 text-navy">{n}</span><span className="text-sm text-slate-600">{label}</span></span>
-                  <Icon name="right" className="h-4 w-4 text-slate-400" />
+                <button key={label} onClick={() => navigate(`/parent/bookings?tab=${tab}`)} className={`parent-hover-lift flex min-w-0 flex-col items-start gap-2 rounded-xl p-3 text-left ${bg} transition hover:shadow-md sm:flex-row sm:items-center`}>
+                  <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${tone}`}><Icon name={icon} className="h-4 w-4" /></span>
+                  <span className="min-w-0 flex-1"><span className="block text-2xl font-extrabold leading-8 text-navy">{n}</span><span className="break-words text-xs text-slate-600">{label}</span></span>
                 </button>
               ))}
             </div>
           </SectionCard>
 
-          <SectionCard title="Upcoming Lessons" action={<Link to="/parent/bookings?tab=all" className="flex items-center gap-1 text-sm font-semibold text-brand-500 hover:underline">View All Bookings <Icon name="arrow-right" className="h-4 w-4" /></Link>}>
-            {upcoming.length === 0 && <p className="py-4 text-sm text-slate-500">No upcoming lessons yet. Find a tutor and send a booking request.</p>}
-            <div className="space-y-3">
-              {upcoming.map((b) => (
-                <div key={b.id} className="flex gap-4 rounded-xl border border-slate-100 p-3">
-                  <Avatar src={b.tutor.photoUrl} name={b.tutor.name} className="h-[88px] w-[76px]" rounded="rounded-xl" text="text-xl" />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="font-bold text-navy">{b.subject}</div>
-                      <StatusPill status="CONFIRMED" />
-                    </div>
-                    <div className="text-sm text-slate-500">{b.tutor.name} <span className="mx-1 text-slate-300">|</span> {gradeLabel(b.child.educationLevel, b.child.grade)}</div>
-                    <div className="mt-1 flex items-center gap-1.5 text-sm text-navy"><Icon name="calendar" className="h-4 w-4 text-brand-500" /> {fmtDate(b.startAt)} · {fmtTimeRange(b.startAt, b.endAt)}</div>
-                    <div className="mt-0.5 flex items-end justify-between gap-2">
-                      <div className="flex items-center gap-1.5 text-sm text-slate-500">
-                        <Icon name={b.teachingMode === 'ONLINE' ? 'monitor' : 'pin'} className="h-4 w-4 text-brand-500" />
-                        {b.teachingMode === 'ONLINE' ? 'Online' : `Physical · ${b.location || ''}`}
-                      </div>
-                      <button onClick={() => setDetail(b)} className="btn-outline px-3 py-1.5 text-xs">View Lesson Details <Icon name="arrow-right" className="h-3.5 w-3.5" /></button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
+          {upcoming.length === 0 && <UpcomingLessons lessons={upcoming} onView={setDetail} />}
 
           <SectionCard title="Continue Where You Left Off">
             {matching ? (
@@ -220,4 +196,27 @@ export default function ParentDashboard() {
       <LessonDetails booking={detail} onClose={() => setDetail(null)} onChanged={load} />
     </div>
   )
+}
+
+function UpcomingLessons({ lessons, onView, className = '' }) {
+  return <SectionCard title="Upcoming Lessons" className={className} action={<Link to="/parent/bookings?tab=upcoming" className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-brand-600 hover:underline">View all upcoming <Icon name="arrow-right" className="h-4 w-4" /></Link>}>
+    {lessons.length === 0 ? <p className="py-2 text-sm text-slate-600">No upcoming lessons yet. <Link to="/parent/find-tutor" className="font-semibold text-brand-600 underline">Find a tutor</Link> and send a booking request.</p> : <>
+      {lessons.length > 2 && <p className="mb-3 text-sm text-slate-600">Showing your next two lessons. View all upcoming for your full schedule.</p>}
+      <div className="grid gap-3 md:grid-cols-2">
+        {lessons.slice(0, 2).map(lesson => <article key={lesson.id} className="min-w-0 rounded-xl border border-brand-100 bg-brand-25/40 p-4">
+          <div className="flex items-center gap-3">
+            <Avatar src={lesson.tutor.photoUrl} name={lesson.tutor.name} className="h-12 w-12 shrink-0" rounded="rounded-xl" />
+            <div className="min-w-0"><h3 className="break-words font-bold text-navy">{lesson.subject}</h3><p className="break-words text-sm text-slate-600">{lesson.tutor.name}</p></div>
+          </div>
+          <p className="mt-3 flex items-start gap-2 text-sm text-navy"><Icon name="calendar" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /><span>{fmtDate(lesson.startAt)} · {fmtTimeRange(lesson.startAt, lesson.endAt)}</span></p>
+          <p className="mt-1 text-sm text-slate-600">Child: {lesson.child.name} · {gradeLabel(lesson.child.educationLevel, lesson.child.grade)}</p>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex min-w-0 items-start gap-1.5 text-sm text-slate-600"><Icon name={lesson.teachingMode === 'ONLINE' ? 'monitor' : 'pin'} className="mt-0.5 h-4 w-4 shrink-0" /><span className="break-words">{lesson.teachingMode === 'ONLINE' ? 'Online' : `Physical${lesson.location ? ` · ${lesson.location}` : ''}`}</span></span>
+            <StatusPill status={lesson.status || 'CONFIRMED'} />
+          </div>
+          <button type="button" onClick={() => onView(lesson)} className="btn-outline mt-3 w-full">View Lesson Details <Icon name="arrow-right" className="h-4 w-4" /></button>
+        </article>)}
+      </div>
+    </>}
+  </SectionCard>
 }
