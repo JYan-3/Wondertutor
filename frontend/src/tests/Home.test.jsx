@@ -106,6 +106,18 @@ describe('landing page', () => {
     expect(await screen.findByText('WIZARD')).toBeInTheDocument()
   })
 
+  test.each([
+    [null, 'Sign up for AI matching', 'SIGNUP PAGE'],
+    [{ role: 'PARENT' }, 'Start matching', 'WIZARD'],
+  ])('the hero matching card offers the appropriate action for %j', async (user, action, destination) => {
+    auth = { user }
+    setup(full)
+    const card = await screen.findByRole('button', { name: action })
+    expect(card).toHaveAccessibleDescription(/a reason for each match/)
+    await userEvent.click(card)
+    expect(await screen.findByText(destination)).toBeInTheDocument()
+  })
+
   test('a guest can open a featured tutor profile without logging in', async () => {
     setup(full)
     await screen.findByText('Daniel Tan')

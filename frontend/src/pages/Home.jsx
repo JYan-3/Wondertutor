@@ -169,16 +169,16 @@ export default function Home() {
           <div className="lg:w-[50%] lg:pl-14">
             {/* Animate the introduction alone: the form has no animated ancestor. */}
             <div className="home-hero-copy">
-              <div className="eyebrow">Personalised tutor matching</div>
+              <div className="eyebrow">For parents in Malaysia</div>
               <h1 id="hero-title" className="mt-2 font-display text-4xl font-bold leading-[1.12] text-navy md:text-[2.5rem]">
-                Find the right tutor for your{' '}
-                <span className="relative inline-block">
-                  child.
+                Find your child’s tutor with{' '}
+                <span className="relative inline-block text-brand-700">
+                  AI matching.
                   <span className="absolute -bottom-1 left-0 h-1 w-full rounded-full bg-accent" aria-hidden="true" />
                 </span>
               </h1>
               <p className="mt-3 max-w-md text-base text-slate-700">
-                Trusted tutors. Flexible booking. A safer and more supportive learning journey, all in one place.
+                Tell us your child’s subject, level and budget. We’ll suggest tutors and explain why each one matches.
               </p>
             </div>
 
@@ -210,16 +210,22 @@ export default function Home() {
               )}
             </div>
 
-            {/* The AI path is an alternative, so it is quieter than the main search button */}
             <button
               type="button"
               onClick={tryAssistant}
+              aria-labelledby="home-ai-action"
+              aria-describedby="home-ai-description"
               className="mt-2 flex min-h-14 w-full max-w-md items-center gap-3 rounded-2xl border border-brand-100 bg-white/80 px-4 py-2 text-left transition hover:bg-white hover:shadow-card"
             >
               <Robot className="h-10 w-10 shrink-0" />
-              <span className="flex-1">
+              <span className="min-w-0 flex-1">
                 <span className="block text-sm font-bold text-navy">Not sure which tutor to choose?</span>
-                <span className="block text-sm text-slate-600">Chat with our AI assistant for personalised recommendations.</span>
+                <span id="home-ai-description" className="block text-sm text-slate-600">
+                  Get tutor recommendations based on your child’s needs, with a reason for each match.
+                </span>
+                <span id="home-ai-action" className="mt-1 block text-sm font-semibold text-brand-700">
+                  {isParent ? 'Start matching' : 'Sign up for AI matching'}
+                </span>
               </span>
               <Icon name="arrow-right" className="h-5 w-5 shrink-0 text-brand-500" />
             </button>
@@ -241,6 +247,59 @@ export default function Home() {
             </div>
           </div>
         ))}
+      </section>
+
+      {/* ── Featured tutors ── */}
+      <section aria-labelledby="featured-title">
+        <div className="home-reveal">
+          <div className="eyebrow">Featured tutors</div>
+          <div className="mt-1 flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <h2 id="featured-title" className="section-title">Learn from Trusted Tutors</h2>
+              <p className="caption mt-1">Explore some of our qualified and experienced tutors.</p>
+              <p className="mt-1 text-sm font-medium text-brand-700">Sample tutor profiles for demonstration.</p>
+            </div>
+            <button onClick={findTutor} className="flex min-h-11 items-center gap-1 text-sm font-bold text-navy hover:text-brand-500">
+              View More Tutors <Icon name="arrow-right" className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {!home.loaded && (
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Loading tutors">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="card h-72 animate-pulse bg-brand-50" />)}
+          </div>
+        )}
+        {home.loaded && home.tutors.length === 0 && (
+          <p className="card mt-5 p-6 text-center text-slate-700">Tutor profiles will appear here soon. You can still <button onClick={findTutor} className="font-semibold text-brand-600 underline">search for a tutor</button>.</p>
+        )}
+        {home.tutors.length > 0 && (
+          <ul className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {home.tutors.map((t, i) => (
+              <li key={t.id} className="home-reveal" style={{ '--reveal-delay': `${i * 60}ms` }}>
+                <article className="home-tutor-card card flex h-full flex-col p-4">
+                  <div className="flex items-start gap-3">
+                    <Avatar src={t.photoUrl} name={t.name} className="h-24 w-20" rounded="rounded-xl" text="text-2xl" />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="card-title">{t.name}</h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-slate-700" aria-label={`Rated ${t.rating} out of 5 from ${t.reviewCount} reviews`}>
+                        <Icon name="star" fill className="h-4 w-4 text-accent-600" />
+                        <b>{t.rating}</b> <span className="text-slate-600">({t.reviewCount} reviews)</span>
+                      </div>
+                    </div>
+                  </div>
+                  <ul className="mt-4 space-y-2 text-[15px] leading-snug text-slate-700">
+                    <li className="flex items-start gap-2"><Icon name="book" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /><span>{t.mainSubject}</span></li>
+                    <li className="flex items-start gap-2"><Icon name="cap" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /><span>{t.levels}</span></li>
+                    <li className="flex items-start gap-2"><Icon name="pin" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /><span>{t.location}</span></li>
+                  </ul>
+                  <div className="mt-auto pt-4 text-lg font-bold text-navy">RM {t.hourlyRate} / hour</div>
+                  <button onClick={() => openProfile(t.id)} aria-label={`View profile of ${t.name}`} className="btn-outline mt-3 min-h-11 w-full">View Profile</button>
+                </article>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* ── Assistant + How it works: same height, padding and weight ── */}
@@ -299,59 +358,6 @@ export default function Home() {
           </ol>
           <Link to="/how-it-works" className="mt-3 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand-600 hover:underline">See how it works<Icon name="arrow-right" className="h-4 w-4" /></Link>
         </div>
-      </section>
-
-      {/* ── Featured tutors ── */}
-      <section aria-labelledby="featured-title">
-        <div className="home-reveal">
-          <div className="eyebrow">Featured tutors</div>
-          <div className="mt-1 flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h2 id="featured-title" className="section-title">Learn from Trusted Tutors</h2>
-              <p className="caption mt-1">Explore some of our qualified and experienced tutors.</p>
-              <p className="mt-1 text-sm font-medium text-brand-700">Sample tutor profiles for demonstration.</p>
-            </div>
-            <button onClick={findTutor} className="flex min-h-11 items-center gap-1 text-sm font-bold text-navy hover:text-brand-500">
-              View More Tutors <Icon name="arrow-right" className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        {!home.loaded && (
-          <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-busy="true" aria-label="Loading tutors">
-            {[0, 1, 2, 3].map((i) => <div key={i} className="card h-72 animate-pulse bg-brand-50" />)}
-          </div>
-        )}
-        {home.loaded && home.tutors.length === 0 && (
-          <p className="card mt-5 p-6 text-center text-slate-700">Tutor profiles will appear here soon. You can still <button onClick={findTutor} className="font-semibold text-brand-600 underline">search for a tutor</button>.</p>
-        )}
-        {home.tutors.length > 0 && (
-          <ul className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {home.tutors.map((t, i) => (
-              <li key={t.id} className="home-reveal" style={{ '--reveal-delay': `${i * 60}ms` }}>
-                <article className="home-tutor-card card flex h-full flex-col p-4">
-                  <div className="flex items-start gap-3">
-                    <Avatar src={t.photoUrl} name={t.name} className="h-24 w-20" rounded="rounded-xl" text="text-2xl" />
-                    <div className="min-w-0 flex-1">
-                      <h3 className="card-title">{t.name}</h3>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-1 text-sm text-slate-700" aria-label={`Rated ${t.rating} out of 5 from ${t.reviewCount} reviews`}>
-                        <Icon name="star" fill className="h-4 w-4 text-accent-600" />
-                        <b>{t.rating}</b> <span className="text-slate-600">({t.reviewCount} reviews)</span>
-                      </div>
-                    </div>
-                  </div>
-                  <ul className="mt-4 space-y-2 text-[15px] leading-snug text-slate-700">
-                    <li className="flex items-start gap-2"><Icon name="book" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /><span>{t.mainSubject}</span></li>
-                    <li className="flex items-start gap-2"><Icon name="cap" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /><span>{t.levels}</span></li>
-                    <li className="flex items-start gap-2"><Icon name="pin" className="mt-0.5 h-4 w-4 shrink-0 text-brand-500" /><span>{t.location}</span></li>
-                  </ul>
-                  <div className="mt-auto pt-4 text-lg font-bold text-navy">RM {t.hourlyRate} / hour</div>
-                  <button onClick={() => openProfile(t.id)} aria-label={`View profile of ${t.name}`} className="btn-outline mt-3 min-h-11 w-full">View Profile</button>
-                </article>
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <ParentReviewCarousel reviews={home.reviews || []} />
