@@ -106,7 +106,7 @@ test('a legacy area point cannot collect GPS or photos; refreshing uses the newl
   expect(screen.getByRole('button', { name: 'Check my location' })).toBeDisabled()
   fireEvent.click(screen.getByRole('button', { name: 'Refresh session' }))
   expect(await screen.findByText('Lesson address: ' + exact.address)).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'View lesson map' })).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=3.02%2C101')
+  expect(screen.getByRole('link', { name: 'View lesson map' })).toHaveAttribute('href', 'https://www.openstreetmap.org/?mlat=3.02&mlon=101#map=17/3.02/101')
   fireEvent.click(screen.getByRole('button', { name: 'Check my location' }))
   expect(await screen.findByText(/Outside the check-in area/)).toBeInTheDocument()
   expect(screen.getByText(/2224 m from the address/)).toBeInTheDocument()
@@ -172,4 +172,50 @@ test('tutor sees the refund review and the attendance finding together', async (
 test('tutor sees the approved refund is paused during their appeal', async () => {
   show({ ...data, serverTime: data.endAt, review: { status: 'IN_PROGRESS', attendanceOutcome: 'RECONSIDERATION', attendanceRefund: { status: 'APPROVED', attendanceRefundState: 'ON_HOLD' } } })
   expect(await screen.findByText(/Refund on hold/)).toBeVisible()
+})
+
+test('embeds only the confirmed physical venue and allows a distance preview before check-in opens', async () => {
+  const read = vi.fn(ok => ok({ coords: { latitude: 3, longitude: 101, accuracy: 8 } }))
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: { getCurrentPosition: read } }))
+  show({ ...data, startAt: '2026-11-13T06:30:00Z' })
+  const map = await screen.findByTitle('Confirmed lesson venue on OpenStreetMap')
+  expect(map.src).toContain('https://www.openstreetmap.org/export/embed.html?')
+  expect(new URL(map.src).searchParams.get('marker')).toBe('3,101')
+  expect(map).toHaveAttribute('referrerpolicy', 'strict-origin')
+  expect(screen.getByRole('button', { name: 'Check in', exact: true })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: 'Check my location' }))
+  await screen.findByText(/Within range/)
+  expect(read).toHaveBeenCalledWith(expect.any(Function), expect.any(Function), { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
+  expect(api.post).not.toHaveBeenCalled()
+})
+
+test.each([
+  [1, /Allow location access for WonderTutor/],
+  [2, /Turn on your phone location services/],
+  [3, /Location took too long/],
+])('location error %s leaves check-in disabled and allows retry', async (code, message) => {
+  const read = vi.fn((ok, fail) => fail({ code }))
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: { getCurrentPosition: read } }))
+  show(data)
+  fireEvent.click(await screen.findByRole('button', { name: 'Check my location' }))
+  expect(await screen.findByText(message)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Check in', exact: true })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Check my location' })).toBeEnabled()
+  expect(api.post).not.toHaveBeenCalled()
+})
+
+test('insecure phone connections explain HTTPS instead of requesting GPS', async () => {
+  vi.stubGlobal('isSecureContext', false)
+  const read = vi.fn()
+  vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { geolocation: { getCurrentPosition: read } }))
+  show(data)
+  fireEvent.click(await screen.findByRole('button', { name: 'Check my location' }))
+  expect(await screen.findByText(/Location requires HTTPS/)).toBeInTheDocument()
+  expect(read).not.toHaveBeenCalled()
+})
+
+test.each([{ ...data, mode: 'ONLINE' }, { ...data, locationConfirmedAt: null }])('does not embed an online or unconfirmed venue', async session => {
+  show(session)
+  await screen.findByRole('button', { name: 'Check in', exact: true })
+  expect(screen.queryByTitle('Confirmed lesson venue on OpenStreetMap')).not.toBeInTheDocument()
 })
