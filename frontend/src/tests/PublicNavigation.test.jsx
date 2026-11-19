@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { vi } from 'vitest'
 import PublicLayout from '../layouts/PublicLayout'
+import { Modal } from '../components/ui/Common'
 
 let auth = { user: null }
 vi.mock('../context/AuthContext', () => ({ useAuth: () => auth }))
@@ -71,26 +72,44 @@ test('mobile navigation closes after following a guide or a Support link', async
   expect(within(screen.getByRole('navigation', { name: 'Main' })).getByRole('link', { name: 'For Tutors' })).toHaveAttribute('aria-current', 'page')
   await userEvent.click(screen.getByRole('button', { name: 'Open menu' }))
   const mobile = within(screen.getByRole('navigation', { name: 'Mobile' }))
-  await userEvent.click(mobile.getByRole('button', { name: 'Support' }))
-  await userEvent.click(mobile.getByRole('link', { name: /FAQ/ }))
+  expect(mobile.getByRole('link', { name: 'For Tutors' })).toHaveAttribute('aria-current', 'page')
+  expect(mobile.getByRole('link', { name: 'Find a Tutor' })).toHaveAttribute('href', '/tutors')
+  expect(mobile.getByRole('link', { name: 'Log In' })).toHaveAttribute('href', '/login')
+  expect(mobile.getByRole('link', { name: 'Sign Up' })).toHaveAttribute('href', '/signup')
+  expect(mobile.getByRole('link', { name: 'How It Works' })).toHaveAttribute('href', '/how-it-works')
+  await userEvent.click(mobile.getByRole('link', { name: 'FAQ' }))
   expect(screen.getByRole('heading', { name: 'FAQ content' })).toBeInTheDocument()
   expect(screen.queryByRole('navigation', { name: 'Mobile' })).not.toBeInTheDocument()
 })
 
-test('Escape dismisses the mobile disclosure before the menu and restores focus', async () => {
+test('Escape closes the mobile drawer from a help link and restores focus to the trigger', async () => {
   setup()
   const menu = screen.getByRole('button', { name: 'Open menu' })
   await userEvent.click(menu)
   const mobile = within(screen.getByRole('navigation', { name: 'Mobile' }))
-  const support = mobile.getByRole('button', { name: 'Support' })
-  await userEvent.click(support)
-  await userEvent.tab()
-  await userEvent.keyboard('{Escape}')
-  expect(support).toHaveFocus()
-  expect(screen.getByRole('navigation', { name: 'Mobile' })).toBeInTheDocument()
+  mobile.getByRole('link', { name: 'FAQ' }).focus()
   await userEvent.keyboard('{Escape}')
   expect(screen.queryByRole('navigation', { name: 'Mobile' })).not.toBeInTheDocument()
   expect(menu).toHaveFocus()
+})
+
+test('a session warning keeps the menu behind it and leaves scrolling locked until both close', async () => {
+  const page = warning => <MemoryRouter>
+    <PublicLayout />
+    <Modal open={warning} dismissible={false} title="Session warning">Session expiring soon</Modal>
+  </MemoryRouter>
+  const { rerender } = render(page(false))
+  const trigger = screen.getByRole('button', { name: 'Open menu' })
+  await userEvent.click(trigger)
+  rerender(page(true))
+  await userEvent.keyboard('{Escape}')
+  expect(screen.getByRole('dialog', { name: 'Menu' })).toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: 'Session warning' })).toBeInTheDocument()
+  rerender(page(false))
+  expect(document.body.style.overflow).toBe('hidden')
+  await userEvent.keyboard('{Escape}')
+  expect(document.body.style.overflow).not.toBe('hidden')
+  expect(trigger).toHaveFocus()
 })
 
 test('the logo and Home links scroll an already open homepage back to the top', async () => {
@@ -108,10 +127,14 @@ test('the logo and Home links scroll an already open homepage back to the top', 
   expect(screen.queryByRole('navigation', { name: 'Mobile' })).not.toBeInTheDocument()
 })
 
-test.each(['PARENT', 'TUTOR', 'ADMIN'])('signed-in %s readers keep their own dashboard link', role => {
+test.each(['PARENT', 'TUTOR', 'ADMIN'])('signed-in %s readers keep their own dashboard link', async role => {
   auth = { user: { role } }
   setup('/for-parents')
   const header = within(screen.getByRole('banner'))
   expect(header.getByRole('link', { name: 'My Dashboard' })).toHaveAttribute('href', `/${role.toLowerCase()}`)
   expect(header.queryByRole('link', { name: 'Log In' })).not.toBeInTheDocument()
+  await userEvent.click(header.getByRole('button', { name: 'Open menu' }))
+  const mobile = within(screen.getByRole('navigation', { name: 'Mobile' }))
+  expect(mobile.getByRole('link', { name: 'My Dashboard' })).toHaveAttribute('href', `/${role.toLowerCase()}`)
+  expect(mobile.queryByRole('link', { name: 'Sign Up' })).not.toBeInTheDocument()
 })

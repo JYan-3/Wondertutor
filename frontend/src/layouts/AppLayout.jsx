@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import Logo from '../components/Logo'
+import MobileNavigation, { MobileNavLink } from '../components/MobileNavigation'
 import Avatar from '../components/ui/Avatar'
 import Icon from '../components/ui/Icon'
 import { useClickOutside } from '../components/ui/Common'
@@ -16,29 +17,29 @@ import SkipLink from '../components/SkipLink'
 // Top nav items per role (matches the UI_v1 mockups)
 const NAV = {
   PARENT: [
-    ['/parent', 'Dashboard'],
-    ['/parent/find-tutor', 'Find a Tutor'],
-    ['/parent/bookings', 'My Bookings'],
-    ['/parent/children', 'My Children'],
-    ['/parent/payments', 'Payments'],
+    ['/parent', 'Dashboard', 'home'],
+    ['/parent/find-tutor', 'Find a Tutor', 'search'],
+    ['/parent/bookings', 'My Bookings', 'calendar'],
+    ['/parent/children', 'My Children', 'cap'],
+    ['/parent/payments', 'Payments', 'card'],
   ],
   TUTOR: [
-    ['/tutor', 'Dashboard'],
-    ['/tutor/availability', 'Availability'],
-    ['/tutor/bookings', 'Bookings'],
-    ['/tutor/students', 'Students'],
-    ['/tutor/earnings', 'Earnings'],
-    ['/tutor/profile', 'My Profile'],
+    ['/tutor', 'Dashboard', 'home'],
+    ['/tutor/availability', 'Availability', 'clock'],
+    ['/tutor/bookings', 'Bookings', 'calendar'],
+    ['/tutor/students', 'Students', 'cap'],
+    ['/tutor/earnings', 'Earnings', 'wallet'],
+    ['/tutor/profile', 'My Profile', 'user'],
   ],
   ADMIN: [
-    ['/admin', 'Dashboard'],
-    ['/admin/users', 'Users'],
-    ['/admin/bookings', 'Bookings'],
-    ['/admin/finance', 'Finance'],
-    ['/admin/rates', 'Tutor rates'],
-    ['/admin/reports', 'Reports'],
-    ['/admin/complaints', 'Complaints'],
-    ['/admin/settings', 'Settings'],
+    ['/admin', 'Dashboard', 'home'],
+    ['/admin/users', 'Users', 'user'],
+    ['/admin/bookings', 'Bookings', 'calendar'],
+    ['/admin/finance', 'Finance', 'wallet'],
+    ['/admin/rates', 'Tutor rates', 'tag'],
+    ['/admin/reports', 'Reports', 'chart'],
+    ['/admin/complaints', 'Complaints', 'shield'],
+    ['/admin/settings', 'Settings', 'settings'],
   ],
 }
 
@@ -46,20 +47,7 @@ export default function AppLayout() {
   const { user } = useAuth()
   const items = NAV[user.role] || []
   const isParent = user.role === 'PARENT'
-  const { pathname } = useLocation()
-  const mobileNav = useRef(null)
-  useEffect(() => {
-    const showCurrent = () => {
-      const nav = mobileNav.current
-      const current = nav?.querySelector('[aria-current="page"]')
-      if (!current || !nav.clientWidth) return
-      const left = current.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft - (nav.clientWidth - current.clientWidth) / 2
-      nav.scrollTo({ left: Math.max(0, left), behavior: 'auto' })
-    }
-    showCurrent()
-    window.addEventListener('resize', showCurrent)
-    return () => window.removeEventListener('resize', showCurrent)
-  }, [pathname])
+  const accountItems = (ACCOUNT_LINKS[user.role] || []).filter(([to]) => !items.some(([primary]) => primary === to))
 
   const shell = (
     <div className={`flex min-h-screen flex-col ${user.role === 'TUTOR' ? 'tutor-portal' : ''}`}>
@@ -67,7 +55,10 @@ export default function AppLayout() {
       {/* Same bar as the public pages (landing, login, signup): flat, full width, white, yellow underline on the current page */}
       <header className="brand-header sticky top-0 z-30 w-full bg-white">
         <div className="mx-auto flex max-w-[81.25rem] items-center justify-between gap-3 px-4 py-2 md:px-8">
-          <Link to={items[0]?.[0] || '/'} aria-label="WonderTutor dashboard" className="flex min-h-11 min-w-0 items-center"><Logo className="h-7 max-w-full object-contain sm:h-9" /></Link>
+          <Link to={items[0]?.[0] || '/'} aria-label="WonderTutor dashboard" className="flex min-h-11 min-w-11 items-center">
+            <Logo mark className="h-9 sm:hidden" />
+            <Logo className="hidden h-9 max-w-full object-contain sm:block" />
+          </Link>
           <nav aria-label="Main" className="hidden items-center gap-4 text-sm font-medium text-navy lg:flex xl:gap-7">
             {items.map(([to, label]) => (
               <NavLink
@@ -87,23 +78,23 @@ export default function AppLayout() {
           <div className="flex shrink-0 items-center gap-2 md:gap-4">
             <NotificationBell />
             <UserMenu />
+            <MobileNavigation navigationLabel="Portal menu">
+              {closeMenu => <>
+                {items.map(([to, label, icon]) => (
+                  <MobileNavLink key={to} to={to} end={to === items[0][0]} icon={icon} onClick={closeMenu}>{label}</MobileNavLink>
+                ))}
+                {accountItems.length > 0 && (
+                  <div className="mt-3 border-t border-brand-100 pt-3">
+                    <h3 className="mb-1 px-3 text-sm font-semibold text-slate-600">Account &amp; Help</h3>
+                    {accountItems.map(([to, label, icon]) => (
+                      <MobileNavLink key={to} to={to} icon={icon} onClick={closeMenu}>{label}</MobileNavLink>
+                    ))}
+                  </div>
+                )}
+              </>}
+            </MobileNavigation>
           </div>
         </div>
-        {/* Phone: nav moves to a horizontal scroller */}
-        <nav ref={mobileNav} aria-label="Main" className="portal-mobile-nav mx-auto flex max-w-[81.25rem] gap-2 overflow-x-auto px-4 pb-2 lg:hidden">
-          {items.map(([to, label]) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to.split('/').length === 2}
-              className={({ isActive }) =>
-                `flex min-h-11 shrink-0 items-center rounded-full px-4 text-sm font-medium ${isActive ? 'bg-brand-500 text-white' : 'bg-brand-50 text-navy'}`
-              }
-            >
-              {label}
-            </NavLink>
-          ))}
-        </nav>
       </header>
       <main id="main-content" tabIndex={-1} className="brand-main mx-auto w-full max-w-[81.25rem] flex-1 px-3 pb-16 pt-6 md:px-6">
         {user.role === 'TUTOR' && <TutorStatusBanner />}
@@ -126,13 +117,13 @@ function UserMenu() {
 
   return (
     <div className="relative" ref={ref}>
-      <button onClick={() => setOpen((o) => !o)} aria-label="Account menu" aria-expanded={open} className="flex items-center gap-3 rounded-xl px-1 py-1 hover:bg-brand-50">
+      <button onClick={() => setOpen((o) => !o)} aria-label="Account menu" aria-expanded={open} className="flex min-h-11 min-w-11 items-center justify-center gap-3 rounded-xl px-1 py-1 hover:bg-brand-50">
         <Avatar src={user.profilePhotoUrl} name={user.fullName} className="h-10 w-10" />
         <span className="hidden text-left leading-tight sm:block lg:hidden xl:block">
           <span className="block text-sm font-semibold text-navy">{user.fullName}</span>
           <span className="block text-xs capitalize text-slate-500">{user.role.toLowerCase()}</span>
         </span>
-        <Icon name="down" className="h-4 w-4 text-navy" />
+        <Icon name="down" className="hidden h-4 w-4 text-navy sm:block" />
       </button>
       {open && (
         <div className="pop-in absolute right-0 top-14 z-40 w-52 rounded-xl border border-brand-100 bg-white p-1.5 shadow-xl">
@@ -246,7 +237,7 @@ export function NotificationBell() {
     <div className="relative" ref={ref} onKeyDown={(e) => { if (e.key === 'Escape' && open) setOpen(false) }}>
       <button
         onClick={() => { setOpen((o) => !o); if (!open) load() }}
-        className="relative rounded-full p-2 text-brand-500 hover:bg-brand-50"
+        className="relative flex h-11 w-11 items-center justify-center rounded-full text-brand-500 hover:bg-brand-50 lg:h-10 lg:w-10"
         aria-label={data.unread ? `Notifications, ${data.unread} unread` : 'Notifications'}
         aria-expanded={open}
       >
@@ -258,7 +249,7 @@ export function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="pop-in absolute right-0 top-12 z-40 w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-xl border border-brand-100 bg-white shadow-xl">
+        <div className="pop-in fixed inset-x-3 top-14 z-40 rounded-xl border border-brand-100 bg-white shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[22rem]">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <span className="font-bold text-navy">Notifications</span>
             {data.unread > 0 && (
@@ -300,7 +291,13 @@ export function NotificationBell() {
 // Footer for the signed-in portals. Different from the public footer: it is about using the portal
 // (shortcuts, account, where to get help), not about marketing the platform.
 const ACCOUNT_LINKS = {
-  PARENT: [['/parent/profile', 'My Profile'], ['/parent/children', 'My Children'], ['/parent/favourites', 'Saved Tutors'], ['/parent/complaints', 'My Complaints'], ['/parent/help', 'Help & FAQs']],
+  PARENT: [
+    ['/parent/profile', 'My Profile', 'user'],
+    ['/parent/children', 'My Children', 'cap'],
+    ['/parent/favourites', 'Saved Tutors', 'heart'],
+    ['/parent/complaints', 'My Complaints', 'shield'],
+    ['/parent/help', 'Help & FAQs', 'info'],
+  ],
   TUTOR: [],
   ADMIN: [],
 }

@@ -65,7 +65,10 @@ body {
   outline-offset: 3px;
 }
 #main-content { scroll-margin-top: 9rem; }
-.portal-mobile-nav { scrollbar-width: thin; scrollbar-color: var(--color-brand-200) transparent; }
+@media (prefers-reduced-motion: no-preference) {
+  .mobile-menu-drawer { animation: mobile-menu-enter 160ms ease-out; }
+  @keyframes mobile-menu-enter { from { transform: translateX(100%); } }
+}
 /* "on" state of a chip: the ! makes sure it wins over .chip */
 @utility chip-on {
   @apply border-brand-500! bg-brand-500! text-white!;

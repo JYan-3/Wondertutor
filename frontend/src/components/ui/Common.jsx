@@ -183,10 +183,14 @@ export function FilterDropdown({ label, active, children, width = 'w-64' }) {
 // ───────────── modal ─────────────
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+// A session warning can appear while a drawer or another modal is already open.
+const openDialogs = []
+let previousBodyOverflow
 
 // Accessible dialog: announced as a dialog with its title, keyboard focus moves into it and stays inside
 // (Tab cycles), Escape closes it, focus returns to the button that opened it, and the page behind does not scroll.
-export function Modal({ open, onClose, title, children, width = 'max-w-lg', footer, dismissible = true, layerClassName = 'z-50' }) {
+export function Modal({ open, onClose, title, children, width = 'max-w-lg', footer, dismissible = true, layerClassName = 'z-50', placement = 'center', closeLabel = 'Close', id }) {
+  const drawer = placement === 'right'
   const titleId = useId()
   const box = useRef(null)
   const closeRef = useRef(onClose)
@@ -194,12 +198,15 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', foot
 
   useEffect(() => {
     if (!open) return
+    const dialog = box.current
     const opener = document.activeElement
-    const first = box.current?.querySelector(`${FOCUSABLE}:not([aria-label="Close"])`) || box.current
-    first?.focus()
-    const { overflow } = document.body.style
+    if (!openDialogs.length) previousBodyOverflow = document.body.style.overflow
+    openDialogs.push(dialog)
     document.body.style.overflow = 'hidden'
+    const first = dialog.querySelector(`${FOCUSABLE}:not([aria-label="Close"])`) || dialog
+    first.focus()
     const onKey = (e) => {
+      if (openDialogs.at(-1) !== dialog) return
       if (e.key === 'Escape') return closeRef.current()
       if (e.key !== 'Tab' || !box.current) return
       const items = [...box.current.querySelectorAll(FOCUSABLE)]
@@ -211,18 +218,20 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg', foot
     document.addEventListener('keydown', onKey)
     return () => {
       document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = overflow
-      opener?.focus?.()
+      const wasTop = openDialogs.at(-1) === dialog
+      openDialogs.splice(openDialogs.indexOf(dialog), 1)
+      if (!openDialogs.length) document.body.style.overflow = previousBodyOverflow
+      if (wasTop && opener?.isConnected) opener.focus?.()
     }
   }, [open])
   if (!open) return null
   return (
-    <div className={`fixed inset-0 ${layerClassName} flex items-center justify-center bg-navy/40 p-4 backdrop-blur-[2px]`} onMouseDown={() => closeRef.current()}>
-      <div ref={box} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
-        className={`pop-in max-h-[90vh] w-full ${width} overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl outline-none`} onMouseDown={(e) => e.stopPropagation()}>
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <h2 id={titleId} className="text-xl font-bold text-navy">{title}</h2>
-          {dismissible && <button onClick={onClose} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close">
+    <div className={`fixed inset-0 ${layerClassName} flex bg-navy/40 backdrop-blur-[2px] ${drawer ? 'justify-end' : 'items-center justify-center p-4'}`} onMouseDown={() => closeRef.current()}>
+      <div ref={box} id={id} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
+        className={drawer ? 'mobile-menu-drawer flex max-h-dvh w-[min(22rem,calc(100%-2.5rem))] flex-col bg-white shadow-2xl outline-none' : `pop-in max-h-[90vh] w-full ${width} overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl outline-none`} onMouseDown={(e) => e.stopPropagation()}>
+        <div className={drawer ? 'flex shrink-0 items-center justify-between gap-4 border-b border-brand-100 px-5 pb-3 pt-[max(.75rem,env(safe-area-inset-top))]' : 'mb-4 flex items-start justify-between gap-4'}>
+          <h2 id={titleId} className={`text-xl font-bold text-navy ${drawer ? 'font-display' : ''}`}>{title}</h2>
+          {dismissible && <button onClick={onClose} className={`flex shrink-0 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 ${drawer ? 'h-11 w-11 bg-brand-50 text-navy' : 'h-10 w-10'}`} aria-label={closeLabel}>
             <Icon name="x" />
           </button>}
         </div>
