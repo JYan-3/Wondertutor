@@ -7,13 +7,16 @@ import TutorPageHeader from '../../components/TutorPageHeader'
 import { ErrorBox, LoadError, SectionCard, Spinner } from '../../components/ui/Common'
 import { fmtDate, fmtTime, fmtTimeRange } from '../../lib/format'
 import { matchesRecordRef, recordRef } from '../../lib/recordRef'
-import { hasConfirmedLessonLocation, lessonLocationMapUrl } from '../../lib/lessonLocation'
+import { hasConfirmedLessonLocation } from '../../lib/lessonLocation'
 
 function readLocation() {
   return new Promise((resolve, reject) => {
+    if (window.isSecureContext === false) return reject(new Error('Location requires HTTPS. Open the secure WonderTutor website, then try again.'))
     if (!navigator.geolocation) return reject(new Error('Location is unavailable. On a phone, open WonderTutor using HTTPS and enable location access.'))
-    navigator.geolocation.getCurrentPosition(({ coords }) => resolve({ lat: coords.latitude, lng: coords.longitude, accuracy: coords.accuracy }),
-      err => reject(new Error(err.code === 1 ? 'Allow location access in your browser, then try again.' : 'Could not get your location. Try again near the lesson address.')),
+    navigator.geolocation.getCurrentPosition(({ coords }) => {
+      if (!Number.isFinite(coords.latitude) || Math.abs(coords.latitude) > 90 || !Number.isFinite(coords.longitude) || Math.abs(coords.longitude) > 180) return reject(new Error('Your device returned an invalid location. Please try again.'))
+      resolve({ lat: coords.latitude, lng: coords.longitude, accuracy: coords.accuracy })
+    }, err => reject(new Error(err.code === 1 ? 'Allow location access for WonderTutor in your browser and phone settings, then try again.' : err.code === 3 ? 'Location took too long. Move near a window or outdoors and try again with precise location enabled.' : 'Could not get your location. Turn on your phone location services and try again near the lesson address.')),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 })
   })
 }
@@ -28,6 +31,7 @@ function distanceFrom(point, s) {
 
 function SessionForm({ session: s, setSession }) {
   const [point, setPoint] = useState(null)
+  const [locating, setLocating] = useState(false)
   const [photo, setPhoto] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -80,9 +84,12 @@ function SessionForm({ session: s, setSession }) {
   }
   async function locate() {
     setPoint(null)
-    const current = await readLocation()
-    setPoint(current)
-    return current
+    setLocating(true)
+    try {
+      const current = await readLocation()
+      setPoint(current)
+      return current
+    } finally { setLocating(false) }
   }
   async function send(fields) {
     const { data } = await api.post(path, fields)
@@ -121,7 +128,11 @@ function SessionForm({ session: s, setSession }) {
     <Link to={'/tutor/bookings?booking=' + recordRef(s)} className="btn-outline min-h-11">Back to my bookings</Link>
     <TutorPageHeader title={s.subject + ' · ' + s.student} subtitle={fmtDate(s.startAt) + ' · ' + fmtTimeRange(s.startAt, s.endAt) + ' (Malaysia time) · ' + (physical ? locationReady ? s.address : awaitingVenue ? 'Physical lesson · exact address awaiting confirmation' : 'Physical lesson · exact address not recorded' : 'Online lesson')} />
     {physical && (locationReady
-      ? <div className="min-w-0 rounded-xl bg-brand-25 p-3"><p className="break-words font-semibold text-navy">Lesson address: {s.address}</p><a href={lessonLocationMapUrl(s)} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center font-semibold text-brand-600 hover:underline">View lesson map</a></div>
+      ? <div className="min-w-0 rounded-xl bg-brand-25 p-3"><p className="break-words font-semibold text-navy">Lesson address: {s.address}</p><p className="mt-1 text-sm text-slate-600">The pin marks the entrance confirmed by the parent. Your location check does not move it.</p>
+          <iframe title="Confirmed lesson venue on OpenStreetMap" className="mt-3 h-64 w-full min-w-0 rounded-lg border border-brand-100 sm:h-80" loading="lazy" referrerPolicy="strict-origin"
+            src={`https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent([Math.max(-180, s.longitude - 0.004), Math.max(-90, s.latitude - 0.003), Math.min(180, s.longitude + 0.004), Math.min(90, s.latitude + 0.003)].join(','))}&layer=mapnik&marker=${encodeURIComponent(`${s.latitude},${s.longitude}`)}`} />
+          <a href={`https://www.openstreetmap.org/?mlat=${s.latitude}&mlon=${s.longitude}#map=17/${s.latitude}/${s.longitude}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center font-semibold text-brand-600 hover:underline">View lesson map</a>
+          <p className="text-sm text-slate-600">If the map does not load, use the link above. You can still check your location below.</p></div>
       : <p role={awaitingVenue ? 'alert' : 'status'} className="rounded-xl bg-amber-50 p-3 text-amber-900">{awaitingVenue
         ? 'The precise lesson address has not been confirmed. Ask the parent to confirm the full address and entrance pin in My Bookings, then refresh this session. An area centre cannot be used for GPS check-in.'
         : 'The exact lesson address was not recorded for this lesson. Existing attendance and session reports are kept. The old area centre is not a confirmed GPS attendance point.'}</p>)}
@@ -175,13 +186,15 @@ function SessionForm({ session: s, setSession }) {
           </form> : <div className="space-y-3">
             {physical ? <>
               <p>Check in within <b>{s.radius} metres</b> of the lesson address and add a photo for the attendance record.</p>
-              <button disabled={!entry || busy} className="btn-outline min-h-11" onClick={() => run(async () => {
+              <button disabled={!active || !locationReady || ended || busy} className="btn-outline min-h-11 w-full sm:w-auto" onClick={() => run(async () => {
                   const { data } = await api.get(path)
                   updateSession(data)
                   if (!hasConfirmedLessonLocation(data)) throw new Error('The parent must confirm the exact lesson address before you can check your location.')
                   await locate()
-                })}>{point ? 'Refresh my location' : 'Check my location'}</button>
+                })}>{locating ? 'Finding your location…' : point ? 'Refresh my location' : 'Check my location'}</button>
+              <p className="text-sm text-slate-600">On your phone, allow precise location for this website. Checking your distance does not check you in.</p>
               {point && distance != null && <p role="status">{within ? 'Within range' : 'Outside the check-in area'} · {Math.round(distance)} m from the address · GPS accuracy ±{Math.round(point.accuracy)} m</p>}
+              {point && (!Number.isFinite(point.accuracy) || point.accuracy > s.radius) && <p role="status" className="text-sm text-amber-800">Your location estimate is imprecise. Move near a window or outdoors and refresh your location.</p>}
               <label className="block font-semibold">Check-in photo
                 <input className="input mt-1 min-h-11 w-full min-w-0 text-base" type="file" accept="image/jpeg,image/png" capture="environment" disabled={!entry || busy}
                   onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; run(() => takePhoto(file)) }} />
