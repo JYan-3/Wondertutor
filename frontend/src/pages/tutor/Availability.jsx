@@ -332,7 +332,7 @@ export default function Availability() {
     <div>
       <TutorPageHeader
         title="My availability"
-        subtitle="Plan when and how you teach. Set your usual hours, or adjust one week at a time."
+        subtitle="Set the hours parents can book. Keep a usual schedule or adjust a particular week."
         right={<Link to="/tutor/availability/dates" className="btn-outline min-h-11"><Icon name="edit" className="h-4 w-4" />Set different hours for one date</Link>}
       />
 
@@ -476,7 +476,7 @@ export default function Availability() {
 
 function ParentHours({ days, offers, today }) {
   const datedCount = days.filter(day => day.source === 'date').length
-  return <details className="mt-3 min-w-0 rounded-xl border border-brand-200 px-3 py-1">
+  return <details className={`mt-3 min-w-0 rounded-xl border px-3 py-1 ${datedCount ? 'border-amber-200 bg-amber-50' : 'border-brand-200 bg-brand-25'}`}>
     <summary className="min-h-11 cursor-pointer py-3 font-semibold text-navy">What parents can book{datedCount > 0 && <span className="ml-2 text-sm font-normal">{datedCount} date-specific {datedCount === 1 ? 'day' : 'days'}</span>}</summary>
     <p className="pb-2 text-sm text-slate-600">Saved hours in Malaysia time. A date-specific schedule replaces that day’s hours, even when it is empty.</p>
     <ul className="divide-y divide-brand-100">{days.map(day => {

@@ -17,6 +17,8 @@ const labels = { accept: 'Accept request', decline: 'Decline request', counter: 
   escalate: 'Ask admin to review', reschedule: 'Request a time change', link: 'Save class link',
   'approve-time': 'Accept new time', 'decline-time': 'Decline and escalate', 'withdraw-time': 'Withdraw time change' }
 
+const needsReply = b => b.status === 'PENDING' || (groups.Lessons.includes(b.status) && b.reschedule?.status === 'PENDING' && !b.reschedule.mine)
+
 const groupFor = b => Object.keys(groups).find(g => groups[g].includes(b.status)) || 'History'
 
 function BookingRowStatus({ booking: b }) {
@@ -142,6 +144,8 @@ export default function BookingRequests() {
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
   const [tab, setTab] = useState('Requests')
+  const [query, setQuery] = useState('')
+  const [replyOnly, setReplyOnly] = useState(false)
   const [id, setId] = useState(null)
   const [mobileDetail, setMobileDetail] = useState(false)
   const load = useCallback(async (focus) => {
@@ -155,24 +159,28 @@ export default function BookingRequests() {
     } catch (e) { setError(errorMessage(e)) }
   }, [params])
   useEffect(() => { load() }, [load])
-  const visible = rows?.filter(b => groupFor(b) === tab) || []
+  const visible = rows?.filter(b => (replyOnly ? needsReply(b) : groupFor(b) === tab) && `${b.child.name} ${b.subject}`.toLowerCase().includes(query.trim().toLowerCase())) || []
   const selected = visible.find(b => b.id === id) || visible[0]
   function updated(b) {
     setRows(prev => prev.map(row => row.id === b.id ? b : row))
+    setReplyOnly(false)
     setTab(groupFor(b))
     setId(b.id)
   }
   return <div className="min-w-0 space-y-4">
-    <TutorPageHeader title="Booking requests" subtitle="Review parents’ offers and manage your lessons." />
+    <TutorPageHeader title="Booking requests" subtitle="Know what needs your reply and what happens next." />
     {error ? <LoadError message={error} onRetry={load} /> : !rows ? <Spinner /> : <>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2" aria-label="Booking filters">{Object.keys(groups).map(g => <button key={g} aria-pressed={g === tab} className={(g === tab ? 'btn-primary' : 'btn-outline') + ' min-h-11'} onClick={() => { setTab(g); setId(null); setMobileDetail(false) }}>{g} ({rows.filter(b => groupFor(b) === g).length})</button>)}</div>
-        <img src="/img/art/booking-envelope.png" alt="" width="80" height="80" className="h-14 w-14 shrink-0 object-contain sm:h-20 sm:w-20" />
+      <div className="tutor-filter-bar flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2" aria-label="Booking filters">{Object.keys(groups).map(g => <button key={g} aria-pressed={!replyOnly && g === tab} className={(!replyOnly && g === tab ? 'btn-primary' : 'btn-outline') + ' min-h-11'} onClick={() => { setTab(g); setReplyOnly(false); setId(null); setMobileDetail(false) }}>{g} ({rows.filter(b => groupFor(b) === g).length})</button>)}</div>
+        <button type="button" aria-pressed={replyOnly} className={(replyOnly ? 'btn-primary' : 'btn-outline') + ' min-h-11'} onClick={() => { setReplyOnly(!replyOnly); setMobileDetail(false); setId(null) }}>Needs my reply ({rows.filter(needsReply).length})</button>
+        <label className="min-w-0 flex-1 basis-full text-sm font-semibold sm:basis-48">Find a student or subject<input type="search" className="input mt-1 min-h-11 w-full text-base" value={query} onChange={e => { setQuery(e.target.value); setMobileDetail(false) }} placeholder="Name or subject" /></label>
       </div>
       {!selected ? <div className="card p-6">No bookings in this section yet.</div> : <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)]">
-        <div className={(mobileDetail ? 'hidden lg:block ' : '') + 'tutor-paper-note card min-w-0 space-y-2 p-3'}>{visible.map(b => <button key={b.id} aria-pressed={selected.id === b.id} className="block min-h-11 w-full break-words rounded-lg border border-brand-100 border-l-4 bg-white p-3 text-left aria-pressed:border-l-brand-600 aria-pressed:bg-brand-50" onClick={() => { setId(b.id); setMobileDetail(true) }}>
+        <div className={(mobileDetail ? 'hidden lg:block ' : '') + 'card min-w-0 space-y-2 p-3'}>{visible.map(b => <button key={b.id} aria-pressed={selected.id === b.id} className="block min-h-11 w-full break-words rounded-lg border border-brand-100 border-l-4 bg-white p-3 text-left aria-pressed:border-l-brand-600 aria-pressed:bg-brand-50" onClick={() => { setId(b.id); setMobileDetail(true) }}>
           <strong className="block text-navy">{b.subject} · {b.child.name}</strong><span className="text-sm">{fmtDate(b.startAt)}, {fmtTime(b.startAt)} · {b.parentName}</span>
+          <span className="mt-1 block text-xs text-slate-600">{b.teachingMode === 'ONLINE' ? 'Online lesson' : 'Physical lesson'}</span>
           <BookingRowStatus booking={b} />
+          <span className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-brand-700">{needsReply(b) ? b.status === 'PENDING' ? 'Review request →' : 'Review time change →' : 'View details →'}</span>
         </button>)}</div>
         <div className={(mobileDetail ? '' : 'hidden lg:block ') + 'min-w-0 space-y-2'}>
           <button className="btn-outline min-h-11 lg:hidden" onClick={() => setMobileDetail(false)}>Back to list</button>

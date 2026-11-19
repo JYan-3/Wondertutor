@@ -34,9 +34,9 @@ export default function ProfilePreview({ ownProfile = false }) {
     <div className="space-y-5">
       <TutorPageHeader
         title={ownProfile ? 'My Profile' : 'Preview of your profile'}
-        subtitle={ownProfile ? undefined : 'Check the teaching details parents see. Your contact details and identity documents stay private.'}
+        subtitle={ownProfile ? 'Your teaching profile, all in one place.' : 'Check the teaching details parents see. Your contact details and identity documents stay private.'}
         right={<div className="flex flex-wrap gap-2">
-          <Link to="/tutor/setup" className="btn-outline min-h-11 px-4"><Icon name="edit" className="h-4 w-4" /> Edit profile</Link>
+          <Link to="/tutor/setup" className="btn-primary min-h-11 px-4"><Icon name="edit" className="h-4 w-4" /> Edit profile</Link>
           {ownProfile && <Link to="/tutor/preview" className="btn-outline min-h-11 px-4">View parent preview</Link>}
         </div>}
       />
@@ -56,7 +56,7 @@ export default function ProfilePreview({ ownProfile = false }) {
         </div>
       </section>
 
-      <div className={ownProfile ? 'grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]' : ''}>
+      <div className={ownProfile ? 'tutor-profile-sections grid min-w-0 items-start gap-5 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]' : ''}>
       <section className="card min-w-0 break-words p-5">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-display text-xl font-bold text-navy">Teaching details</h2>
@@ -82,7 +82,7 @@ export default function ProfilePreview({ ownProfile = false }) {
 
       <div className="grid gap-5 md:grid-cols-2">
         <section className="card p-6">
-          <h2 className="font-display text-lg font-bold text-navy">Qualifications</h2>
+          <h2 className="font-display text-lg font-bold text-navy">Qualifications <span className="font-sans text-sm font-normal text-slate-500">(optional)</span></h2>
           {ownProfile && <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-600 underline" to="/tutor/setup" state={{ step: 'documents' }}>Manage qualifications</Link>}
           {quals.length ? (
             <ul className="mt-2 space-y-1 text-sm text-navy">

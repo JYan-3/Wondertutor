@@ -129,3 +129,17 @@ test('a missing latest report does not substitute older homework', async () => {
   expect(screen.getByText('No upcoming confirmed lesson.')).toBeVisible()
   expect(screen.queryByText('Older homework')).toBeNull()
 })
+
+test('lesson history filters disputes without hiding the last completed report', async () => {
+  show([
+    { ...lesson(1, sarah, 'COMPLETED', '2020-01-01'), report: { progressNote: 'Understands fractions', homework: 'Five exercises' } },
+    lesson(2, sarah, 'DISPUTED', '2020-02-01'), lesson(3, sarah, 'CONFIRMED'),
+  ])
+  fireEvent.click(await screen.findByText('Sarah Lim'))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Show lessons for Sarah Lim' }), { target: { value: 'disputed' } })
+  expect(screen.getAllByRole('link')).toHaveLength(1)
+  expect(screen.getByRole('link')).toHaveAttribute('href', '/tutor/bookings/2/session')
+  expect(screen.getByText('Five exercises')).toBeVisible()
+  fireEvent.change(screen.getByRole('combobox'), { target: { value: 'all' } })
+  expect(screen.getAllByRole('link')).toHaveLength(3)
+})

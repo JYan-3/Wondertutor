@@ -40,7 +40,7 @@ function LessonAmounts({ row }) {
   }
   amounts.push(['Tutor share', row.net])
   return <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">{amounts.map(([label, amount]) =>
-    <div key={label}><dt>{label}</dt><dd className="font-semibold">{money(amount)}</dd></div>
+    <div key={label} className="min-w-0 rounded-lg bg-brand-25 p-3"><dt className="text-slate-600">{label}</dt><dd className="mt-1 font-semibold text-navy">{money(amount)}</dd></div>
   )}</dl>
 }
 
@@ -138,14 +138,14 @@ export default function Earnings() {
     finally { await load(); setBusy(false) }
   }
   return <div className="min-w-0 space-y-4">
-    <TutorPageHeader title="Earnings" subtitle="Your lesson income, commission and withdrawals." />
+    <TutorPageHeader title="Earnings" subtitle="Understand your lesson earnings and track bank transfers." />
     <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {[
         ['Available to withdraw', money(data.available), 'Total earned: ' + money(data.totalEarned)],
         ['Pending lesson report', money(data.pending), 'Released when the session is completed'],
         ['Withdrawals on hold', money(data.held), 'Reserved for review or bank transfer'],
         ['Your commission rate', Number(data.rate) + '%', 'Platform base rate: ' + Number(data.baseRate) + '%'],
-      ].map(([label, value, hint], i) => <div key={label} className={'min-w-0 rounded-xl border p-4 ' + (i === 0 ? 'border-navy bg-navy text-white' : 'border-brand-100 bg-white text-navy')}>
+      ].map(([label, value, hint], i) => <div key={label} className={'min-w-0 rounded-xl border p-4 ' + (i === 0 ? 'tutor-balance' : 'border-brand-100 bg-white text-navy')}>
         <dt className="text-sm font-semibold">{label}</dt><dd className="break-words text-2xl font-bold">{value}</dd><dd className="mt-1 text-sm">{hint}</dd></div>)}
     </dl>
     <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,22rem)]">
@@ -157,6 +157,7 @@ export default function Earnings() {
           <button className="btn-primary min-h-11 w-full" disabled={busy || !data.bank || Number(data.available) <= 0 || !amount}>{busy ? 'Submitting…' : 'Request withdrawal'}</button>
           {notice && <p role="status" className="text-sm">{notice}</p>}
         </form></SectionCard>
+        <p className="rounded-lg border border-brand-100 bg-white p-3 text-sm text-slate-600">Admin approval reserves your payout. The transfer is complete only after the bank transfer is recorded.</p>
         <SectionCard title="Pending withdrawals" icon="clock" className="tutor-paper-note">
           {pendingWithdrawals.length ? <><p className="text-sm">{money(data.held)} is already set aside from your available balance.</p>
             <WithdrawalList rows={pendingWithdrawals} /></> : <p>No withdrawals awaiting review or transfer.</p>}

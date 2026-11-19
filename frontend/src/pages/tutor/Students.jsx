@@ -16,6 +16,7 @@ function lessonState(lesson, now) {
 }
 
 function StudentLessons({ lessons, now }) {
+  const [filter, setFilter] = useState('all')
   const counts = { upcoming: 0, completed: 0, disputed: 0 }
   const rows = lessons.map(lesson => {
     const state = lessonState(lesson, now)
@@ -34,7 +35,7 @@ function StudentLessons({ lessons, now }) {
       </span>
     </summary>
     <div className="my-3 grid min-w-0 gap-3 sm:grid-cols-2">
-      <section className="tutor-paper-note min-w-0 break-words rounded-xl p-3">
+      <section className="tutor-paper-note order-2 min-w-0 sm:order-1 break-words rounded-xl p-3">
         <h3 className="font-semibold text-navy">Last completed lesson</h3>
         {last ? <>
           <p className="mt-1 text-sm">{last.subject} · {fmtDate(last.startAt)}</p>
@@ -44,13 +45,16 @@ function StudentLessons({ lessons, now }) {
           </dl> : <p className="mt-2 text-sm">No report recorded for this lesson.</p>}
         </> : <p className="mt-1 text-sm">No completed lessons yet.</p>}
       </section>
-      <section className="tutor-paper-blue min-w-0 break-words rounded-xl border border-brand-100 p-3">
+      <section className="tutor-paper-blue order-1 min-w-0 sm:order-2 break-words rounded-xl border border-brand-100 p-3">
         <h3 className="font-semibold text-navy">Next confirmed lesson</h3>
         {next ? <p className="mt-1 text-sm">{next.subject} · {fmtDate(next.startAt)}, {fmtTime(next.startAt)} (MYT)</p>
           : <p className="mt-1 text-sm">No upcoming confirmed lesson.</p>}
       </section>
     </div>
-    <ul className="divide-y divide-slate-100">{rows.map(({ lesson, state }) => <li key={lesson.id}>
+    <div className="my-3 flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold text-navy">Lesson history</h3>
+      <label className="text-sm">Show lessons<select aria-label={`Show lessons for ${child.name}`} className="input ml-2 min-h-11 w-auto max-w-full text-base" value={filter} onChange={e => setFilter(e.target.value)}><option value="all">All lessons</option><option value="upcoming">Upcoming</option><option value="completed">Completed</option><option value="disputed">Disputed</option><option value="awaiting completion">Awaiting completion</option><option value="in progress">In progress</option></select></label></div>
+    {!rows.some(row => filter === 'all' || row.state === filter) && <p className="py-3 text-sm text-slate-600">No lessons in this section.</p>}
+    <ul className="divide-y divide-slate-100">{rows.filter(row => filter === 'all' || row.state === filter).map(({ lesson, state }) => <li key={lesson.id}>
       <Link className="flex min-h-11 flex-wrap items-center gap-x-2 break-words py-2 underline" to={'/tutor/bookings/' + recordRef(lesson) + '/session'}>
         {fmtDate(lesson.startAt)}, {fmtTime(lesson.startAt)} · {lesson.subject} · {state}
       </Link>
@@ -68,8 +72,8 @@ export default function Students() {
     window.addEventListener('focus', tick)
     return () => { clearInterval(timer); window.removeEventListener('focus', tick) }
   }, [])
-  return <div className="min-w-0 space-y-4"><TutorPageHeader title="My students" subtitle="Find a student's last lesson report and upcoming sessions." /><SectionCard title="Student lessons" action={<img src="/img/art/student-workbook.png" alt="" width="88" height="72" className="h-16 w-20 shrink-0 object-contain sm:h-[4.5rem] sm:w-[5.5rem]" />}>
-    <label className="block">Find a student<input className="input min-h-11 w-full text-base" value={query} onChange={e => setQuery(e.target.value)} /></label>
+  return <div className="min-w-0 space-y-4"><TutorPageHeader title="My students" subtitle="Prepare for the next lesson with the last lesson in view." /><SectionCard title="Student lessons" className="tutor-student-list">
+    <label className="mb-4 block max-w-lg text-sm font-semibold text-navy">Find a student<input className="input min-h-11 w-full text-base" value={query} onChange={e => setQuery(e.target.value)} /></label>
     <Records source={source}>{({ bookings }) => {
       const students = new Map()
       for (const b of bookings) {

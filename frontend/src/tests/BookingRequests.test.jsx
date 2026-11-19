@@ -102,3 +102,25 @@ test('list rows identify who must reply and keep payment deadlines visible durin
   expect(item(7)).toHaveTextContent('Completed')
   expect(item(7)).not.toHaveTextContent(/reply|Payment due|time change/)
 })
+
+test('reply filter includes parent time changes across groups and excludes requests waiting for parents', async () => {
+  const rows = [
+    { ...b, id: 1, status: 'PENDING', child: { ...b.child, name: 'Ben' } },
+    { ...b, id: 2, status: 'COUNTER_OFFERED', child: { ...b.child, name: 'Alya' } },
+    { ...b, id: 3, status: 'CONFIRMED', child: { ...b.child, name: 'Chloe' }, reschedule: { status: 'PENDING', mine: false, startAt } },
+    { ...b, id: 4, status: 'CONFIRMED', child: { ...b.child, name: 'Daniel' }, reschedule: { status: 'PENDING', mine: true, startAt } },
+  ]
+  api.get.mockResolvedValue({ data: { bookings: rows } })
+  render(<MemoryRouter><BookingRequests /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Needs my reply (2)' }))
+  expect(screen.getByRole('button', { name: /Mathematics · Ben/ })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Mathematics · Chloe/ })).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Mathematics · Alya/ })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /Mathematics · Daniel/ })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Find a student or subject' }), { target: { value: 'CHLOE' } })
+  expect(screen.queryByRole('button', { name: /Mathematics · Ben/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Mathematics · Chloe/ })).toBeInTheDocument()
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Requests (2)' }))
+  expect(screen.getByRole('button', { name: /Mathematics · Alya/ })).toBeInTheDocument()
+})

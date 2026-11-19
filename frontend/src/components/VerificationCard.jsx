@@ -32,7 +32,7 @@ const VerificationCard = forwardRef(function VerificationCard({ profile, onUploa
   const needsDocument = rejected.length > 0 || missing.length > 0
 
   return (
-    <section ref={ref} aria-labelledby="verification-title" className="card mb-5 p-5">
+    <section ref={ref} aria-labelledby="verification-title" className="tutor-verification card mb-5 min-w-0 p-5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2 id="verification-title" className="font-display text-lg font-bold text-navy">Verification</h2>
         <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${badgeCls}`}>
@@ -51,7 +51,7 @@ const VerificationCard = forwardRef(function VerificationCard({ profile, onUploa
         </div>)}
       </dl>
       <p className="mt-3 text-sm"><strong>Identity document:</strong> {documentStatus(profile, 'IDENTITY')}. The badge requires an approved identity document and at least one approved qualification.</p>
-      {!profile.isVerified && <p className="mt-2 font-semibold text-navy">You can accept booking requests before you earn the badge.</p>}
+      {!profile.isVerified && <p className="mt-3 rounded-lg bg-amber-50 p-3 font-semibold text-navy">You can accept booking requests before you earn the badge.</p>}
       <p className="mt-2 text-sm text-slate-600">{text}</p>
 
       {needsDocument && (

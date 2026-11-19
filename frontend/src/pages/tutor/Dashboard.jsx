@@ -56,16 +56,18 @@ export default function TutorDashboard() {
 
   return (
     <div className="space-y-6">
-      <TutorPageHeader dashboard title={`${greeting()}, ${user.fullName}!`} subtitle="Your lessons and booking requests in Malaysia time." />
+      <TutorPageHeader dashboard title={`${greeting()}, ${user.fullName}!`} subtitle="Your next lesson and the actions that need you. All times are in Malaysia time." />
       {hasSchedule ? <>
+      <div className="grid min-w-0 items-stretch gap-4 lg:grid-cols-2">
       <SectionCard title="Next lesson" icon="calendar" className="tutor-next-lesson">
         {data.nextLesson ? <LessonRow lesson={data.nextLesson} showDate featured /> : <p>No upcoming confirmed lessons.</p>}
       </SectionCard>
-      <div className="grid min-w-0 items-start gap-4 lg:grid-cols-2">
         <SectionCard title="Action needed" icon="clock" className={data.actions?.length ? 'tutor-needs-attention' : ''}>
           {data.actions?.length ? <div className="divide-y divide-slate-100">{data.actions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} showDate />)}</div> : <p>No outstanding requests or session follow-ups.</p>}
           <Link to="/tutor/bookings" className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-700 hover:underline">View all bookings</Link>
         </SectionCard>
+      </div>
+      <div>
         <SectionCard title="Today's sessions" icon="calendar" className="tutor-paper-blue">
           {data.todaySessions?.length ? <div className="divide-y divide-slate-100">{data.todaySessions.map(lesson => <LessonRow key={lesson.ref} lesson={lesson} />)}</div> : <p>No sessions scheduled today.</p>}
         </SectionCard>
