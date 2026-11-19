@@ -6,7 +6,8 @@ import Icon from './ui/Icon'
 // Uploads an image straight to Cloudinary using a one-time signature from our backend.
 export async function uploadImage(file, purpose, bookingId) {
   const attendance = purpose === 'attendance'
-  const { data: sig } = await (purpose ? api.post('/uploads/signature', attendance ? { purpose, bookingId } : { purpose }) : api.post('/uploads/signature'))
+  const withdrawal = purpose === 'withdrawal-receipt'
+  const { data: sig } = await (purpose ? api.post('/uploads/signature', attendance ? { purpose, bookingId } : withdrawal ? { purpose, withdrawalId: bookingId } : { purpose }) : api.post('/uploads/signature'))
   const form = new FormData()
   if (sig.type) {
     form.append('type', sig.type)
@@ -21,7 +22,7 @@ export async function uploadImage(file, purpose, bookingId) {
   const json = await res.json()
   if (!res.ok) throw new Error(json.error?.message || 'Upload failed')
   const url = sig.type === 'authenticated' ? json.secure_url.replace(/(\/image\/authenticated\/)s--[a-zA-Z0-9_-]+--\//, '$1') : json.secure_url
-  return attendance ? { url, version: json.version, signature: json.signature } : url
+  return attendance || withdrawal ? { url, version: json.version, signature: json.signature } : url
 }
 
 // Verification documents (NRIC, certificates) may be a PDF or a photo. "auto" lets Cloudinary store either.

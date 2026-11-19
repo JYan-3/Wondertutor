@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
+import { readBank } from '../bankDetails.js'
 
 // A dump is evidence, not a set of executable commands. This planner is pure:
 // existing rows are preserved, integer IDs are mapped, and uncertain branches
@@ -131,7 +132,8 @@ export function planDatabaseMerge({ source, target = {}, now = new Date() }) {
       else if (!field.isRequired) result[field.name] = null
       else if (!field.hasDefaultValue) throw new Error('missing required scalar field: ' + field.name)
     }
-    return result
+    if (model === 'Withdrawal' && fill && raw.legacyPaid === undefined && raw.status === 'APPROVED' && !raw.paidAt) result.legacyPaid = true
+    return model === 'BankAccount' ? readBank(result) : result
   }
   for (const model of MODELS) {
     for (const raw of target[model.name] || []) {

@@ -43,6 +43,8 @@ router.get('/salary/:id', ops.payslip)
 router.get('/reports', ops.reports)
 router.get('/withdrawals', withdrawals.list)
 router.post('/withdrawals/:id/review', withdrawals.review)
+router.get('/withdrawals/:id/destination', withdrawals.destination)
+router.post('/withdrawals/:id/transfer', withdrawals.transfer)
 router.get('/settings', settings.list)
 router.patch('/settings', settings.update)
 

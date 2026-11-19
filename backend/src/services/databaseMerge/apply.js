@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import { planDatabaseMerge } from './plan.js'
+import { protectBank } from '../bankDetails.js'
 
 const MODELS = Prisma.dmmf.datamodel.models
 const BY_NAME = new Map(MODELS.map(model => [model.name, model]))
@@ -94,6 +95,7 @@ export async function applyDatabaseMerge(db, { source, expectedSnapshot, now = n
       for (const field of BY_NAME.get(insert.model).fields) {
         if (field.type === 'Json' && data[field.name] === null) data[field.name] = Prisma.DbNull
       }
+      if (insert.model === 'BankAccount') Object.assign(data, protectBank(data))
       await tx[delegate(insert.model)].create({ data })
     }
     for (const update of plan.updates) {

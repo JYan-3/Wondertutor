@@ -335,7 +335,7 @@ model BankAccount {
   tutorId       Int
   tutor         TutorProfile @relation(fields: [tutorId], references: [id], onDelete: Cascade)
   bankName      String
-  accountName   String
+  accountName   String @db.Text
   accountNumber String
   isDefault     Boolean      @default(false)
 
@@ -354,6 +354,12 @@ model Withdrawal {
   reviewedById  Int?
   createdAt     DateTime      @default(now())
   reviewedAt    DateTime?
+  paidAt        DateTime?
+  paidById      Int?
+  transferRef   String? @unique @db.VarChar(100)
+  receiptUrl    String? @db.Text
+  legacyPaid    Boolean @default(false)
+
 }
 
 // ───────────── Booking flow [Shared] ─────────────

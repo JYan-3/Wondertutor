@@ -1,6 +1,11 @@
 import { tutorRefunds, tutorPaymentStatus } from './tutorRefundStatus.js'
 import { Prisma } from '@prisma/client'
+import { mediaLink, privateAsset } from './privateMedia.js'
+import { env } from '../config/env.js'
+import { v2 as cloudinary } from 'cloudinary'
+import { timingSafeEqual } from 'node:crypto'
 import { createHash } from 'node:crypto'
+import { protectBank, readBank } from './bankDetails.js'
 import { prisma } from '../config/prisma.js'
 import { AppError } from '../utils/AppError.js'
 import { baseCommission } from './systemSettings.service.js'
@@ -9,7 +14,11 @@ import { sendEmail } from './email.service.js'
 
 const zero = new Prisma.Decimal(0)
 const holding = ['PENDING', 'ESCALATED']
-const bankView = b => b && ({ id: b.id, bankName: b.bankName, accountName: b.accountName, lastFour: b.accountNumber.slice(-4) })
+export const withdrawalPaid = w => w.status === 'APPROVED' && Boolean(w.paidAt || w.legacyPaid)
+const withdrawalState = w => withdrawalPaid(w) ? (w.legacyPaid ? 'LEGACY_PAID' : 'PAID') : w.status === 'APPROVED' ? 'AWAITING_TRANSFER' : w.status
+const transferFields = w => ({ payoutStatus: withdrawalState(w), paidAt: w.paidAt, transferRef: w.transferRef,
+  receiptUrl: mediaLink(w.receiptUrl, 'wondertutor/withdrawals/' + w.id) })
+const bankView = b => b && ({ id: b.id, bankName: b.bankName, accountName: readBank(b).accountName, lastFour: b.accountNumber.slice(-4) })
 const lockTutor = (db, tutorId) => db.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutorId} FOR UPDATE`
 
 async function ledger(db, tutorId) {
@@ -53,8 +62,8 @@ async function ledger(db, tutorId) {
       refunded: p.status === 'REFUNDED' ? p.amount : refunded, rate: p.commissionRate, net, state }
   })
   for (const w of withdrawals) {
-    if (holding.includes(w.status)) held = held.plus(w.amount)
-    if (w.status === 'APPROVED') paidOut = paidOut.plus(w.amount)
+    if (holding.includes(w.status) || (w.status === 'APPROVED' && !withdrawalPaid(w))) held = held.plus(w.amount)
+    if (withdrawalPaid(w)) paidOut = paidOut.plus(w.amount)
   }
   const balance = earned.minus(held).minus(paidOut)
   // A repeat submission from the same displayed balance must not reserve a second amount.
@@ -70,7 +79,7 @@ export function earnings(tutorId) {
     const base = await baseCommission(db)
     return { available: Prisma.Decimal.max(l.balance, 0), totalEarned: l.earned, pending: l.pending, held: l.held, withdrawn: l.paidOut,
       version: l.version, rate: tutor.commissionRate ?? base, baseRate: base, bank: bankView(bank), transactions: l.transactions,
-      withdrawals: l.withdrawals.map(w => ({ id: w.id, date: w.createdAt, reviewedAt: w.reviewedAt, amount: w.amount, status: w.status, reason: w.rejectReason, bank: bankView(w.bankAccount) })) }
+      withdrawals: l.withdrawals.map(w => ({ id: w.id, date: w.createdAt, reviewedAt: w.reviewedAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w), bank: bankView(w.bankAccount) })) }
   })
 }
 
@@ -84,7 +93,7 @@ export function changeBank(tutorId, expectedBank, details) {
       await db.bankAccount.update({ where: { id: old.id }, data: { isDefault: false } })
       await db.withdrawal.updateMany({ where: { tutorId, status: 'PENDING' }, data: { status: 'ESCALATED' } })
     }
-    if (details) await db.bankAccount.create({ data: { tutorId, ...details, isDefault: true } })
+    if (details) await db.bankAccount.create({ data: { tutorId, ...protectBank(details), isDefault: true } })
   })
 }
 
@@ -103,9 +112,9 @@ export function requestWithdrawal(tutorId, input) {
 }
 
 export async function pendingReviews() {
-  const rows = await prisma.withdrawal.findMany({ where: { status: { in: holding } }, orderBy: { id: 'asc' },
+  const rows = await prisma.withdrawal.findMany({ orderBy: { id: 'asc' },
     include: { bankAccount: true, tutor: { select: { user: { select: { fullName: true } } } } } })
-  return rows.map(w => ({ id: w.id, tutor: w.tutor.user.fullName, date: w.createdAt, amount: w.amount, status: w.status, bank: bankView(w.bankAccount) }))
+  return rows.map(w => ({ id: w.id, tutor: w.tutor.user.fullName, date: w.createdAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w), bank: bankView(w.bankAccount) }))
 }
 
 export async function reviewWithdrawal(id, adminId, decision) {
@@ -119,11 +128,50 @@ export async function reviewWithdrawal(id, adminId, decision) {
     await db.withdrawal.update({ where: { id }, data: { status: decision.status, rejectReason: decision.reason ?? null, reviewedById: adminId, reviewedAt: new Date() } })
     const title = decision.status === 'APPROVED' ? 'Withdrawal approved' : 'Withdrawal rejected'
     const message = 'Your RM ' + row.amount.toFixed(2) + ' request to ' + row.bankAccount.bankName + ' ending ' + row.bankAccount.accountNumber.slice(-4) +
-      (decision.status === 'APPROVED' ? ' was approved.' : ' was rejected. Reason: ' + decision.reason)
+      (decision.status === 'APPROVED' ? ' was approved and is awaiting bank transfer.' : ' was rejected. Reason: ' + decision.reason)
     const link = '/tutor/earnings'
     await db.notification.create({ data: { userId: row.tutor.userId, type: 'WITHDRAWAL_' + decision.status, title, message, link } })
     return { user: row.tutor.user, title, message, link }
   })
   try { await sendEmail({ to: result.user.email, subject: 'WonderTutor — ' + result.title, html: renderEmail({ ...result, name: result.user.fullName }) }) }
-  catch { console.error('Withdrawal decision email could not be delivered') }
+  catch { return { emailSent: false } }
+  return { emailSent: true }
+}
+
+// Only the approved request's original destination is exposed for the manual transfer.
+export async function withdrawalDestination(id) {
+  const w = await prisma.withdrawal.findUnique({ where: { id }, include: { bankAccount: true } })
+  if (!w) throw new AppError(404, 'Withdrawal not found')
+  if (w.status !== 'APPROVED' || withdrawalPaid(w)) throw new AppError(409, 'This withdrawal is not awaiting transfer.')
+  const bank = readBank(w.bankAccount)
+  return { bankName: bank.bankName, accountName: bank.accountName, accountNumber: bank.accountNumber }
+}
+
+export async function recordWithdrawalTransfer(id, adminId, input) {
+  const w = await prisma.withdrawal.findUnique({ where: { id }, select: { tutorId: true } })
+  if (!w) throw new AppError(404, 'Withdrawal not found')
+  const asset = privateAsset(input.receipt.url, 'wondertutor/withdrawals/' + id)
+  if (!asset || !env.cloudinary.apiSecret) throw new AppError(400, 'Upload a private receipt for this withdrawal.')
+  const expected = cloudinary.utils.api_sign_request({ public_id: asset.id, version: input.receipt.version }, env.cloudinary.apiSecret)
+  if (expected.length !== input.receipt.signature.length || !timingSafeEqual(Buffer.from(expected), Buffer.from(input.receipt.signature))) {
+    throw new AppError(400, 'The receipt upload could not be verified.')
+  }
+  const result = await prisma.$transaction(async db => {
+    await lockTutor(db, w.tutorId)
+    const row = await db.withdrawal.findUniqueOrThrow({ where: { id }, include: { tutor: { include: { user: true } }, bankAccount: true } })
+    if (row.status !== 'APPROVED' || withdrawalPaid(row)) throw new AppError(409, 'This withdrawal is not awaiting transfer or has already been paid.')
+    // The unique reference also prevents one bank transaction being recorded against two requests.
+    await db.withdrawal.update({ where: { id }, data: {
+      paidAt: new Date(), paidById: adminId, transferRef: input.reference, receiptUrl: input.receipt.url,
+    } })
+    const title = 'Withdrawal paid'
+    const message = 'Your RM ' + row.amount.toFixed(2) + ' withdrawal to ' + row.bankAccount.bankName + ' ending ' +
+      row.bankAccount.accountNumber.slice(-4) + ' has been recorded as paid. Transfer reference: ' + input.reference
+    const link = '/tutor/earnings'
+    await db.notification.create({ data: { userId: row.tutor.userId, type: 'WITHDRAWAL_PAID', title, message, link } })
+    return { user: row.tutor.user, title, message, link }
+  })
+  try { await sendEmail({ to: result.user.email, subject: 'WonderTutor — ' + result.title, html: renderEmail({ ...result, name: result.user.fullName }) }) }
+  catch { return { emailSent: false } }
+  return { emailSent: true }
 }

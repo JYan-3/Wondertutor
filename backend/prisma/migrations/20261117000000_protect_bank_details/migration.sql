@@ -1,0 +1,1 @@
+ALTER TABLE `BankAccount` MODIFY COLUMN `accountName` TEXT NOT NULL;

@@ -11,7 +11,7 @@ const details = z.object({
 }).strict()
 
 export async function dashboard(req, res) {
-  res.json({ ...await earnings(req.tutor.id), bankAuth: req.user.passwordHash ? 'password' : 'code' })
+  res.set('Cache-Control', 'no-store').json({ ...await earnings(req.tutor.id), bankAuth: req.user.passwordHash ? 'password' : 'code' })
 }
 
 export async function bankCode(req, res) {

@@ -1,11 +1,13 @@
 // Jest setup (runs before every test file): point Prisma at the TEST database and set the secrets the app needs.
 // dotenv never overrides variables that are already set, so this wins over backend/.env.
 import 'dotenv/config'
+import { randomBytes } from 'node:crypto'
 import { testDatabaseUrl } from '../../scripts/setup-test-db-url.js'
 
 process.env.DATABASE_URL = testDatabaseUrl(process.env.DATABASE_URL)
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret'
 process.env.NODE_ENV = 'test'
+process.env.BANK_DETAILS_KEY = randomBytes(32).toString('hex')
 // Local Gemini settings must never enable network calls or change CI behaviour.
 process.env.AI_ASSISTANT_ENABLED = 'false'
 process.env.GEMINI_API_KEY = ''

@@ -9,7 +9,7 @@ export function privateAsset(url, folder) {
   const prefix = 'https://res.cloudinary.com/' + env.cloudinary.cloudName + '/image/authenticated/'
   if (!url.startsWith(prefix)) return null
   const path = unsignedReference(url).slice(prefix.length).replace(/^v\d+\//, '')
-  const match = /^(wondertutor\/(?:qualifications|attendance|children)\/\d+\/[a-zA-Z0-9_-]+)\.(jpg|jpeg|png|pdf)$/.exec(path)
+  const match = /^(wondertutor\/(?:qualifications|attendance|children|withdrawals)\/\d+\/[a-zA-Z0-9_-]+)\.(jpg|jpeg|png|pdf)$/.exec(path)
   return match && match[1].startsWith(folder + '/') ? { id: match[1], format: match[2] } : null
 }
 

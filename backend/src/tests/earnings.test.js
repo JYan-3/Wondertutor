@@ -1,3 +1,5 @@
+import { env } from '../config/env.js'
+import { v2 as cloudinary } from 'cloudinary'
 import { prisma } from '../config/prisma.js'
 import { api, startServer, stopServer, resetDb, makeParent, makeTutor, makeAdmin, makeBooking, MONDAY, nextDate } from './helpers.js'
 import { outbox } from '../services/email.service.js'
@@ -20,6 +22,15 @@ async function setup() {
   const request = (view, amount) => client.post(root + '/withdrawals', { bankId: view.bank.id, version: view.version, amount })
   return { t, client, bank, change, get, pay, request }
 }
+
+test('payout account is encrypted in storage and only the last four digits are returned', async () => {
+  const { t, bank, get } = await setup()
+  const row = await prisma.bankAccount.findFirstOrThrow({ where: { tutorId: t.tutor.id } })
+  expect(row.accountNumber).toBe('8901')
+  expect(row.accountName).not.toContain(bank.accountName)
+  expect(row.accountName).not.toContain(bank.accountNumber)
+  expect((await get()).bank).toEqual({ id: row.id, bankName: bank.bankName, accountName: bank.accountName, lastFour: '8901' })
+})
 
 test('completed lessons use the historical fee; current rate, refunds and pending reports are separate', async () => {
   const { pay, get } = await setup()
@@ -83,10 +94,14 @@ test('bank edits preserve the payout destination; rejection releases the hold an
   expect(await prisma.notification.count({ where: { userId: t.user.id, type: 'WITHDRAWAL_REJECTED' } })).toBe(1)
   expect(outbox.some(m => m.to === t.user.email && m.html.includes(reject.reason))).toBe(true)
   const newRequest = await request(released, '88')
-  expect((await admin.post('/admin/withdrawals/' + newRequest.id + '/review', approve)).status).toBe(200)
+  const reviewPath = '/admin/withdrawals/' + newRequest.id + '/review'
+  const responses = await Promise.all([admin.post(reviewPath, approve), admin.post(reviewPath, approve)])
+  expect(responses.map(r => r.status).sort()).toEqual([200, 409])
+  expect((await admin.post(reviewPath, approve)).status).toBe(409)
+  expect(await prisma.notification.count({ where: { userId: t.user.id, type: 'WITHDRAWAL_APPROVED' } })).toBe(1)
   const approved = await get()
-  expect(Number(approved.held)).toBe(0)
-  expect(Number(approved.withdrawn)).toBe(88)
+  expect(Number(approved.held)).toBe(88)
+  expect(Number(approved.withdrawn)).toBe(0)
   expect(Number(approved.available)).toBe(0)
 })
 
@@ -97,4 +112,71 @@ test('only tutors access earnings and withdrawal destinations are scoped to the 
   expect((await api(parent.token).get(root)).status).toBe(403)
   expect((await a.request({ ...mine, bank: other.bank }, '0.01')).status).toBe(409)
   expect((await a.change(other.bank.id, null)).status).toBe(409)
+})
+
+test('manual payout needs approval and a verified receipt; concurrent and reused transfers are refused', async () => {
+  const saved = { ...env.cloudinary }
+  Object.assign(env.cloudinary, { cloudName: 'test-cloud', apiKey: 'test-key', apiSecret: 'test-secret' })
+  try {
+    const { t, client, get, request, pay, change, bank } = await setup()
+    await pay()
+    await pay()
+    const first = await request(await get(), '88')
+    const second = await request(await get(), '88')
+    const path = id => '/admin/withdrawals/' + id
+    const receipt = id => {
+      const public_id = 'wondertutor/withdrawals/' + id + '/receipt'
+      return { url: 'https://res.cloudinary.com/test-cloud/image/authenticated/v1/' + public_id + '.pdf',
+        version: 1, signature: cloudinary.utils.api_sign_request({ public_id, version: 1 }, env.cloudinary.apiSecret) }
+    }
+    const input = { reference: 'bank-ref-001', receipt: receipt(first.id) }
+    expect((await client.post(path(first.id) + '/transfer', input)).status).toBe(403)
+    expect((await api().post(path(first.id) + '/transfer', input)).status).toBe(401)
+    expect((await admin.post(path(first.id) + '/transfer', input)).status).toBe(409)
+    expect((await admin.get(path(first.id) + '/destination')).status).toBe(409)
+    for (const id of [first.id, second.id]) expect((await admin.post(path(id) + '/review', { status: 'APPROVED', expectedStatus: 'PENDING' })).status).toBe(200)
+    expect(Number((await get()).held)).toBe(176)
+    expect((await client.post('/uploads/signature', { purpose: 'withdrawal-receipt', withdrawalId: first.id })).status).toBe(403)
+    const upload = await admin.post('/uploads/signature', { purpose: 'withdrawal-receipt', withdrawalId: first.id })
+    expect(upload.status).toBe(200)
+    expect(upload.type).toBe('authenticated')
+    expect(upload.folder).toBe('wondertutor/withdrawals/' + first.id)
+    expect(Number((await admin.get('/admin/salary/' + t.tutor.id)).approved)).toBe(0)
+    expect((await client.get(path(first.id) + '/destination')).status).toBe(403)
+    expect((await admin.get(path(first.id) + '/destination')).accountNumber).toBe(bank.accountNumber)
+    await change((await get()).bank.id, { ...bank, accountNumber: '9988776655' })
+    expect((await admin.get(path(first.id) + '/destination')).accountNumber).toBe(bank.accountNumber)
+    expect((await admin.post(path(first.id) + '/transfer', { reference: 'ABC' })).status).toBe(400)
+    expect((await admin.post(path(first.id) + '/transfer', { ...input, receipt: receipt(second.id) })).status).toBe(400)
+    expect((await admin.post(path(first.id) + '/transfer', { ...input, receipt: { ...input.receipt, signature: '0'.repeat(40) } })).status).toBe(400)
+    const outcomes = await Promise.all([admin.post(path(first.id) + '/transfer', input), admin.post(path(first.id) + '/transfer', input)])
+    expect(outcomes.map(r => r.status).sort()).toEqual([200, 409])
+    expect((await admin.post(path(first.id) + '/transfer', input)).status).toBe(409)
+    expect((await admin.post(path(second.id) + '/transfer', { ...input, receipt: receipt(second.id) })).status).toBe(409)
+    const view = await get()
+    expect(Number(view.withdrawn)).toBe(88)
+    expect(Number((await admin.get('/admin/salary/' + t.tutor.id)).approved)).toBe(88)
+    expect(Number(view.held)).toBe(88)
+    expect(Number(view.available)).toBe(0)
+    const paid = view.withdrawals.find(w => w.id === first.id)
+    expect(paid.payoutStatus).toBe('PAID')
+    expect(paid.transferRef).toBe('BANK-REF-001')
+    expect(paid.receiptUrl).toContain('signature=')
+    expect((await admin.get(path(first.id) + '/destination')).status).toBe(409)
+    expect((await admin.post('/uploads/signature', { purpose: 'withdrawal-receipt', withdrawalId: first.id })).status).toBe(409)
+    expect(await prisma.notification.count({ where: { userId: t.user.id, type: 'WITHDRAWAL_PAID' } })).toBe(1)
+    expect(outbox.filter(m => m.to === t.user.email && m.subject.includes('Withdrawal paid'))).toHaveLength(1)
+    expect((await admin.get('/admin/withdrawals')).requests.find(w => w.id === first.id).payoutStatus).toBe('PAID')
+  } finally { Object.assign(env.cloudinary, saved) }
+})
+
+test('historical approvals retain their balance and are labelled as legacy records', async () => {
+  const { get, request, pay } = await setup()
+  await pay()
+  const w = await request(await get(), '88')
+  await prisma.withdrawal.update({ where: { id: w.id }, data: { status: 'APPROVED', legacyPaid: true } })
+  const view = await get()
+  expect(Number(view.withdrawn)).toBe(88)
+  expect(Number(view.held)).toBe(0)
+  expect(view.withdrawals[0].payoutStatus).toBe('LEGACY_PAID')
 })

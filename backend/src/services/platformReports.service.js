@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../config/prisma.js'
 import { mytParts } from '../utils/time.js'
 import { mytDayRange } from './paymentSummary.service.js'
-import { earnings } from './earnings.service.js'
+import { earnings, withdrawalPaid } from './earnings.service.js'
 import { AppError } from '../utils/AppError.js'
 
 const D = n => new Prisma.Decimal(n ?? 0)
@@ -16,7 +16,7 @@ export async function transactions(range) {
     prisma.payment.findMany({ where: !period.start && !period.end ? {} : { OR: [{ paidAt: whereDate(period) }, { paidAt: null, createdAt: whereDate(period) },
       { refunds: { some: { OR: [{ createdAt: whereDate(period) }, { reviewedAt: whereDate(period) }, { issuedAt: whereDate(period) }] } } }] },
       include: { booking: { include: { tutor: name, parent: name } }, refunds: { orderBy: [{ issuedAt: 'asc' }, { id: 'asc' }] } } }),
-    prisma.withdrawal.findMany({ where: !period.start && !period.end ? {} : { OR: [{ reviewedAt: whereDate(period) }, { reviewedAt: null, createdAt: whereDate(period) }] }, include: { tutor: name } }),
+    prisma.withdrawal.findMany({ where: !period.start && !period.end ? {} : { OR: [{ paidAt: whereDate(period) }, { reviewedAt: whereDate(period) }, { reviewedAt: null, createdAt: whereDate(period) }] }, include: { tutor: name } }),
   ])
   const rows = []
   for (const p of payments) {
@@ -41,8 +41,8 @@ export async function transactions(range) {
         amount: r.amount.negated(), commission: commission.negated(), tutorNet: settled ? commission.minus(r.amount) : D(0), settled })
     }
   }
-  for (const w of withdrawals) rows.push({ tutorId: w.tutorId, tutor: w.tutor.user.fullName, type: 'Withdrawal', id: w.id, date: w.reviewedAt || w.createdAt,
-    status: w.status, amount: w.amount.negated(), commission: D(0), tutorNet: w.amount.negated(), settled: w.status === 'APPROVED' })
+  for (const w of withdrawals) rows.push({ tutorId: w.tutorId, tutor: w.tutor.user.fullName, type: 'Withdrawal', id: w.id, date: w.paidAt || w.reviewedAt || w.createdAt,
+    status: w.status, amount: w.amount.negated(), commission: D(0), tutorNet: w.amount.negated(), settled: withdrawalPaid(w) })
   return rows.filter(row => inRange(row.date, period)).sort((a,b) => b.date - a.date || b.id - a.id)
 }
 
@@ -88,7 +88,7 @@ export async function salarySummary(tutorId, range) {
   const view = await earnings(tutorId)
   const period = mytDayRange(range.from, range.to)
   const sessions = view.transactions.filter(x => x.state === 'Earned' && inRange(x.date, period))
-  const withdrawals = view.withdrawals.filter(x => x.status === 'APPROVED' && inRange(x.reviewedAt || x.date, period))
+  const withdrawals = view.withdrawals.filter(x => ['PAID', 'LEGACY_PAID'].includes(x.payoutStatus) && inRange(x.paidAt || x.reviewedAt || x.date, period))
   const sum = (list, key) => list.reduce((total, x) => total.plus(x[key]), D(0))
   return { tutor: tutor.user.fullName, sessions, gross: sum(sessions, 'fee'), refunded: sum(sessions, 'refunded'),
     commission: sum(sessions, 'commission'), net: sum(sessions, 'net'), approved: sum(withdrawals, 'amount'), available: view.available }

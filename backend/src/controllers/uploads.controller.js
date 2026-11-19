@@ -14,7 +14,14 @@ export async function uploadSignature(req, res) {
   const purpose = req.body?.purpose
   if (purpose) {
     let folder
-    if (purpose === 'child-avatar') {
+    if (purpose === 'withdrawal-receipt') {
+      if (req.user.role !== 'ADMIN') throw new AppError(403, 'Admin access required')
+      const id = req.body.withdrawalId
+      if (!Number.isSafeInteger(id) || id < 1) throw new AppError(400, 'Invalid withdrawal')
+      const withdrawal = await prisma.withdrawal.findUnique({ where: { id } })
+      if (!withdrawal || withdrawal.status !== 'APPROVED' || withdrawal.paidAt || withdrawal.legacyPaid) throw new AppError(409, 'This withdrawal is not awaiting transfer.')
+      folder = 'wondertutor/withdrawals/' + id
+    } else if (purpose === 'child-avatar') {
       if (req.user.role !== 'PARENT') throw new AppError(403, 'Parent access required')
       const parent = await prisma.parentProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } })
       if (!parent) throw new AppError(404, 'Parent profile not found')

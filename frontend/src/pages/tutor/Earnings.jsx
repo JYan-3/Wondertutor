@@ -6,7 +6,7 @@ import TutorPageHeader from '../../components/TutorPageHeader'
 import { ErrorBox, LoadError, SectionCard, Spinner } from '../../components/ui/Common'
 import { fmtDate, money } from '../../lib/format'
 
-const statusLabel = { PENDING: 'In review', APPROVED: 'Approved', REJECTED: 'Rejected', ESCALATED: 'Bank change under review' }
+const statusLabel = { PENDING: 'In review', APPROVED: 'Awaiting transfer', AWAITING_TRANSFER: 'Awaiting transfer', PAID: 'Paid', LEGACY_PAID: 'Previously approved (legacy record)', REJECTED: 'Rejected', ESCALATED: 'Bank change under review' }
 const monthKey = date => new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(date))
 const accountLabel = bank => bank.bankName + ' ••' + bank.lastFour
 function exportCsv(rows) {
@@ -46,8 +46,11 @@ function LessonAmounts({ row }) {
 
 function WithdrawalList({ rows }) {
   return <ul className="divide-y divide-brand-100">{rows.map(w =>
-    <li key={w.id} className="break-words py-3"><strong>{money(w.amount)} · {statusLabel[w.status]}</strong>
+    <li key={w.id} className="break-words py-3"><strong>{money(w.amount)} · {statusLabel[w.payoutStatus || w.status]}</strong>
       <p className="text-sm">{fmtDate(w.date)} · {accountLabel(w.bank)}</p>{w.reason && <p>Reason: {w.reason}</p>}
+      {w.transferRef && <p className="text-sm">Transfer reference: {w.transferRef}</p>}
+      {w.paidAt && <p className="text-sm">Paid on {fmtDate(w.paidAt)}</p>}
+      {w.receiptUrl && <a className="inline-flex min-h-11 items-center underline" href={w.receiptUrl} target="_blank" rel="noreferrer">View transfer receipt</a>}
     </li>
   )}</ul>
 }
@@ -119,7 +122,7 @@ export default function Earnings() {
   if (!data) return <Spinner />
   const rows = data.transactions.filter(r => period === 'all' || monthKey(r.date) === data.month)
 
-  const isPending = w => w.status === 'PENDING' || w.status === 'ESCALATED'
+  const isPending = w => w.status === 'PENDING' || w.status === 'ESCALATED' || w.payoutStatus === 'AWAITING_TRANSFER'
   const pendingWithdrawals = data.withdrawals.filter(isPending)
   const closedWithdrawals = data.withdrawals.filter(w => !isPending(w))
 
@@ -140,7 +143,7 @@ export default function Earnings() {
       {[
         ['Available to withdraw', money(data.available), 'Total earned: ' + money(data.totalEarned)],
         ['Pending lesson report', money(data.pending), 'Released when the session is completed'],
-        ['Withdrawals on hold', money(data.held), 'Requests awaiting admin review'],
+        ['Withdrawals on hold', money(data.held), 'Reserved for review or bank transfer'],
         ['Your commission rate', Number(data.rate) + '%', 'Platform base rate: ' + Number(data.baseRate) + '%'],
       ].map(([label, value, hint], i) => <div key={label} className={'min-w-0 rounded-xl border p-4 ' + (i === 0 ? 'border-navy bg-navy text-white' : 'border-brand-100 bg-white text-navy')}>
         <dt className="text-sm font-semibold">{label}</dt><dd className="break-words text-2xl font-bold">{value}</dd><dd className="mt-1 text-sm">{hint}</dd></div>)}
@@ -156,7 +159,7 @@ export default function Earnings() {
         </form></SectionCard>
         <SectionCard title="Pending withdrawals" icon="clock" className="tutor-paper-note">
           {pendingWithdrawals.length ? <><p className="text-sm">{money(data.held)} is already set aside from your available balance.</p>
-            <WithdrawalList rows={pendingWithdrawals} /></> : <p>No withdrawals awaiting review.</p>}
+            <WithdrawalList rows={pendingWithdrawals} /></> : <p>No withdrawals awaiting review or transfer.</p>}
         </SectionCard>
         <BankCard data={data} refresh={load} />
       </div>
@@ -175,7 +178,7 @@ export default function Earnings() {
           </li>)}</ul>
         </SectionCard>
         <SectionCard title="Withdrawal history" icon="clock">
-          <p className="text-sm">Total approved: {money(data.withdrawn)}</p>
+          <p className="text-sm">Total paid: {money(data.withdrawn)}</p>
           {!closedWithdrawals.length && <p className="mt-2">{data.withdrawals.length ? 'No withdrawal decisions yet.' : 'No withdrawals yet.'}</p>}
           <WithdrawalList rows={closedWithdrawals} />
         </SectionCard>

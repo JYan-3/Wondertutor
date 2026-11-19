@@ -25,7 +25,7 @@ test('shows the four balance cards with the tutor and base commission rates', as
   expect(screen.getByText('Total earned: RM 90.00')).toBeInTheDocument()
   expect(screen.getByText('12%')).toBeInTheDocument()
   expect(screen.getByText('Platform base rate: 15%')).toBeInTheDocument()
-  expect(screen.getByText('Total approved: RM 45.00')).toBeInTheDocument()
+  expect(screen.getByText('Total paid: RM 45.00')).toBeInTheDocument()
 })
 
 test('a new tutor sees empty states and cannot request a withdrawal without a bank', async () => {
@@ -97,15 +97,15 @@ test('Export CSV downloads the shown payments', async () => {
 test('withdrawal history shows each status and the rejection reason', async () => {
   show({ ...view, withdrawals: [
     { id: 1, date: '2026-11-01T02:00:00.000Z', amount: '20', status: 'REJECTED', reason: 'Name does not match', bank },
-    { id: 2, date: '2026-11-02T02:00:00.000Z', amount: '10', status: 'APPROVED', bank },
+    { id: 2, date: '2026-11-02T02:00:00.000Z', amount: '10', status: 'APPROVED', payoutStatus: 'PAID', bank },
     { id: 3, date: '2026-11-03T02:00:00.000Z', amount: '5', status: 'ESCALATED', bank },
   ] })
   expect(await screen.findByText('RM 20.00 · Rejected')).toBeInTheDocument()
   expect(screen.getByText('Reason: Name does not match')).toBeInTheDocument()
-  expect(screen.getByText('RM 10.00 · Approved')).toBeInTheDocument()
+  expect(screen.getByText('RM 10.00 · Paid')).toBeInTheDocument()
   const pending = within(screen.getByRole('heading', { name: 'Pending withdrawals' }).closest('section'))
   expect(pending.getByText(/Bank change under review/)).toBeInTheDocument()
-  expect(pending.queryByText(/Approved/)).toBeNull()
+  expect(pending.queryByText(/Paid/)).toBeNull()
   const history = within(screen.getByRole('heading', { name: 'Withdrawal history' }).closest('section'))
   expect(history.queryByText(/Bank change under review/)).toBeNull()
 })
