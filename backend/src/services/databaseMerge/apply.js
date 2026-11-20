@@ -5,7 +5,7 @@ import { protectBank } from '../bankDetails.js'
 
 const MODELS = Prisma.dmmf.datamodel.models
 const BY_NAME = new Map(MODELS.map(model => [model.name, model]))
-const NEVER_IMPORT = new Set(['AuthSession', 'EmailOtp', 'SystemSetting'])
+const NEVER_IMPORT = new Set(['AuthSession', 'PushSubscription', 'EmailOtp', 'SystemSetting'])
 const delegate = model => model[0].toLowerCase() + model.slice(1)
 const primary = model => model.primaryKey?.fields || model.fields.filter(field => field.isId).map(field => field.name)
 const quoted = name => {

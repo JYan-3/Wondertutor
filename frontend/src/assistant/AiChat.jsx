@@ -8,7 +8,7 @@
 //   - every request has an identity: only the CURRENT request may show a reply, an error or change the busy state. A
 //     cancelled, cleared or replaced request is ignored completely, including its finally block;
 //   - logging out or switching account clears the chat, and any reply that arrives late for an old chat is dropped.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from '../components/ui/Icon'
 import Robot from '../components/ui/Robot'
@@ -55,7 +55,13 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
   const request = useRef(null) // { id, ac } of the ONE request whose result may still be shown (null = nothing in flight)
   const requestSeq = useRef(0)
   const scroller = useRef(null)
+  const latestRow = useRef(null)
+  const panelVisible = useRef(visible)
+  const following = useRef(true)
+  const lastScrollTop = useRef(0)
+  const [newAnswer, setNewAnswer] = useState(false)
   const input = useRef(null)
+  const latest = messages.at(-1)
 
   // The panel renders this component with key={user id}, so logging out or switching account mounts a fresh, empty
   // chat. On unmount any request still running is cancelled and its reply is ignored.
@@ -66,9 +72,42 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
     r?.ac.abort()
   }, [])
 
-  useEffect(() => {
-    if (visible) scroller.current?.scrollTo({ top: scroller.current.scrollHeight, behavior: 'smooth' })
-  }, [messages, busy, visible])
+  function scrollToLatest() {
+    const list = scroller.current
+    const row = latestRow.current
+    if (!list || !row) return
+    // The transcript is the row's positioned ancestor. Scroll it directly so the portal page stays put.
+    const inset = parseFloat(getComputedStyle(list).paddingTop) || 0
+    list.scrollTop = Math.max(0, row.offsetTop - inset)
+    lastScrollTop.current = list.scrollTop
+  }
+
+  function showNewAnswer() {
+    scrollToLatest()
+    scroller.current?.focus({ preventScroll: true })
+    following.current = true
+    setNewAnswer(false)
+  }
+
+  function trackReadingPosition() {
+    const list = scroller.current
+    if (!visible || list.scrollTop === lastScrollTop.current) return
+    lastScrollTop.current = list.scrollTop
+    following.current = list.scrollHeight - list.clientHeight - list.scrollTop <= 32
+    if (newAnswer && latestRow.current?.offsetTop < list.scrollTop + list.clientHeight) setNewAnswer(false)
+  }
+
+  useLayoutEffect(() => { panelVisible.current = visible }, [visible])
+
+  useLayoutEffect(() => {
+    if (latest && panelVisible.current && following.current) scrollToLatest()
+  }, [latest])
+
+  function appendMessage(from, content) {
+    const message = { ...content, from, id: seq++ }
+    setNewAnswer(from !== 'user' && (!panelVisible.current || !following.current))
+    setMessages((previous) => [...previous, message])
+  }
 
   const enabled = Boolean(capabilities?.enabled)
 
@@ -81,13 +120,13 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
     const isCurrent = () => request.current === req // false once cancelled, cleared, replaced or unmounted
     setWaiting(false)
     req.waitingTimer = setTimeout(() => { if (isCurrent()) setWaiting(true) }, 8000)
-    setMessages((m) => [...m, { id: seq++, from: 'user', text: shownText || value }])
+    appendMessage('user', { text: shownText || value })
     setBusy(true)
     try {
       const reply = await sendAssistantMessage({ conversationId, message: value, selection }, req.ac.signal, capabilities?.limits?.requestTimeoutMs)
       if (!isCurrent()) return
       setConversationId(reply.conversationId)
-      setMessages((m) => [...m, { id: seq++, from: 'ai', ...reply }])
+      appendMessage('ai', reply)
     } catch (err) {
       if (!isCurrent() || req.ac.signal.aborted) return
       const status = err?.response?.status
@@ -96,7 +135,7 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
       if ((status === 404 || status === 409) && !busyConflict) setConversationId(null)
       const quickQuestions = status === 429 || status >= 500 || !err?.response
       setLastFailed({ message: value, selection, quickQuestions })
-      setMessages((m) => [...m, { id: seq++, from: 'system', text: errorMessage(err), unavailable: status === 503 || status === 429 }])
+      appendMessage('system', { text: errorMessage(err), unavailable: status === 503 || status === 429 })
     } finally {
       clearTimeout(req.waitingTimer)
       if (isCurrent()) {
@@ -115,7 +154,7 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
     req.ac.abort()
     setBusy(false)
     setWaiting(false)
-    setMessages((m) => [...m, { id: seq++, from: 'system', text: 'Stopped. Nothing was saved from that question.' }])
+    appendMessage('system', { text: 'Stopped. Nothing was saved from that question.' })
   }
 
   async function clearChat() {
@@ -124,6 +163,9 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
     request.current = null
     clearTimeout(req?.waitingTimer)
     req?.ac.abort()
+    following.current = true
+    lastScrollTop.current = 0
+    setNewAnswer(false)
     setMessages([])
     setText('')
     setConversationId(null)
@@ -194,40 +236,42 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
           <Icon name="trash" className="h-3.5 w-3.5" /> Clear chat
         </button>
       </div>
-      <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto overflow-x-hidden bg-brand-25 px-4 py-4">
-        {!messages.length && (
-          <div className="text-sm text-slate-600">
-            <p className="mb-2">Hi! How can I help? Ask about your lessons, homework, payments or finding a tutor, or try a question below.</p>
-            <div className="flex flex-wrap gap-2">
-              {quickQuestions.map((ex) => <button key={ex} type="button" onClick={() => send(ex)} className="chip px-3 py-1.5 text-left text-[13px]">{ex}</button>)}
-            </div>
-          </div>
-        )}
-        {messages.map((m) => <ChatMessage key={m.id} m={m} busy={busy} onChooseChild={(c) => send(`For ${c.name}`, { kind: 'child', ref: c.ref }, c.label)} onOpenResults={() => openResults(m)} />)}
-        {!busy && (showQuickQuestions || (lastReply && !lastFailed)) && offeredQuestions.length > 0 && (
-          <div className="space-y-2" aria-label={showQuickQuestions ? 'Quick questions' : 'Suggested questions'}>
-            <p className="text-xs font-semibold text-slate-500">{showQuickQuestions ? 'Try a quick question' : 'You can also ask'}</p>
-            <div className="flex flex-wrap gap-2">
-              {offeredQuestions.map((question) => <button key={question} type="button" onClick={() => send(question)} className="chip max-w-full break-words px-3 py-1.5 text-left text-[13px]">{question}</button>)}
-            </div>
-          </div>
-        )}
-        <div aria-live="polite" role="status" className="text-sm text-slate-500">
-          {busy && (
-            <div className="space-y-1">
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-brand-500" /> Looking that up…
-                <button type="button" onClick={cancel} className="min-h-9 rounded-lg px-2 font-semibold text-brand-600 hover:bg-brand-50">Cancel</button>
-              </span>
-              {waiting && <p className="text-xs">Still working on your question. You can cancel at any time.</p>}
+      <div className="relative min-h-0 flex-1 bg-brand-25">
+        <div ref={scroller} onScroll={trackReadingPosition} role="region" aria-label="Chat history" tabIndex={0} className="relative h-full space-y-3 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4 [overflow-anchor:none]">
+          {!messages.length && (
+            <div className="text-sm text-slate-600">
+              <p className="mb-2">Hi! How can I help? Ask about your lessons, homework, payments or finding a tutor, or try a question below.</p>
+              <div className="flex flex-wrap gap-2">
+                {quickQuestions.map((ex) => <button key={ex} type="button" onClick={() => send(ex)} className="chip px-3 py-1.5 text-left text-[13px]">{ex}</button>)}
+              </div>
             </div>
           )}
-          {!busy && lastFailed && (
-            <button type="button" onClick={() => send(lastFailed.message, lastFailed.selection)} className="min-h-9 rounded-lg px-2 font-semibold text-brand-600 hover:bg-brand-50">Retry</button>
+          {messages.map((m) => <ChatMessage key={m.id} rowRef={m === latest ? latestRow : null} m={m} busy={busy} onChooseChild={(c) => send(`For ${c.name}`, { kind: 'child', ref: c.ref }, c.label)} onOpenResults={() => openResults(m)} />)}
+          {!busy && (showQuickQuestions || (lastReply && !lastFailed)) && offeredQuestions.length > 0 && (
+            <SuggestedQuestions key={latest.id} questions={offeredQuestions} quick={showQuickQuestions} onSend={send} />
           )}
+          <div aria-live="polite" role="status" className="text-sm text-slate-500">
+            {busy && (
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-brand-500" /> Looking that up…
+                  <button type="button" onClick={cancel} className="min-h-9 rounded-lg px-2 font-semibold text-brand-600 hover:bg-brand-50">Cancel</button>
+                </span>
+                {waiting && <p className="text-xs">Still working on your question. You can cancel at any time.</p>}
+              </div>
+            )}
+            {!busy && lastFailed && (
+              <button type="button" onClick={() => send(lastFailed.message, lastFailed.selection)} className="min-h-9 rounded-lg px-2 font-semibold text-brand-600 hover:bg-brand-50">Retry</button>
+            )}
+          </div>
         </div>
+        {newAnswer && (
+          <button type="button" onClick={showNewAnswer} className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full border border-brand-200 bg-white px-3 py-1.5 text-xs font-semibold text-brand-700 shadow-md hover:bg-brand-50">
+            New answer <span aria-hidden="true">↓</span>
+          </button>
+        )}
       </div>
-      <form onSubmit={onSubmit} className="flex items-center gap-2 border-t border-slate-100 bg-white p-3">
+      <form onSubmit={onSubmit} className="flex shrink-0 items-center gap-2 border-t border-slate-100 bg-white p-3">
         <input
           ref={input}
           aria-label="Question for the AI assistant"
@@ -246,16 +290,38 @@ export default function AiChat({ capabilities, onUseGuided, visible = true }) {
   )
 }
 
-function ChatMessage({ m, busy, onChooseChild, onOpenResults }) {
+function SuggestedQuestions({ questions, quick, onSend }) {
+  const [expanded, setExpanded] = useState(false)
+  const listId = useId()
+  return (
+    <div role="group" aria-label={quick ? 'Quick questions' : 'Suggested questions'}>
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold">
+        <span className="text-slate-500">{quick ? 'Try a quick question' : 'You can also ask'}</span>
+        {questions.length > 2 && (
+          <button type="button" aria-expanded={expanded} aria-controls={listId} onClick={() => setExpanded(!expanded)} className="min-h-7 rounded px-1.5 text-brand-600 hover:underline">
+            {expanded ? 'Less' : 'More'}
+          </button>
+        )}
+      </div>
+      <div id={listId} className="flex flex-wrap gap-1.5">
+        {(expanded ? questions : questions.slice(0, 2)).map((question) => (
+          <button key={question} type="button" onClick={() => onSend(question)} className="min-h-8 max-w-full break-words rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-left text-xs font-medium text-slate-600 hover:border-brand-500 hover:text-brand-600">{question}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function ChatMessage({ rowRef, m, busy, onChooseChild, onOpenResults }) {
   if (m.from === 'user') {
     return (
-      <div className="flex justify-end">
+      <div ref={rowRef} className="flex justify-end">
         <div className="max-w-[85%] break-words rounded-xl bg-brand-100 px-3.5 py-2 text-sm text-navy">{m.text}</div>
       </div>
     )
   }
   if (m.from === 'system') {
-    return <div role="alert" className="rounded-xl bg-white px-3.5 py-2.5 text-sm text-slate-700 ring-1 ring-amber-200">{m.text}{m.unavailable && <div className="mt-1 text-xs text-slate-500">You can switch to Guided Tutor Search above.</div>}</div>
+    return <div ref={rowRef} role="alert" className="rounded-xl bg-white px-3.5 py-2.5 text-sm text-slate-700 ring-1 ring-amber-200">{m.text}{m.unavailable && <div className="mt-1 text-xs text-slate-500">You can switch to Guided Tutor Search above.</div>}</div>
   }
   const hasEvidence = Boolean(m.sources?.length || m.cards?.length)
   const caption = m.responseKind === 'lookup'
@@ -266,7 +332,7 @@ function ChatMessage({ m, busy, onChooseChild, onOpenResults }) {
       ? 'WonderTutor assistant'
       : 'AI-assisted answer · supporting details below'
   return (
-    <div className="flex items-start gap-2">
+    <div ref={rowRef} className="flex items-start gap-2">
       <span className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-brand-100"><Robot className="h-6 w-6" sparkles={false} /></span>
       <div className="min-w-0 flex-1">
         <div className="whitespace-pre-line break-words rounded-xl rounded-tl-sm bg-white px-3.5 py-2.5 text-sm text-slate-700 shadow-sm ring-1 ring-brand-100">

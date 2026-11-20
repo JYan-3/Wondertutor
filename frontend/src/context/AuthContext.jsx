@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import api, { clearCsrfToken, errorMessage, isCurrentSessionRequest, setCsrfToken } from '../api/client'
 import SessionIdleGuard from '../components/SessionIdleGuard'
+import { captureBrowserPush, clearBrowserPush, reconcileBrowserPush } from '../lib/phoneNotifications'
 
 const AuthContext = createContext(null)
 
@@ -20,6 +21,15 @@ export function AuthProvider({ children }) {
   const request = useRef(0)
   // Why the user was sent back to Log In (expired session, deactivated account); shown once on the login page
   const [notice, setNotice] = useState('')
+
+  const userId = user?.id
+  const role = user?.role
+  useEffect(() => {
+    if (userId == null) return
+    const controller = new AbortController()
+    void reconcileBrowserPush({ id: userId, role }, controller.signal)
+    return () => controller.abort()
+  }, [userId, role, sessionTiming?.key])
 
   // If the server stops accepting the saved login (it expired, or Admin deactivated the account while it was open),
   // end the session everywhere at once. The protected pages then send the user to Log In with the reason,
@@ -109,7 +119,10 @@ export function AuthProvider({ children }) {
   }
 
   const logout = useCallback(async (message) => {
+    const browserPush = captureBrowserPush({ includeDelivered: true })
     await api.post('/auth/logout')
+    // The server has detached this browser. Also clear alerts already shown on a shared device.
+    void browserPush.then(clearBrowserPush)
     ++request.current
     setSessionEnd({ reason: 'logout', userId: userRef.current?.id })
     userRef.current = null

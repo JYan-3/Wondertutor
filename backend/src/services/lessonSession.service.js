@@ -9,6 +9,7 @@ import { distanceKm } from './matching.service.js'
 import { mediaLink, privateAsset } from './privateMedia.js'
 import { getSettings } from './systemSettings.service.js'
 import { hasConfirmedLessonLocation, lessonLocationFields } from './lessonLocation.service.js'
+import { sendBookingPush } from './webPush.service.js'
 
 export const MISSED_CHECK_IN = 'Missed check-in'
 
@@ -68,7 +69,7 @@ async function checkIn(db, b, input, now) {
 }
 
 export async function updateSession(tutorId, id, input) {
-  await prisma.$transaction(async db => {
+  const notice = await prisma.$transaction(async db => {
     // Serialize attendance and completion so retries cannot create duplicate reports or notifications.
     await db.$queryRaw`SELECT id FROM Booking WHERE id = ${id} AND tutorId = ${tutorId} FOR UPDATE`
     const b = await booking(db, tutorId, id)
@@ -92,11 +93,12 @@ export async function updateSession(tutorId, id, input) {
       await db.attendanceReviewEntry.create({ data: { complaintId: review.id, action: appeal ? 'RECONSIDERATION' : 'TUTOR_REPLY', message: input.reason, evidenceUrl: input.photo?.url } })
       const admins = await db.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } })
       const notification = { type: 'ATTENDANCE_REVIEW', title: 'Missed check-in review', message: appeal ? 'The tutor has asked for reconsideration with new evidence.' : 'The tutor replied to the request for more information.' }
+      const parentNotice = appeal ? { ...notification, userId: b.parent.userId, link: '/parent/bookings?booking=' + publicReference(b) } : null
       await db.notification.createMany({ data: [
         ...admins.map(admin => ({ ...notification, userId: admin.id, link: '/admin/complaints' })),
-        ...(appeal ? [{ ...notification, userId: b.parent.userId, link: '/parent/bookings?booking=' + publicReference(b) }] : []),
+        ...(parentNotice ? [parentNotice] : []),
       ] })
-      return
+      return parentNotice
     }
     if (input.action === 'attach-proof') {
       verifyPhoto(input.photo, id)
@@ -110,11 +112,12 @@ export async function updateSession(tutorId, id, input) {
       if (input.photo) verifyPhoto(input.photo, id)
       await db.complaint.create({ data: { bookingId: id, filedById: b.tutor.userId, category: MISSED_CHECK_IN, description: input.reason, evidenceUrl: input.photo?.url } })
       const admins = await db.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } })
+      const parentNotice = { userId: b.parent.userId, type: 'ATTENDANCE_REVIEW', title: 'Missed check-in review', message: 'Your tutor asked an admin to review a missed check-in for ' + b.subject + '. Open the booking to tell admin whether the lesson took place.', link: '/parent/bookings?booking=' + publicReference(b) }
       await db.notification.createMany({ data: [
         ...admins.map(admin => ({ userId: admin.id, type: 'COMPLAINT_NEW', title: 'Missed check-in review', message: 'A tutor requested a review of their ' + b.subject + ' lesson.', link: '/admin/complaints' })),
-        { userId: b.parent.userId, type: 'ATTENDANCE_REVIEW', title: 'Missed check-in review', message: 'Your tutor asked an admin to review a missed check-in for ' + b.subject + '. Open the booking to tell admin whether the lesson took place.', link: '/parent/bookings?booking=' + publicReference(b) },
+        parentNotice,
       ] })
-      return
+      return parentNotice
     }
     if (input.action === 'check-in') return checkIn(db, b, input, now)
     const approvedReport = input.action === 'report' && b.complaints[0]?.attendanceApproved
@@ -129,8 +132,10 @@ export async function updateSession(tutorId, id, input) {
     if (b.summary) throw new AppError(409, 'This lesson already has a report.')
     await db.sessionSummary.create({ data: { bookingId: id, content: input.content, progressNote: input.progressNote, homework: input.homework || null, recommendations: input.recommendations || null } })
     await db.booking.update({ where: { id }, data: { status: 'COMPLETED' } })
-    await db.notification.create({ data: { userId: b.parent.userId, type: 'LESSON_COMPLETED', title: 'Lesson report ready',
-      message: 'Your tutor has submitted the ' + b.subject + ' lesson report.', link: '/parent/bookings?booking=' + publicReference(b) } })
+    return db.notification.create({ data: { userId: b.parent.userId, type: 'LESSON_COMPLETED', title: 'Lesson report ready',
+      message: 'Your tutor has submitted the ' + b.subject + ' lesson report.', link: '/parent/bookings?booking=' + publicReference(b) },
+      select: { userId: true, type: true, link: true } })
   })
+  if (notice) await sendBookingPush(notice.userId, { type: notice.type, link: notice.link })
   return sessionView(tutorId, id)
 }

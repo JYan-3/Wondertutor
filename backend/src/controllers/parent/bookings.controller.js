@@ -4,6 +4,7 @@ import { AppError } from '../../utils/AppError.js'
 import { assertChildFree, assertSlotBookable } from '../../services/booking.service.js'
 import { bookingInclude, toBookingDto } from '../../services/booking.dto.js'
 import { notify, notifyWithEmail, sendNotificationEmail } from '../../services/notification.service.js'
+import { sendBookingPush } from '../../services/webPush.service.js'
 import { requestReschedule as askReschedule, respondReschedule, withdrawReschedule } from '../../services/reschedule.service.js'
 import { formatLessonTime, mytToDate, toMinutes } from '../../utils/time.js'
 import { hhmm, id, ringgit, ymd } from '../../utils/validators.js'
@@ -243,7 +244,10 @@ export async function updateLessonLocation(req, res) {
     notice = { userId: b.tutor.userId, payload }
     return updated
   })
-  if (notice) await sendNotificationEmail(notice.userId, notice.payload)
+  if (notice) await Promise.all([
+    sendNotificationEmail(notice.userId, notice.payload),
+    sendBookingPush(notice.userId, { type: notice.payload.type, link: notice.payload.link }),
+  ])
   res.json({ booking: toBookingDto(booking) })
 }
 

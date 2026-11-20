@@ -9,7 +9,7 @@ const MODELS = Prisma.dmmf.datamodel.models
 const META = new Map(MODELS.map(model => [model.name, model]))
 const TABLES = new Map(MODELS.map(model => [(model.dbName || model.name).toLowerCase(), model.name]))
 const ENUMS = new Map(Prisma.dmmf.datamodel.enums.map(value => [value.name, new Set(value.values.map(v => v.name))]))
-const SKIP = new Set(['AuthSession', 'EmailOtp', 'SystemSetting'])
+const SKIP = new Set(['AuthSession', 'PushSubscription', 'EmailOtp', 'SystemSetting'])
 const SLOT_BLOCKING = new Set(['AWAITING_PAYMENT', 'CONFIRMED'])
 const CHILD_BLOCKING = new Set(['PENDING', 'COUNTER_OFFERED', 'AWAITING_PAYMENT', 'CONFIRMED'])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i

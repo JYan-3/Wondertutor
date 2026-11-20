@@ -13,6 +13,7 @@ import AssistantWidget from '../assistant/AssistantWidget'
 import TutorStatusBanner from '../components/TutorStatusBanner'
 import ParentPageEffects from '../components/ParentPageEffects'
 import SkipLink from '../components/SkipLink'
+import PhoneNotifications from '../components/PhoneNotifications'
 
 // Top nav items per role (matches the UI_v1 mockups)
 const NAV = {
@@ -76,7 +77,7 @@ export default function AppLayout() {
             ))}
           </nav>
           <div className="flex shrink-0 items-center gap-2 md:gap-4">
-            <NotificationBell />
+            <NotificationBell key={user.id} role={user.role} />
             <UserMenu />
             <MobileNavigation navigationLabel="Portal menu">
               {closeMenu => <>
@@ -180,7 +181,7 @@ export function LogoutButton({ className, icon = false }) {
 }
 
 // Bell icon with unread dot + dropdown list (in-app notifications)
-export function NotificationBell() {
+export function NotificationBell({ role }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [data, setData] = useState({ unread: 0, notifications: [] })
@@ -249,7 +250,7 @@ export function NotificationBell() {
         )}
       </button>
       {open && (
-        <div className="pop-in fixed inset-x-3 top-14 z-40 rounded-xl border border-brand-100 bg-white shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[22rem]">
+        <div className="pop-in fixed inset-x-3 top-14 z-40 flex max-h-[calc(100dvh-4.5rem)] flex-col overflow-y-auto rounded-xl border border-brand-100 bg-white shadow-xl sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-[22rem]">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <span className="font-bold text-navy">Notifications</span>
             {data.unread > 0 && (
@@ -262,7 +263,7 @@ export function NotificationBell() {
               </button>
             )}
           </div>
-          <div className="max-h-96 overflow-y-auto">
+          <div className="min-h-12 max-h-96 overflow-y-auto">
             {loading && <p role="status" className="px-4 py-3 text-sm text-slate-600">Loading notifications…</p>}
             {error && <div className="px-4 py-3"><p role="alert" className="text-sm text-red-700">{error}</p><button type="button" onClick={load} disabled={loading} className="mt-2 text-sm font-semibold text-brand-600 hover:underline">Try again</button></div>}
             {!loading && !error && data.notifications.length === 0 && <p className="p-6 text-center text-sm text-slate-500">You're all caught up.</p>}
@@ -282,6 +283,7 @@ export function NotificationBell() {
               </button>
             ))}
           </div>
+          {['PARENT', 'TUTOR'].includes(role) && <PhoneNotifications />}
         </div>
       )}
     </div>

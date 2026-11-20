@@ -113,6 +113,28 @@ Original bills are reused, including after an unsuccessful payment attempt.
 Ambiguous checkout timeouts stay pending; they must not create another bill.
 See TOYYIBPAY_DEPLOYMENT.txt for setup, recovery and acceptance checks.
 
+OPTIONAL PHONE ALERTS FOR PARENTS AND TUTORS
+
+1. From the backend directory with release dependencies installed, run
+   npx --no-install web-push generate-vapid-keys
+   once in a private terminal. Keep the key pair for future releases.
+2. In the Hostinger Node app environment, set WEB_PUSH_VAPID_PUBLIC_KEY and
+   WEB_PUSH_VAPID_PRIVATE_KEY to that pair. Set WEB_PUSH_VAPID_SUBJECT to a
+   monitored mailto: address for the centre. Supply the same three values to
+   the existing housekeeping job so it can send scheduled lesson reminders.
+   Keep the private key out of Git, frontend build variables and shared logs.
+3. Deploy this release over HTTPS. Run npm run db:deploy from the project
+   root against the intended database before activating the app, as above.
+   The push migration adds a table for device subscriptions.
+4. On a test phone, sign in, open the notification bell and choose Turn on
+   under Phone notifications. Allow the browser prompt. On iOS 16.4 or later,
+   add the site to the Home Screen and open it from there first.
+5. Using two test accounts on separate devices, close the opted-in tutor's
+   site and create a booking request as the parent. Confirm that the tutor
+   receives a general alert and tapping it opens the protected bookings page.
+   Check sound with device notifications enabled and silent/Focus mode off.
+   Turn off alerts and repeat. Explicit logout also disconnects that browser.
+
 CRON AND HOUSEKEEPING
 
 Managed web/cloud Node hosting does not support always-running workers. Do not

@@ -5,7 +5,7 @@ import { homeFor } from '../components/ProtectedRoute'
 
 // Plain-language Privacy Notice (Malaysia's Personal Data Protection Act 2010, PDPA) and the few rules of using the site.
 // Everything stated here is what the system really does. Contact details come from VITE_PRIVACY_EMAIL when it is set.
-const UPDATED = '13 November 2026'
+const UPDATED = '20 November 2026'
 const CONTACT_EMAIL = import.meta.env.VITE_PRIVACY_EMAIL
 
 function Section({ id, title, children }) {
@@ -76,6 +76,7 @@ export default function Privacy() {
           'To check that physical lessons took place, and to settle payments, refunds and complaints fairly.',
           'To send you emails and notifications about your bookings and payments, and optional reminders you can switch off.',
         ]} />
+        <p>If you turn on phone alerts, we store the browser’s push subscription and use its notification service to deliver booking updates and reminders to that device. The lock screen shows a general alert. Open WonderTutor and sign in to see your lesson details. You can turn alerts off on that device at any time.</p>
       </Section>
 
       <Section id="share" title="Who can see it">

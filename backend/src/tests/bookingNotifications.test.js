@@ -2,12 +2,15 @@
 // transport. No real email, production data or database connection is used.
 import { jest } from '@jest/globals'
 const sendEmail = jest.fn()
+const sendBookingPush = jest.fn()
 jest.unstable_mockModule('../services/email.service.js', () => ({ sendEmail, outbox: [] }))
+jest.unstable_mockModule('../services/webPush.service.js', () => ({ sendBookingPush }))
 const { prisma } = await import('../config/prisma.js')
 const { env } = await import('../config/env.js')
 const parentActions = await import('../controllers/parent/bookings.controller.js')
 const reschedules = await import('../services/reschedule.service.js')
 const { tutorAction } = await import('../services/tutorBooking.service.js')
+const { decideBooking } = await import('../services/adminOperations.service.js')
 const { notifyWithEmail, sendNotificationEmail } = await import('../services/notification.service.js')
 const { addDays, formatLessonTime, mytParts, mytToDate } = await import('../utils/time.js')
 
@@ -39,6 +42,7 @@ beforeEach(() => {
   }
   env.clientUrl = 'https://wondertutor.wonderland-home.com'
   sendEmail.mockReset().mockImplementation(async () => { events.push('email') })
+  sendBookingPush.mockReset().mockImplementation(async () => { events.push('push') })
   jest.spyOn(console, 'error').mockImplementation(() => {})
   jest.spyOn(prisma, '$transaction').mockImplementation(async work => { const result = await work(prisma); events.push('commit'); return result })
   jest.spyOn(prisma, '$queryRaw').mockResolvedValue([])
@@ -143,12 +147,14 @@ test.each([parentUser.id, tutorUser.id])('withdrawing a request by user %p email
   expect(notices).toHaveLength(1)
 })
 
-test('venue confirmation emails after commit without duplicating its transactional notice or disclosing the address', async () => {
+test('venue confirmation sends one push and email after commit without disclosing the address', async () => {
   booking.teachingMode = 'PHYSICAL'
   await parentActions.updateLessonLocation(req({ address: '12 Private Family Street', latitude: 3.1234567, longitude: 101.654321, confirmed: true, version: booking.updatedAt.toISOString() }), response())
   expectTutorMail('Lesson location confirmed')
   expect(latestMail().html).not.toMatch(/12 Private Family Street|3\.1234567|101\.654321/)
-  expect(events).toEqual(['notice', 'commit', 'email'])
+  expect(sendBookingPush.mock.calls).toEqual([[tutorUser.id, { type: 'BOOKING_UPDATED', link: '/tutor/bookings?booking=' + publicId }]])
+  expect(events.slice(0, 2)).toEqual(['notice', 'commit'])
+  expect(events.slice(2).sort()).toEqual(['email', 'push'])
 })
 
 test('resubmitting an unchanged venue sends neither another notice nor another email', async () => {
@@ -156,6 +162,37 @@ test('resubmitting an unchanged venue sends neither another notice nor another e
   await parentActions.updateLessonLocation(req({ address: booking.location, latitude: booking.latitude, longitude: booking.longitude, confirmed: true, version: booking.updatedAt.toISOString() }), response())
   expect(notices).toHaveLength(0)
   expect(sendEmail).not.toHaveBeenCalled()
+  expect(sendBookingPush).not.toHaveBeenCalled()
+})
+
+test.each([true, false])('admin booking decisions send each party one push only on a successful commit (commit=%p)', async commit => {
+  jest.spyOn(prisma.booking, 'findUniqueOrThrow').mockResolvedValue(clone(booking))
+  prisma.complaint.findFirst.mockResolvedValue({ id: 601, status: 'OPEN', updatedAt: new Date() })
+  jest.spyOn(prisma.complaint, 'updateMany').mockResolvedValue({ count: 1 })
+  prisma.notification.createMany.mockImplementation(async ({ data }) => {
+    notices.push(...data)
+    events.push('notices')
+    return { count: data.length }
+  })
+  if (!commit) prisma.$transaction.mockImplementationOnce(async work => {
+    await work(prisma)
+    throw new Error('Commit failed')
+  })
+  const result = decideBooking(booking.id, 99, {
+    kind: 'Fee negotiation', caseId: 601, action: 'keep', version: booking.updatedAt.toISOString(), reason: 'Private decision notes',
+  })
+  if (!commit) {
+    await expect(result).rejects.toThrow('Commit failed')
+    expect(sendBookingPush).not.toHaveBeenCalled()
+    return
+  }
+  await result
+  expect(events).toEqual(['notices', 'commit', 'push', 'push'])
+  expect(notices).toHaveLength(2)
+  expect(sendBookingPush.mock.calls).toEqual([
+    [parentUser.id, { type: 'BOOKING_DECISION', link: '/parent/bookings?booking=' + publicId }],
+    [tutorUser.id, { type: 'BOOKING_DECISION', link: '/tutor/bookings?booking=' + booking.id }],
+  ])
 })
 
 test.each(['counter', 'decline', 'accept', 'cancel'])('tutor action %s emails the parent, keeping both modules aligned', async action => {

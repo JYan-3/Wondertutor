@@ -1,4 +1,5 @@
 import 'dotenv/config'
+import { createECDH } from 'node:crypto'
 
 function required(name) {
   const v = process.env[name]
@@ -64,6 +65,25 @@ export function readToyyibPayConfig(e) {
   return { secretKey, categoryCode, baseUrl: base.origin }
 }
 
+// Invalid or incomplete push configuration leaves booking, reminder email and login available.
+export function readWebPushConfig(e) {
+  const subject = (e.WEB_PUSH_VAPID_SUBJECT || '').trim()
+  const publicKey = (e.WEB_PUSH_VAPID_PUBLIC_KEY || '').trim()
+  const privateKey = (e.WEB_PUSH_VAPID_PRIVATE_KEY || '').trim()
+  if (!subject && !publicKey && !privateKey) return null
+  try {
+    const contact = new URL(subject)
+    const curve = createECDH('prime256v1')
+    curve.setPrivateKey(Buffer.from(privateKey, 'base64url'))
+    if (/^[A-Za-z0-9_-]{43}$/.test(privateKey) && curve.getPublicKey('base64url') === publicKey &&
+        (contact.protocol === 'https:' || (contact.protocol === 'mailto:' && contact.pathname.includes('@')))) {
+      return { subject, publicKey, privateKey }
+    }
+  } catch { /* Keep configuration values out of logs. */ }
+  console.warn('[settings] Web Push is unavailable. Check the VAPID key pair and contact subject.')
+  return null
+}
+
 export const env = {
   port: Number(process.env.PORT || 5000),
   nodeEnv: process.env.NODE_ENV || 'development',
@@ -78,6 +98,7 @@ export const env = {
     from: process.env.MAIL_FROM || 'WonderTutor <no-reply@wondertutor.local>',
   },
   googleClientId: process.env.GOOGLE_CLIENT_ID,
+  webPush: readWebPushConfig(process.env),
   geoapifyApiKey: (process.env.GEOAPIFY_API_KEY || '').trim(),
   recaptchaSecret: process.env.RECAPTCHA_SECRET,
   toyyibpay: readToyyibPayConfig(process.env),

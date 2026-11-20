@@ -395,6 +395,7 @@ test('minimising while a reply is pending does not cancel it; the answer is wait
   await act(async () => answer.resolve(reply({ text: 'An answer received while minimised.' })))
   const reopened = await openPanel()
   expect(await within(reopened).findByText('An answer received while minimised.')).toBeVisible()
+  expect(within(reopened).getByRole('button', { name: 'New answer' })).toBeVisible()
   expect(within(reopened).getByLabelText('Question for the AI assistant')).toBeEnabled()
   expect(within(reopened).queryByText(/Stopped/)).not.toBeInTheDocument()
 })
@@ -444,11 +445,80 @@ test('server suggested questions remain clickable and continue the current chat 
   expect(api.post).toHaveBeenLastCalledWith('/parent/assistant/messages', { conversationId: 'conv_abcdefghijklmnop', message: 'Show my upcoming lessons' }, expect.anything())
 })
 
+test('a long answer opens at its first line inside the transcript and a reader can return to it after scrolling away', async () => {
+  const { panel, box } = await ready()
+  const history = within(panel).getByRole('region', { name: 'Chat history' })
+  // jsdom has no layout. Give the chat a viewport, a longer transcript, and measured message offsets.
+  history.style.paddingTop = '16px'
+  Object.defineProperties(history, { clientHeight: { value: 300 }, scrollHeight: { value: 2000 } })
+  const offset = vi.spyOn(HTMLElement.prototype, 'offsetTop', 'get').mockReturnValue(450)
+  const pageScroll = vi.spyOn(window, 'scrollTo')
+  const scrollAncestors = vi.spyOn(Element.prototype, 'scrollIntoView')
+  try {
+    const first = deferred()
+    api.post.mockImplementationOnce(() => first.promise)
+    await userEvent.type(box, 'my lessons{enter}')
+    offset.mockReturnValue(515)
+    await act(async () => first.resolve(reply({ text: 'Here are all your lessons.\n'.repeat(50) })))
+    expect(history.scrollTop).toBe(499)
+    expect(history).not.toContainElement(box)
+    expect(within(panel).queryByRole('button', { name: 'New answer' })).not.toBeInTheDocument()
+
+    const second = deferred()
+    api.post.mockImplementationOnce(() => second.promise)
+    await userEvent.type(box, 'what about payments?{enter}')
+    history.scrollTop = 160
+    fireEvent.scroll(history)
+    offset.mockReturnValue(1420)
+    await act(async () => second.resolve(reply({ text: 'Here are your payments.' })))
+    expect(history.scrollTop).toBe(160)
+    await userEvent.click(within(panel).getByRole('button', { name: 'Minimise', exact: true }))
+    await openPanel()
+    expect(history.scrollTop).toBe(160)
+    await userEvent.click(within(panel).getByRole('button', { name: 'New answer' }))
+    expect(history.scrollTop).toBe(1404)
+    expect(history).toHaveFocus()
+    expect(within(panel).queryByRole('button', { name: 'New answer' })).not.toBeInTheDocument()
+    expect(pageScroll).not.toHaveBeenCalled()
+    expect(scrollAncestors).not.toHaveBeenCalled()
+  } finally {
+    offset.mockRestore()
+    pageScroll.mockRestore()
+    scrollAncestors.mockRestore()
+  }
+})
+
+test('all starters are available, and each answer offers two follow-ups with reversible expansion', async () => {
+  const { panel } = await ready()
+  const starters = ['When is my next lesson?', 'What homework was given in the latest lesson?', 'How much have I paid this month?', 'Find a Maths tutor for Primary 4']
+  for (const question of starters) expect(within(panel).getByRole('button', { name: question })).toBeVisible()
+  const suggestions = ['Show this week', 'See homework', 'See payments', 'Find a tutor']
+  api.post.mockResolvedValueOnce(reply({ suggestions })).mockResolvedValueOnce(reply({ suggestions }))
+  await userEvent.click(within(panel).getByRole('button', { name: starters[0] }))
+  const group = within(await within(panel).findByRole('group', { name: 'Suggested questions' }))
+  expect(group.getAllByRole('button').map(button => button.textContent)).toEqual(['More', ...suggestions.slice(0, 2)])
+  await userEvent.click(group.getByRole('button', { name: 'More', expanded: false }))
+  expect(group.getAllByRole('button').map(button => button.textContent)).toEqual(['Less', ...suggestions])
+  await userEvent.click(group.getByRole('button', { name: 'Less', expanded: true }))
+  expect(group.queryByRole('button', { name: suggestions[2] })).not.toBeInTheDocument()
+  await userEvent.click(group.getByRole('button', { name: 'More' }))
+  await userEvent.click(group.getByRole('button', { name: suggestions[3] }))
+  const next = within(await within(panel).findByRole('group', { name: 'Suggested questions' }))
+  expect(next.getByRole('button', { name: 'More', expanded: false })).toBeVisible()
+  expect(api.post).toHaveBeenLastCalledWith('/parent/assistant/messages', expect.objectContaining({ message: suggestions[3] }), expect.anything())
+})
+
 test('an explicit empty suggestion list keeps a clarification focused on its child choices', async () => {
   const { panel, box } = await ready()
-  api.post.mockResolvedValueOnce(reply({ responseKind: 'clarification', status: 'clarification', text: 'Which child do you mean?', suggestions: [], cards: [{ type: 'child_choices', title: 'Which child?', choices: [{ ref: 'child_1', name: 'Mia', label: 'Mia (Primary 2)' }] }] }))
+  const choices = [
+    { ref: 'child_1', name: 'Mia', label: 'Mia (Primary 2)' },
+    { ref: 'child_2', name: 'Daniel', label: 'Daniel (Primary 4)' },
+    { ref: 'child_3', name: 'Kai', label: 'Kai (Primary 5)' },
+  ]
+  api.post.mockResolvedValueOnce(reply({ responseKind: 'clarification', status: 'clarification', text: 'Which child do you mean?', suggestions: [], cards: [{ type: 'child_choices', title: 'Which child?', choices }] }))
   await userEvent.type(box, 'my homework{enter}')
-  expect(await within(panel).findByRole('button', { name: 'Mia (Primary 2)' })).toBeVisible()
+  const children = await within(panel).findByRole('group', { name: 'Which child?' })
+  expect(within(children).getAllByRole('button').map(button => button.textContent)).toEqual(choices.map(child => child.label))
   expect(within(panel).getByText('Clarifying question')).toBeVisible()
   expect(within(panel).queryByLabelText('Suggested questions')).not.toBeInTheDocument()
 })
@@ -463,8 +533,9 @@ test('a timeout offers exact approved quick questions alongside Retry and contin
   expect(await within(panel).findByRole('alert')).toHaveTextContent('took too long')
   expect(within(panel).getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
   const questions = within(panel).getByLabelText('Quick questions')
+  await userEvent.click(within(questions).getByRole('button', { name: 'More', expanded: false }))
   expect(within(questions).getAllByRole('button').map(button => button.textContent)).toEqual([
-    'When is my next lesson?', 'What homework was given in the latest lesson?', 'How much have I paid this month?', 'Find a Maths tutor for Primary 4',
+    'Less', 'When is my next lesson?', 'What homework was given in the latest lesson?', 'How much have I paid this month?', 'Find a Maths tutor for Primary 4',
   ])
   expect(api.post).toHaveBeenCalledTimes(2) // no automatic retry after timeout
   api.post.mockResolvedValueOnce(reply({ text: 'Found matching tutors from the current catalogue.', responseKind: 'lookup', method: 'quick_question', sources: [{ id: 'matching:search_1', kind: 'matching', label: 'Tutor search', link: '/parent/find-tutor/results' }] }))

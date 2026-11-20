@@ -12,6 +12,8 @@ const secret = () => randomBytes(32).toString('base64url')
 
 export const sessionCookieName = () => env.nodeEnv === 'production' ? '__Host-wt_session' : 'wt_session'
 export const anonymousCookieName = () => env.nodeEnv === 'production' ? '__Host-wt_csrf_seed' : 'wt_csrf_seed'
+const pushCookieName = () => env.nodeEnv === 'production' ? '__Host-wt_push_device' : 'wt_push_device'
+export const PUSH_DEVICE_LIFETIME_MS = 365 * 24 * 3_600_000
 export const hashSessionId = (raw) => createHash('sha256').update(raw).digest('hex')
 export const csrfForSession = (raw) => createHmac('sha256', env.jwtSecret).update('session-csrf-v1:' + raw).digest('base64url')
 const csrfForAnonymous = (raw) => createHmac('sha256', env.jwtSecret).update('anonymous-csrf-v1:' + raw).digest('base64url')
@@ -25,6 +27,14 @@ export function readSecretCookie(req, name) {
 }
 
 export const readSessionId = (req) => readSecretCookie(req, sessionCookieName())
+export const readPushDevice = (req) => readSecretCookie(req, pushCookieName())
+
+export function rememberPushDevice(req, res) {
+  // Concurrent settings reads in two tabs of this session issue the same initial identity.
+  const device = readPushDevice(req) || createHmac('sha256', env.jwtSecret).update('push-device-v1:' + req.session.raw).digest('base64url')
+  res.cookie(pushCookieName(), device, { ...cookieOptions(), maxAge: PUSH_DEVICE_LIFETIME_MS })
+  return device
+}
 
 export const cookieOptions = () => ({
   httpOnly: true,
@@ -66,9 +76,11 @@ const expiredAt = (session, now) => session.expiresAt <= now || session.idleExpi
 // in the same transaction, so logging into another account cannot retain it.
 export async function startSession(req, res, user, { remember = false } = {}) {
   const previous = readSessionId(req)
+  const device = readPushDevice(req)
   const session = await prisma.$transaction(async (tx) => {
     const created = await createSession(user, { remember, db: tx })
     if (previous) await tx.authSession.deleteMany({ where: { id: hashSessionId(previous) } })
+    if (device) await tx.pushSubscription.deleteMany({ where: { deviceHash: hashSessionId(device), userId: { not: user.id } } })
     return created
   })
   const options = cookieOptions()
@@ -139,7 +151,14 @@ export function anonymousCsrf(req, res, { rotate = false } = {}) {
 
 export async function revokeSession(req, res) {
   const raw = readSessionId(req)
-  if (raw) await prisma.authSession.deleteMany({ where: { id: hashSessionId(raw) } })
+  const device = readPushDevice(req)
+  if (device) {
+    await prisma.$transaction([
+      ...(raw ? [prisma.authSession.deleteMany({ where: { id: hashSessionId(raw) } })] : []),
+      prisma.pushSubscription.deleteMany({ where: { deviceHash: hashSessionId(device) } }),
+    ])
+    res.clearCookie(pushCookieName(), cookieOptions())
+  } else if (raw) await prisma.authSession.deleteMany({ where: { id: hashSessionId(raw) } })
   clearSessionCookie(res)
   res.set('Cache-Control', 'private, no-store')
   return anonymousCsrf(req, res, { rotate: true })

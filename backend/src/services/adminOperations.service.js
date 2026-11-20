@@ -7,6 +7,7 @@ import { baseCommission } from './systemSettings.service.js'
 import { assertSlotBookable, assertChildFree } from './booking.service.js'
 import { assertCanAccept, newPayBy, paymentDeadline } from './paymentWindow.js'
 import { renderEmail } from './notification.service.js'
+import { sendBookingPush } from './webPush.service.js'
 import { sendEmail } from './email.service.js'
 
 const lockTutor = (tx, id) => tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${id} FOR UPDATE`
@@ -67,7 +68,7 @@ export async function bookingOverview() {
 export async function decideBooking(id, adminId, input) {
   const ids = await prisma.booking.findUnique({ where: { id }, select: { tutorId: true, childId: true } })
   if (!ids) throw new AppError(404, 'Booking not found')
-  await prisma.$transaction(async tx => {
+  const notices = await prisma.$transaction(async tx => {
     await lockTutor(tx, ids.tutorId)
     await tx.$queryRaw`SELECT id FROM Child WHERE id = ${ids.childId} FOR UPDATE`
     await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${id} FOR UPDATE`
@@ -112,10 +113,15 @@ export async function decideBooking(id, adminId, input) {
         data: { status: 'RESOLVED', handledById: adminId, adminResponse: message } })
       if (!closed.count) throw stale()
     }
-    for (const [user, link] of [[b.parent.user, '/parent/bookings?booking=' + publicReference(b)], [b.tutor.user, '/tutor/bookings?booking=' + id]]) {
-      await tx.notification.create({ data: { userId: user.id, type: 'BOOKING_DECISION', title: 'Admin decision on ' + b.subject, message, link } })
-    }
+    const decision = { type: 'BOOKING_DECISION', title: 'Admin decision on ' + b.subject, message }
+    const notices = [
+      { ...decision, userId: b.parent.user.id, link: '/parent/bookings?booking=' + publicReference(b) },
+      { ...decision, userId: b.tutor.user.id, link: '/tutor/bookings?booking=' + id },
+    ]
+    await tx.notification.createMany({ data: notices })
+    return notices
   })
+  await Promise.all(notices.map(({ userId, type, link }) => sendBookingPush(userId, { type, link })))
 }
 
 export async function refundQueue() {
@@ -159,9 +165,15 @@ export async function decideRefund(id, adminId, input) {
     const title = issue ? 'Refund transfer recorded' : input.action === 'approve' ? 'Refund approved' : 'Refund rejected'
     const message = b.subject + ' · RM ' + amount.toFixed(2) + '. ' + (issue ? 'Transfer reference: ' + input.reference : input.reason)
     const payload = { type: 'REFUND_DECISION', title, message, link: '/parent/payments' }
-    await tx.notification.create({ data: { userId: b.parent.user.id, ...payload } })
-    await tx.notification.create({ data: { userId: b.tutor.user.id, ...payload, link: '/tutor/earnings' } })
-    return { user: b.parent.user, payload }
+    const notices = [
+      { ...payload, userId: b.parent.user.id },
+      { ...payload, userId: b.tutor.user.id, link: '/tutor/earnings' },
+    ]
+    await tx.notification.createMany({ data: notices })
+    return { user: b.parent.user, payload, notices }
   })
-  await mail(result.user, result.payload)
+  await Promise.all([
+    mail(result.user, result.payload),
+    ...result.notices.map(({ userId, type, link }) => sendBookingPush(userId, { type, link })),
+  ])
 }

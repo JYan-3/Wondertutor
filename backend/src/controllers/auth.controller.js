@@ -188,6 +188,7 @@ export async function resetPassword(req, res) {
   await prisma.$transaction([
     prisma.user.update({ where: { id: user.id }, data: { passwordHash, isEmailVerified: true } }),
     prisma.authSession.deleteMany({ where: { userId: user.id } }),
+    prisma.pushSubscription.deleteMany({ where: { userId: user.id } }),
   ])
   res.json({ message: 'Your password has been reset. You can now log in.' })
 }

@@ -3,9 +3,12 @@
 import { prisma } from '../config/prisma.js'
 import { env } from '../config/env.js'
 import { sendEmail } from './email.service.js'
+import { sendBookingPush } from './webPush.service.js'
 
 export async function notify(userId, { type, title, message, link }) {
-  return prisma.notification.create({ data: { userId, type, title, message, link } })
+  const notification = await prisma.notification.create({ data: { userId, type, title, message, link } })
+  await sendBookingPush(userId, { type, link })
+  return notification
 }
 
 // Names and messages contain text people typed, so they are escaped before going into the email's HTML

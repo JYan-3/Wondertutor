@@ -241,7 +241,7 @@ function ChatPanel({ open, onMinimise }) {
   )
 
   return (
-    <aside ref={panel} aria-label="AI Tutor Assistant" hidden={!open} inert={!open} aria-hidden={!open} style={{ width: panelSize?.width, height: panelSize?.height || 'min(640px, calc(100dvh - 32px))', maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100dvh - 16px)', ...(panelPosition ? { left: panelPosition.left, top: panelPosition.top } : { right: 16, top: 'min(96px, 4dvh)' }) }} className={`fixed z-40 ${open ? 'flex' : 'hidden'} w-[min(390px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-brand-100`}>
+    <aside ref={panel} aria-label="AI Tutor Assistant" hidden={!open} inert={!open} aria-hidden={!open} style={{ width: panelSize?.width, height: panelSize?.height || 'min(640px, calc(100dvh - 32px))', maxWidth: 'calc(100vw - 16px)', maxHeight: 'calc(100dvh - 16px)', ...(panelPosition ? { left: panelPosition.left, top: panelPosition.top } : { right: 16, top: 'min(96px, 4dvh)' }) }} className={`fixed z-[41] ${open ? 'flex' : 'hidden'} w-[min(390px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-brand-100`}>
       <header className="bg-gradient-to-r from-brand-50 to-white px-4 pb-2 pt-3">
         <div className="flex items-center gap-3">
           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow ring-1 ring-brand-100">

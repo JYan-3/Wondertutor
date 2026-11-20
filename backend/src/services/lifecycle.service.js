@@ -120,6 +120,8 @@ export async function runHousekeeping(now = new Date()) {
   const { sent } = await sendLessonReminders(now)
   const { sent: paymentReminders } = await sendPaymentReminders(now)
   const { moved } = await promoteChildren(now)
+  // A browser may disappear permanently without ever sending an unsubscribe.
+  await prisma.pushSubscription.deleteMany({ where: { expiresAt: { lte: now } } })
   return { expired, sent, paymentReminders, moved }
 }
 

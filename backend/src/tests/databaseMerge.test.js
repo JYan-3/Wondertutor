@@ -195,15 +195,16 @@ test('missing source foreign-key mappings are not resolved from coincidentally m
   expect(result.report.conflicts.length).toBeGreaterThan(0)
 })
 
-test('local authentication sessions, verification codes, settings and migration history are never imported', () => {
+test('local authentication sessions, push endpoints, verification codes, settings and migration history are never imported', () => {
   const result = plan({
     User: [user(2, 'TUTOR', 'tutor@example.test')],
     AuthSession: [{ id: 'source-session', userId: 2, credentialTag: 'source-tag', createdAt: stamp, expiresAt: stamp }],
+    PushSubscription: [{ deviceHash: 'source-device', userId: 2, endpoint: 'https://example.test/unused' }],
     EmailOtp: [{ id: 1, email: 'tutor@example.test', codeHash: 'source-code', attempts: 0, createdAt: stamp, expiresAt: stamp }],
     SystemSetting: [{ key: 'GPS_RADIUS_METRES', value: '5000', updatedAt: stamp }],
     _prisma_migrations: [{ id: 'source-migration', migration_name: 'untrusted' }],
   })
-  expect(result.inserts.some(item => ['AuthSession', 'EmailOtp', 'SystemSetting', '_prisma_migrations'].includes(item.model))).toBe(false)
+  expect(result.inserts.some(item => ['AuthSession', 'PushSubscription', 'EmailOtp', 'SystemSetting', '_prisma_migrations'].includes(item.model))).toBe(false)
   expect(result.updates).toEqual([])
 })
 

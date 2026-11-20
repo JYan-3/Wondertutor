@@ -147,7 +147,9 @@ export async function setStatus(req, res) {
   // Nothing is left to switch back on: the name, email and password were removed when the owner deleted it
   if (user.deletedAt) throw new AppError(400, 'This account was deleted by its owner and cannot be changed')
   if (user.status === status) throw new AppError(400, `This account is already ${status.toLowerCase()}`)
-  await prisma.user.update({ where: { id: user.id }, data: { status } })
+  await prisma.user.update({ where: { id: user.id }, data: {
+    status, ...(status === 'DEACTIVATED' && { pushSubscriptions: { deleteMany: {} } }),
+  } })
   if (status === 'ACTIVE')
     await notify(user.id, { type: 'ACCOUNT_REACTIVATED', title: 'Account reactivated', message: 'Your WonderTutor account is active again.' })
   res.json({ ok: true, status })

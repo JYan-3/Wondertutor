@@ -148,6 +148,7 @@ export async function deleteMyAccount(req, res) {
     prisma.favouriteTutor.deleteMany({ where: { parentId } }),
     prisma.matchingRequest.deleteMany({ where: { parentId } }),
     prisma.notification.deleteMany({ where: { userId } }),
+    prisma.pushSubscription.deleteMany({ where: { userId } }),
     prisma.emailOtp.deleteMany({ where: { email } }),
     prisma.parentProfile.update({ where: { id: parentId }, data: { address: null, latitude: null, longitude: null, preferences: Prisma.DbNull } }),
     prisma.user.update({

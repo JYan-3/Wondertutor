@@ -7,6 +7,7 @@ import { prisma } from '../../config/prisma.js'
 import { AppError } from '../../utils/AppError.js'
 import { ymd } from '../../utils/validators.js'
 import { notify } from '../../services/notification.service.js'
+import { sendBookingPush } from '../../services/webPush.service.js'
 import { complaintInclude, toComplaintDto } from '../parent/complaints.controller.js'
 import { mytToDate, addDays } from '../../utils/time.js'
 
@@ -69,7 +70,8 @@ export async function updateComplaint(req, res) {
   if (decidingAttendance && !existing.parentAnswer) throw new AppError(409, 'Waiting for the parent to respond.')
   if ((decidingAttendance || asking) && data.reviewedAt !== existing.updatedAt.toISOString()) throw new AppError(409, 'Reopen the review to see the latest evidence and parent response.')
   const outcome = data.outcome ?? (data.status === 'DISMISSED' ? 'UNVERIFIED' : data.status === 'RESOLVED' ? 'CONFIRMED' : null)
-  const updated = await prisma.$transaction(async (tx) => {
+  const { updated, notices } = await prisma.$transaction(async (tx) => {
+    let notices = []
     if (existing.category === MISSED_CHECK_IN && existing.bookingId) {
       await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${existing.bookingId} FOR UPDATE`
     }
@@ -102,13 +104,16 @@ export async function updateComplaint(req, res) {
         NOT_HELD: 'Lesson did not take place', CONFIRMED: 'Attendance confirmed by admin',
       }[outcome] || 'Review in progress'
       const update = { type: 'ATTENDANCE_REVIEW', title: 'Missed check-in review', message: lesson.subject + ' · ' + decisionLabel + (data.adminResponse ? '. ' + data.adminResponse : '') + (refund ? '. Refund review: ' + refund.status.toLowerCase() + '.' : '') }
-      await tx.notification.createMany({ data: [
+      notices = [
         { ...update, userId: existing.filedById, link: '/tutor/bookings/' + ref + '/session' },
         { ...update, userId: lesson.parent.userId, link: '/parent/bookings?booking=' + ref },
-      ] })
+      ]
+      await tx.notification.createMany({ data: notices })
     }
-    return tx.complaint.findUnique({ where: { id: existing.id }, include: complaintInclude })
+    const updated = await tx.complaint.findUnique({ where: { id: existing.id }, include: complaintInclude })
+    return { updated, notices }
   })
+  await Promise.all(notices.map(({ userId, type, link }) => sendBookingPush(userId, { type, link })))
   const label = { IN_PROGRESS: 'is being reviewed', RESOLVED: 'has been resolved', DISMISSED: 'was reviewed and closed' }[data.status]
   if (existing.category !== MISSED_CHECK_IN) await notify(existing.filedById, {
     type: 'COMPLAINT_UPDATE',

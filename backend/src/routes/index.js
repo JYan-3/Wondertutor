@@ -7,7 +7,8 @@ import tutorRoutes from './tutor.routes.js'
 import { uploadSignature } from '../controllers/uploads.controller.js'
 import { homeData, places, faqData, browsePublicTutors, getPublicTutor, getPublicTutorReviews } from '../controllers/public.controller.js'
 import { rateLimit } from '../middleware/rateLimit.js'
-import { requireAuth } from '../middleware/auth.js'
+import { requireAuth, requireRole } from '../middleware/auth.js'
+import { pushSettings, enablePush, disablePush } from '../controllers/webPush.controller.js'
 import * as notifications from '../controllers/notifications.controller.js'
 import { billplzCallback, toyyibpayCallback } from '../controllers/parent/payments.controller.js'
 
@@ -45,6 +46,11 @@ router.use('/admin', adminRoutes)
 router.post('/uploads/signature', requireAuth, uploadSignature)
 
 // [Shared] In-app notifications for every role (bell icon)
+router.route('/notifications/push')
+  .all(requireAuth, requireRole('PARENT', 'TUTOR'))
+  .get(pushSettings)
+  .put(rateLimit({ name: 'push-subscriptions', windowMs: 60_000, max: 30 }), enablePush)
+  .delete(disablePush)
 router.get('/notifications', requireAuth, notifications.listNotifications)
 router.post('/notifications/read-all', requireAuth, notifications.markAllRead)
 router.post('/notifications/:id/read', requireAuth, notifications.markRead)

@@ -122,6 +122,7 @@ model User {
   parent             ParentProfile?
   tutor              TutorProfile?
   notifications      Notification[]
+  pushSubscriptions  PushSubscription[]
   complaintsFiled    Complaint[]    @relation("ComplaintBy")
   complaintsAgainst  Complaint[]    @relation("ComplaintAgainst")
   complaintsHandled  Complaint[]    @relation("ComplaintHandler")
@@ -155,6 +156,20 @@ model EmailOtp {
   createdAt DateTime @default(now())
 
   @@index([email])
+}
+
+// One explicitly enabled browser installation. Authentication sessions expire independently.
+model PushSubscription {
+  deviceHash   String   @id @db.Char(64)
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpointHash String   @unique @db.Char(64)
+  endpoint     String   @db.Text
+  p256dh       String   @db.VarChar(87)
+  auth         String   @db.VarChar(22)
+  expiresAt    DateTime
+
+  @@index([userId, expiresAt])
 }
 
 // ───────────── Parent side [XY] ─────────────
