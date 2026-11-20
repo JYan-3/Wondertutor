@@ -154,7 +154,7 @@ export default function FindTutor() {
     <div>
       <PageTitle title="Find the Right Tutor for Your Child" subtitle="Browse qualified tutors or let our AI Tutor Assistant help you find suitable matches." />
 
-      <section className="card p-5">
+      <section className="parent-search-panel card p-5">
         <form aria-label="Search tutors" onSubmit={event => { event.preventDefault(); search() }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-semibold text-navy">Search tutors</h2>
@@ -185,20 +185,20 @@ export default function FindTutor() {
             <span className="mb-1.5 block text-sm font-semibold text-navy">Availability</span>
             <AvailabilityPicker bar={bar} setBar={setBar} label={dateTimeLabel} />
           </div>
-          <button type="submit" aria-label="Search Tutors" disabled={loading && !dirty} className="btn-primary h-11 px-8 text-base"><Icon name="search" className="h-[18px] w-[18px]" /> {loading ? 'Searching…' : 'Search Tutors'}</button>
+          <button type="submit" aria-label="Search Tutors" disabled={loading && !dirty} className="btn-accent h-11 px-8 text-base"><Icon name="search" className="h-[18px] w-[18px]" /> {loading ? 'Searching…' : 'Search Tutors'}</button>
         </div>
         <p className="mt-3 text-sm text-slate-600">Leave filters empty to browse all tutors.</p>
         {dirty && <p role="status" className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Your filters have changed. Select Search Tutors to update the results.</p>}
         <ErrorBox className="mt-3">{error}</ErrorBox>
         </form>
 
-        <div className="mt-4 flex flex-wrap items-center gap-4 rounded-xl border border-brand-100 bg-brand-25 p-3">
-          <Robot className="h-14 w-14 shrink-0" />
-          <div className="min-w-[200px] flex-1">
+        <div className="parent-matching-prompt mt-4 grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-3 border border-brand-100 p-4 sm:flex sm:flex-wrap">
+          <Robot className="h-10 w-10 shrink-0" />
+          <div className="min-w-0 flex-1">
             <div className="font-bold text-navy">Not sure which tutor to choose?</div>
             <div className="text-sm text-slate-500">Let our AI Tutor Assistant understand your child's learning needs and recommend suitable tutors.</div>
           </div>
-          <button onClick={tryAiMatching} className="btn-accent px-5">Try AI Matching <Icon name="arrow-right" className="h-4 w-4" /></button>
+          <button onClick={tryAiMatching} className="btn-primary col-span-2 w-full px-5 sm:ml-auto sm:w-auto">Try AI Matching <Icon name="arrow-right" className="h-4 w-4" /></button>
         </div>
       </section>
 

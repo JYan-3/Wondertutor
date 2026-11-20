@@ -45,20 +45,20 @@ export default function ParentDashboard() {
 
   return (
     <div>
-      <div className="relative mb-6 flex items-start justify-between">
+      <section aria-labelledby="parent-dashboard-title" className="parent-dashboard-intro relative mb-6 flex items-center justify-between gap-4 rounded-3xl p-5 sm:p-6">
         <div className="parent-dashboard-copy">
-          <h1 className="brand-title text-3xl font-extrabold tracking-tight text-navy sm:text-4xl">
-            {greeting()}, {user.fullName}! <span className="parent-dashboard-wave inline-block origin-[70%_70%] animate-[wave_2s_ease-in-out_1]">👋</span>
+          <h1 id="parent-dashboard-title" className="font-display text-2xl font-bold leading-tight text-navy sm:text-3xl">
+            {greeting()}, {user.fullName}! <span aria-hidden="true" className="inline-block">👋</span>
           </h1>
-          <p className="mt-1 text-lg text-slate-500">Let's find the right learning support for your child.</p>
+          <p className="mt-2 text-base text-slate-600">Let's find the right learning support for your child.</p>
         </div>
-        <div className="parent-dashboard-art flex items-center gap-4 lg:pr-4">
+        <div aria-hidden="true" className="parent-dashboard-art flex items-center gap-3">
           <ParentHeaderDecor />
-          <div className="hidden font-hand text-2xl leading-6 text-brand-200 [transform:rotate(-8deg)] xl:block">
-            Small<br />Steps<br />Brighter<br />Futures
+          <div className="hidden max-w-24 font-display text-sm font-semibold leading-5 text-brand-700 xl:block">
+            Small Steps<br />Brighter Futures
           </div>
         </div>
-      </div>
+      </section>
 
       {counts.needsAttention > 0 && <div role="status" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
         <p className="min-w-0 flex-1 text-sm"><b>{counts.needsAttention} {counts.needsAttention === 1 ? 'lesson needs' : 'lessons need'} attention.</b> The lesson time has passed and the tutor has not completed the record. Check the details or report a problem.</p>
@@ -70,23 +70,22 @@ export default function ParentDashboard() {
       <div className="grid gap-6 lg:grid-cols-[1.12fr_1fr]">
         {/* ───── left column ───── */}
         <div className="space-y-6">
-          <section className="card relative overflow-hidden border-accent/30 bg-gradient-to-r from-accent-50 to-white p-6">
-            <Icon name="sparkle" fill className="absolute left-5 top-5 h-7 w-7 text-accent" />
-            <div className="pl-12 sm:pr-44">
-              <h2 className="text-2xl font-extrabold text-navy">Find a Tutor</h2>
-              <p className="mt-1 text-sm text-slate-600">Tell us what your child needs and we'll recommend suitable tutors.</p>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Link to="/parent/find-tutor" className="btn-primary h-12 px-7 text-base">Find a Tutor <Icon name="arrow-right" className="h-4 w-4" /></Link>
-                <button onClick={() => setChatOpen(true)} className="btn h-12 border border-accent bg-white/70 px-7 text-base text-navy hover:bg-accent-50">
-                  <Icon name="sparkle" fill className="h-4 w-4 text-accent" /> Chat with AI
-                </button>
+          <section aria-labelledby="parent-discovery-title" className="parent-discovery-card card relative overflow-hidden rounded-3xl p-5 sm:p-6">
+            <div className="flex items-start gap-4">
+              <div className="min-w-0 flex-1">
+                <h2 id="parent-discovery-title" className="font-display text-2xl font-bold text-navy">Find a Tutor</h2>
+                <p className="mt-2 text-sm leading-relaxed text-slate-600">Tell us what your child needs and we'll recommend suitable tutors.</p>
+              </div>
+              <div aria-hidden="true" className="hidden w-24 shrink-0 flex-col items-center sm:flex">
+                <Robot className="parent-discovery-robot h-20 w-20" />
+                <span className="mt-1 text-center text-xs font-medium leading-4 text-brand-700">Your AI Learning Assistant</span>
               </div>
             </div>
-            <div className="absolute bottom-3 right-6 hidden sm:block">
-              <span className="absolute -top-2 right-0 flex h-20 w-20 rotate-[8deg] items-center justify-center rounded-full bg-accent-100 p-2 text-center font-hand text-sm font-bold leading-4 text-navy">
-                Your AI<br />Learning<br />Assistant
-              </span>
-              <Robot className="float-y relative -left-8 top-3 h-32 w-32" />
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link to="/parent/find-tutor" className="btn-accent min-h-12 w-full px-5 text-base sm:w-auto">Find a Tutor <Icon name="arrow-right" className="h-4 w-4" /></Link>
+              <button onClick={() => setChatOpen(true)} className="btn-outline min-h-12 w-full bg-white/80 px-5 text-base sm:w-auto">
+                <Icon name="sparkle" className="h-4 w-4" /> Chat with AI
+              </button>
             </div>
           </section>
 
@@ -185,7 +184,7 @@ export default function ParentDashboard() {
                 <div>
                   <div className="font-bold text-navy">No tutor search yet</div>
                   <p className="text-sm text-slate-500">Start with the matching wizard or chat with our AI Tutor Assistant.</p>
-                  <Link to="/parent/find-tutor/match" className="btn-primary mt-3 px-5">Start Matching</Link>
+                  <Link to="/parent/find-tutor/match" className="btn-accent mt-3 px-5">Start Matching</Link>
                 </div>
               </div>
             )}

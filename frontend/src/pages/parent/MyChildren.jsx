@@ -126,7 +126,7 @@ export default function MyChildren() {
             {c.notes && <p className="mt-3 rounded-lg bg-brand-25 p-3 text-sm text-slate-600">{c.notes}</p>}
             <div className="mt-2 text-xs text-slate-400">{c.bookingCount} booking{c.bookingCount === 1 ? '' : 's'}</div>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <button onClick={() => { applyChild(c); navigate('/parent/find-tutor/match') }} className="btn-primary col-span-2"><Icon name="search" className="h-4 w-4" /> Find a Tutor</button>
+              <button onClick={() => { applyChild(c); navigate('/parent/find-tutor/match') }} className="btn-accent col-span-2"><Icon name="search" className="h-4 w-4" /> Find a Tutor</button>
               <Link to={`/parent/children/${recordRef(c)}/progress`} className="btn-outline col-span-2"><Icon name="chart" className="h-4 w-4" /> View Learning Progress</Link>
               {/* A child with lessons keeps their profile: bookings, payments and progress refer to it */}
               <button onClick={() => openForm(c)} className={`btn-outline ${c.bookingCount ? 'col-span-2' : ''}`}><Icon name="edit" className="h-4 w-4" /> Edit</button>

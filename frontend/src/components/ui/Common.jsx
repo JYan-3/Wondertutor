@@ -86,7 +86,7 @@ export function LoadError({ message, onRetry, title = "We couldn't load this pag
 
 export function PageTitle({ title, subtitle, icon, right, sparkle = true }) {
   return (
-    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div className="page-title mb-6 flex flex-wrap items-start justify-between gap-4">
       <div className="page-title-copy flex min-w-0 items-start gap-3">
         {icon && <Icon name={icon} className="mt-1 h-9 w-9 shrink-0 text-navy" strokeWidth={1.75} />}
         <div className="min-w-0">

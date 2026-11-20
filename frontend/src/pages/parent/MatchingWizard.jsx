@@ -76,7 +76,7 @@ export default function MatchingWizard() {
           <div className="text-sm">
             <div className="font-bold text-navy">AI Tutor Assistant</div>
             <div className="text-slate-600">Prefer to tell us your needs naturally? You can chat with our AI assistant instead.</div>
-            <button onClick={() => setChatOpen(true)} className="btn-accent mt-2 px-4 py-1.5 text-xs">Chat with AI <Icon name="arrow-right" className="h-3.5 w-3.5" /></button>
+            <button onClick={() => setChatOpen(true)} className="btn-primary mt-2 px-4 py-1.5 text-xs">Chat with AI <Icon name="arrow-right" className="h-3.5 w-3.5" /></button>
           </div>
         </div>
       </div>
@@ -343,8 +343,8 @@ function StepPrefs({ c, languages, patch, onBack, onFind, busy }) {
       </div>
       <div className="mt-8 flex items-center justify-between">
         <button onClick={onBack} className="btn-outline h-12 px-6"><Icon name="arrow-left" className="h-4 w-4" /> Back</button>
-        <button onClick={onFind} disabled={busy} className="btn-primary h-12 px-8 text-base">
-          <Icon name="sparkle" fill className="h-4 w-4 text-accent" /> {busy ? 'Finding your matches…' : 'Find My Matches'} {!busy && <Icon name="arrow-right" className="h-4 w-4" />}
+        <button onClick={onFind} disabled={busy} className="btn-accent h-12 px-8 text-base">
+          <Icon name="sparkle" fill className="h-4 w-4" /> {busy ? 'Finding your matches…' : 'Find My Matches'} {!busy && <Icon name="arrow-right" className="h-4 w-4" />}
         </button>
       </div>
     </>

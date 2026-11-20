@@ -50,7 +50,7 @@ export default function AppLayout() {
   const accountItems = (ACCOUNT_LINKS[user.role] || []).filter(([to]) => !items.some(([primary]) => primary === to))
 
   const shell = (
-    <div className={`flex min-h-screen flex-col ${user.role === 'TUTOR' ? 'tutor-portal' : ''}`}>
+    <div className={`flex min-h-screen flex-col ${isParent ? 'parent-portal' : user.role === 'TUTOR' ? 'tutor-portal' : ''}`}>
       <SkipLink />
       {/* Same bar as the public pages (landing, login, signup): flat, full width, white, yellow underline on the current page */}
       <header className="brand-header sticky top-0 z-30 w-full bg-white">

@@ -107,7 +107,7 @@ export default function MatchResults() {
 
   if (!result)
     return (
-      <div className="card"><EmptyState icon="search" title="No matching search yet" action={<Link to="/parent/find-tutor/match" className="btn-primary mt-2">Start Matching</Link>}>
+      <div className="card"><EmptyState icon="search" title="No matching search yet" action={<Link to="/parent/find-tutor/match" className="btn-accent mt-2">Start Matching</Link>}>
         Tell us what your child needs and we'll recommend suitable tutors.
       </EmptyState></div>
     )

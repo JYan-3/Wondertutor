@@ -1,5 +1,49 @@
 .parent-page-effects { min-width: 0; }
 
+/* Parent pages share the landing page's soft blue/cream surfaces. These rules
+   are scoped to this portal and never transform ancestors of fixed dialogs. */
+.parent-portal {
+  background: linear-gradient(180deg, #eef5ff 0, #f8fbff 30rem, #ffffff 100%);
+}
+.parent-page-effects .card,
+.parent-page-effects [role="dialog"] {
+  border-radius: 1.5rem;
+}
+.parent-page-effects .card {
+  box-shadow: 0 6px 28px rgb(26 109 255 / 7%);
+}
+.parent-page-effects .page-title,
+.parent-dashboard-intro {
+  padding: clamp(1rem, 2vw, 1.5rem);
+  border: 1px solid #dbe9ff;
+  border-radius: 1.5rem;
+  background: linear-gradient(115deg, #eef5ff 0%, #ffffff 66%, #fff8e6 100%);
+}
+.parent-page-effects .page-title h1 {
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  line-height: 1.22;
+}
+.parent-page-effects .page-title-copy > svg:first-child {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: .55rem;
+  border: 1px solid #dbe9ff;
+  border-radius: .9rem;
+  background: white;
+  color: #0b2a6f;
+}
+.parent-page-effects .input { border-radius: .75rem; }
+.parent-discovery-card,
+.parent-page-effects .parent-matching-prompt {
+  border-color: #dbe9ff;
+  background: linear-gradient(120deg, #fff8e6 0%, #ffffff 58%, #eef5ff 100%);
+}
+.parent-discovery-robot { filter: drop-shadow(0 5px 12px rgb(26 109 255 / 8%)); }
+.parent-page-effects .parent-matching-prompt { border-radius: 1.25rem; }
+.parent-page-effects .parent-search-panel { background-color: #ffffff; }
+
 /* Decorations occupy their own header space, never a form or a click target. */
 .parent-header-art { position: relative; width: 112px; height: 52px; flex: 0 0 auto; color: #9fc3f3; pointer-events: none; user-select: none; }
 .parent-header-art > svg { position: absolute; }
@@ -41,6 +85,9 @@
 }
 
 @media (max-width: 639px) {
+  .parent-page-effects .page-title .parent-header-art { display: none; }
+  .parent-page-effects .page-title-copy > svg:first-child { width: 2.5rem; height: 2.5rem; padding: .5rem; }
+  .parent-dashboard-intro .parent-dashboard-copy > p { font-size: 1rem; }
   .parent-header-art { width: 44px; height: 42px; }
   .parent-decor-book { left: 9px; top: 9px; width: 29px; height: 29px; }
   .parent-decor-cap { left: 0; top: 0; width: 17px; height: 17px; }
@@ -57,6 +104,9 @@
   .parent-page-effects .parent-hover-lift { transform: none !important; }
 }
 @media print {
+  .parent-portal { background: none; }
+  .parent-page-effects .page-title, .parent-dashboard-intro { padding: 0; border: 0; background: none; box-shadow: none; }
+  .parent-page-effects .card { box-shadow: none; }
   .parent-header-art { display: none !important; }
   .parent-page-effects .card, .parent-page-effects .parent-hover-lift { animation: none !important; transition: none !important; transform: none !important; }
 }
