@@ -4,18 +4,15 @@ import { z } from 'zod'
 import { prisma } from '../config/prisma.js'
 import { MAX_GRADE, SUBJECTS, isSubjectAtLevel, findLocation } from '../data/catalog.js'
 import { AppError } from '../utils/AppError.js'
-import { toTutorCard, toTutorProfile } from './tutor.service.js'
+import { browseTutorWhere, toTutorCard, toTutorProfile } from './tutor.service.js'
+import { optionalText } from '../utils/validators.js'
 import { distanceKm } from './matching.service.js'
 import { groupTutorCandidates } from './tutorSearchScope.js'
 import { getTutorSlots } from './booking.service.js'
 import { todayMyt } from '../utils/time.js'
 import { reviewContentProblem } from './reviewContent.js'
 
-export const publicTutorWhere = {
-  user: { status: 'ACTIVE', deletedAt: null },
-  subjects: { some: {} },
-  hourlyRate: { gt: 0 },
-}
+export const publicTutorWhere = browseTutorWhere()
 
 // Explicit selections avoid even loading identity documents or account secrets.
 export const publicTutorInclude = {
@@ -29,6 +26,7 @@ export const publicTutorInclude = {
 }
 
 export const publicBrowseQuery = z.object({
+  name: optionalText(80, 'Tutor name'),
   subject: z.enum(SUBJECTS).optional(),
   level: z.enum(['KINDERGARTEN', 'PRIMARY', 'SECONDARY']).optional(),
   grade: z.coerce.number().int().min(1).max(6).optional(),
@@ -54,14 +52,8 @@ const recommended = (a, b) => Number(b.isVerified) - Number(a.isVerified) || b.r
 
 export async function publicTutorPage(query) {
   const q = publicBrowseQuery.parse(query)
-  const teaching = {
-    ...(q.subject && { subject: q.subject }),
-    ...(q.level && { educationLevel: q.level }),
-    ...(q.grade && { minGrade: { lte: q.grade }, maxGrade: { gte: q.grade } }),
-  }
   const where = {
-    ...publicTutorWhere,
-    subjects: { some: teaching },
+    ...browseTutorWhere(q),
     hourlyRate: { gt: 0, ...(q.minPrice != null && { gte: q.minPrice }), ...(q.maxPrice != null && { lte: q.maxPrice }) },
     ...(q.mode === 'ONLINE' && { offersOnline: true }),
   }

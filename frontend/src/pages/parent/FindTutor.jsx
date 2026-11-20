@@ -7,7 +7,7 @@ import Robot from '../../components/ui/Robot'
 import TutorCard from '../../components/TutorCard'
 import { CompareBar, useCompare } from '../../components/Compare'
 import Pagination from '../../components/ui/Pagination'
-import FilterChips, { NO_EXTRA } from '../../components/FilterChips'
+import FilterChips, { countActive, NO_EXTRA } from '../../components/FilterChips'
 import PlaceSearch from '../../components/PlaceSearch'
 import { ErrorBox, FilterDropdown, LoadError, PageTitle, SelectBox, Spinner, EmptyState } from '../../components/ui/Common'
 import { GRADE_GROUPS, parseGrade } from '../../lib/education'
@@ -24,6 +24,7 @@ const SORTS = [
   ['nearest', 'Nearest'],
 ]
 const PAGE_SIZE = 9
+const EMPTY_BAR = { name: '', subject: '', grade: '', location: '', date: '', time: '' }
 const HOURS = Array.from({ length: 15 }, (_, i) => `${String(i + 7).padStart(2, '0')}:00`) // One-hour starts 07:00–21:00, ending by 22:00
 
 export default function FindTutor() {
@@ -36,6 +37,9 @@ export default function FindTutor() {
   // What the results currently reflect
   const [applied, setApplied] = useState(null)
   const [extra, setExtra] = useState(NO_EXTRA)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const filterToggle = useRef(null)
+  const prefilled = useRef(new Set(['subject', 'grade', 'location']))
   const [sort, setSort] = useState('recommended')
   const [page, setPage] = useState(1)
   const resultsTop = useRef(null)
@@ -56,11 +60,10 @@ export default function FindTutor() {
     const grade = kid ? `${kid.educationLevel}:${kid.grade}` : 'PRIMARY:5'
     const allowed = subjectsForLevel(catalog.subjects, catalog.subjectLevels, parseGrade(grade).level)
     const initial = {
+      ...EMPTY_BAR,
       subject: allowed.includes(kid?.subject) ? kid.subject : allowed.includes('Mathematics') ? 'Mathematics' : allowed[0] || '',
       grade,
       location: catalog.homeLocation || '',
-      date: '',
-      time: '',
     }
     setBar(initial)
     setApplied(initial)
@@ -69,6 +72,7 @@ export default function FindTutor() {
   const query = useMemo(() => {
     if (!applied) return null
     const p = { sort, page, pageSize: PAGE_SIZE }
+    if (applied.name) p.name = applied.name
     if (applied.subject) p.subject = applied.subject
     if (applied.grade) Object.assign(p, parseGrade(applied.grade))
     if (applied.location) p.location = applied.location
@@ -82,8 +86,6 @@ export default function FindTutor() {
     if (extra.characteristics.length) p.characteristics = extra.characteristics.join(',')
     return p
   }, [applied, extra, sort, page])
-
-  useEffect(() => { setPage(1) }, [applied, extra, sort])
 
   useEffect(() => {
     if (!query) return
@@ -100,19 +102,28 @@ export default function FindTutor() {
 
   if (!bar || !catalog) return loadError ? <LoadError message={loadError} onRetry={reloadShared} /> : <Spinner />
 
-  const set = (k) => (e) => {
-    const value = e.target.value
-    setBar((previous) => {
-      const next = { ...previous, [k]: value }
-      if (k === 'grade' && !subjectsForLevel(catalog.subjects, catalog.subjectLevels, parseGrade(value).level).includes(previous.subject)) next.subject = ''
-      return next
-    })
+  function changeField(key, value) {
+    const next = { ...bar, [key]: value }
+    prefilled.current.delete(key)
+    // A name lookup starts across the directory, retaining filters the parent chose.
+    if (key === 'name' && value.trim()) {
+      for (const field of prefilled.current) next[field] = ''
+      prefilled.current.clear()
+    }
+    if (key === 'grade' && !subjectsForLevel(catalog.subjects, catalog.subjectLevels, parseGrade(value).level).includes(next.subject)) next.subject = ''
+    setBar(next)
+  }
+
+  function changeExtra(next) {
+    if (next.maxDistance) prefilled.current.delete('location')
+    setExtra(next)
+    setPage(1)
   }
 
   function clearFilters() {
-    const cleared = { subject: '', grade: '', location: '', date: '', time: '' }
-    setBar(cleared)
-    setApplied(cleared)
+    prefilled.current.clear()
+    setBar(EMPTY_BAR)
+    setApplied(EMPTY_BAR)
     setExtra(NO_EXTRA)
     setSort('recommended')
     setPage(1)
@@ -136,9 +147,18 @@ export default function FindTutor() {
 
   const search = () => {
     // The availability filter needs both parts; half of it would be silently ignored
-    if (Boolean(bar.date) !== Boolean(bar.time)) return setError('Choose both a date and a start time, or clear the availability filter.')
+    if (Boolean(bar.date) !== Boolean(bar.time)) {
+      setFiltersOpen(true)
+      return setError('Choose both a date and a start time, or clear the availability filter.')
+    }
     setError('')
-    setApplied(bar)
+    const name = bar.name.trim()
+    const next = name === bar.name ? bar : { ...bar, name }
+    setBar(next)
+    setApplied(next)
+    setPage(1)
+    if (filtersOpen) filterToggle.current?.focus()
+    setFiltersOpen(false)
   }
 
   function tryAiMatching() {
@@ -149,92 +169,112 @@ export default function FindTutor() {
 
   const dateTimeLabel = bar.date && bar.time ? `${bar.date} · ${hhmmLabel(bar.time)}` : 'Select date & time'
   const dirty = applied && Object.keys(bar).some(key => bar[key] !== applied[key])
+  const filterCount = [applied.subject, applied.grade, applied.location, applied.date && applied.time].filter(Boolean).length + countActive(extra)
 
   return (
     <div>
-      <PageTitle title="Find the Right Tutor for Your Child" subtitle="Browse qualified tutors or let our AI Tutor Assistant help you find suitable matches." />
+      <h1 className="brand-title mb-3 text-2xl font-bold text-navy lg:hidden">Find a Tutor</h1>
+      <div className="hidden lg:block">
+        <PageTitle title="Find the Right Tutor for Your Child" subtitle="Browse qualified tutors or let our AI Tutor Assistant help you find suitable matches." />
+      </div>
 
-      <section className="parent-search-panel card p-5">
-        <form aria-label="Search tutors" onSubmit={event => { event.preventDefault(); search() }}>
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-semibold text-navy">Search tutors</h2>
-          <button type="button" onClick={clearFilters} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-brand-600 hover:bg-brand-50 hover:underline">Clear filters</button>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_1fr_auto] xl:items-end">
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-semibold text-navy">Subject</span>
-            <SelectBox icon="book" value={bar.subject} onChange={set('subject')}>
-              <option value="">All subjects</option>
-              {subjectsForLevel(catalog.subjects, catalog.subjectLevels, parseGrade(bar.grade).level).map((s) => <option key={s}>{s}</option>)}
-            </SelectBox>
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-semibold text-navy">Education Level</span>
-            <SelectBox icon="cap" value={bar.grade} onChange={set('grade')}>
-              <option value="">All education levels</option>
-              {GRADE_GROUPS.map((g) => (
-                <optgroup key={g.label} label={g.label}>{g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>
-              ))}
-            </SelectBox>
-          </label>
-          <PlaceSearch
-            label="Location" value={bar.location} onChange={(v) => setBar((b) => ({ ...b, location: v }))} quiet
-            labelClass="mb-1.5 block text-sm font-semibold text-navy" placeholder="Any location: search a town or postcode"
-          />
-          <div>
-            <span className="mb-1.5 block text-sm font-semibold text-navy">Availability</span>
-            <AvailabilityPicker bar={bar} setBar={setBar} label={dateTimeLabel} />
+      <section className="parent-search-panel card p-3 lg:p-5">
+        <form id="parent-tutor-search" aria-label="Search tutors" onSubmit={event => { event.preventDefault(); search() }} className="flex flex-col">
+          <div className="flex items-end gap-2">
+            <label className="min-w-0 flex-1">
+              <span className="mb-1.5 block text-sm font-semibold text-navy">Tutor name</span>
+              <input type="search" maxLength={80} value={bar.name} onChange={event => changeField('name', event.target.value)}
+                className="input h-11" placeholder="Search by name" />
+            </label>
+            <button type="submit" aria-label="Search Tutors" disabled={loading && !dirty} className="btn-accent h-11 w-11 shrink-0 px-0 sm:w-auto sm:px-5">
+              <Icon name="search" className="h-[18px] w-[18px]" /><span className="hidden sm:inline">{loading ? 'Searching…' : 'Search Tutors'}</span>
+            </button>
           </div>
-          <button type="submit" aria-label="Search Tutors" disabled={loading && !dirty} className="btn-accent h-11 px-8 text-base"><Icon name="search" className="h-[18px] w-[18px]" /> {loading ? 'Searching…' : 'Search Tutors'}</button>
-        </div>
-        <p className="mt-3 text-sm text-slate-600">Leave filters empty to browse all tutors.</p>
-        {dirty && <p role="status" className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Your filters have changed. Select Search Tutors to update the results.</p>}
-        <ErrorBox className="mt-3">{error}</ErrorBox>
+          <div className="parent-matching-prompt mt-2 flex items-center justify-between gap-2 lg:order-last lg:mt-4 lg:gap-3 lg:border lg:border-brand-100 lg:p-4">
+            <button ref={filterToggle} type="button" aria-label={filterCount ? `Filters, ${filterCount} applied` : 'Filters'} aria-expanded={filtersOpen} aria-controls="parent-search-fields parent-extra-filters"
+              onClick={() => setFiltersOpen(!filtersOpen)} className="btn-outline h-11 shrink-0 gap-1.5 px-2.5 lg:hidden">
+              <Icon name="sliders" className="h-4 w-4" /> Filters{filterCount > 0 && <span className="text-xs">({filterCount})</span>}
+            </button>
+            <Robot className="hidden h-10 w-10 shrink-0 lg:block" />
+            <div className="hidden min-w-0 flex-1 lg:block">
+              <div className="font-bold text-navy">Not sure which tutor to choose?</div>
+              <div className="text-sm text-slate-500">Let our AI Tutor Assistant understand your child's learning needs and recommend suitable tutors.</div>
+            </div>
+            <button type="button" onClick={tryAiMatching} className="btn-primary px-4 max-lg:bg-transparent max-lg:px-1.5 max-lg:text-brand-600 max-lg:shadow-none">Try AI Matching <Icon name="arrow-right" className="h-4 w-4" /></button>
+          </div>
+          <div id="parent-search-fields" className={`mt-4 ${filtersOpen ? 'block' : 'hidden'} lg:block`}>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-navy">Subject</span>
+                <SelectBox icon="book" value={bar.subject} onChange={event => changeField('subject', event.target.value)}>
+                  <option value="">All subjects</option>
+                  {subjectsForLevel(catalog.subjects, catalog.subjectLevels, parseGrade(bar.grade).level).map((s) => <option key={s}>{s}</option>)}
+                </SelectBox>
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-navy">Education Level</span>
+                <SelectBox icon="cap" value={bar.grade} onChange={event => changeField('grade', event.target.value)}>
+                  <option value="">All education levels</option>
+                  {GRADE_GROUPS.map((g) => (
+                    <optgroup key={g.label} label={g.label}>{g.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</optgroup>
+                  ))}
+                </SelectBox>
+              </label>
+              <PlaceSearch
+                label="Location" value={bar.location} onChange={value => changeField('location', value)} quiet
+                labelClass="mb-1.5 block text-sm font-semibold text-navy" placeholder="Any location: search a town or postcode"
+              />
+              <div>
+                <span className="mb-1.5 block text-sm font-semibold text-navy">Availability</span>
+                <AvailabilityPicker bar={bar} setBar={setBar} label={dateTimeLabel} />
+              </div>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-x-2">
+              <p className="text-sm text-slate-600">Leave filters empty to browse all tutors.</p>
+              <button type="button" onClick={clearFilters} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-brand-600 hover:bg-brand-50 hover:underline">Clear filters</button>
+            </div>
+          </div>
+          {dirty && <p role="status" className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Your filters have changed. Select Search Tutors to update the results.</p>}
+          <ErrorBox className="mt-3">{error}</ErrorBox>
         </form>
 
-        <div className="parent-matching-prompt mt-4 grid grid-cols-[2.5rem_minmax(0,1fr)] items-center gap-3 border border-brand-100 p-4 sm:flex sm:flex-wrap">
-          <Robot className="h-10 w-10 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="font-bold text-navy">Not sure which tutor to choose?</div>
-            <div className="text-sm text-slate-500">Let our AI Tutor Assistant understand your child's learning needs and recommend suitable tutors.</div>
+        <div id="parent-extra-filters" className={`mt-3 ${filtersOpen ? 'block' : 'hidden'} lg:flex lg:flex-wrap lg:items-center lg:justify-between lg:gap-3`}>
+          <div className="max-lg:[&>div]:grid max-lg:[&>div]:grid-cols-2 sm:max-lg:[&>div]:grid-cols-3 max-lg:[&>div>.relative]:contents max-lg:[&_.pop-in]:static max-lg:[&_.pop-in]:col-span-full max-lg:[&_.pop-in]:w-full max-lg:[&>div>button:first-child]:hidden">
+            <FilterChips extra={extra} setExtra={changeExtra} locationName={applied.location} showClear={false} />
           </div>
-          <button onClick={tryAiMatching} className="btn-primary col-span-2 w-full px-5 sm:ml-auto sm:w-auto">Try AI Matching <Icon name="arrow-right" className="h-4 w-4" /></button>
+          <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-navy lg:mt-0">
+            Sort by:
+            <select value={sort} onChange={event => { setSort(event.target.value); setPage(1) }} className="input h-11 w-48 font-medium">
+              {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </label>
+          <button type="submit" form="parent-tutor-search" disabled={loading && !dirty} className="btn-accent mt-4 min-h-11 w-full lg:hidden">Show results</button>
         </div>
       </section>
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 lg:mt-6">
         <div ref={resultsTop} className="scroll-mt-24">
           {/* "Showing 1–9 of 11 tutors": what is on screen out of everything that matches */}
-          <h2 className="text-xl font-bold text-navy" aria-live="polite">{requestError ? 'Tutors could not be loaded' : loading ? 'Searching…' : resultsHeading(data)}</h2>
+          <h2 className="text-base font-bold text-navy lg:text-xl" aria-live="polite">{requestError ? 'Tutors could not be loaded' : loading ? 'Searching…' : resultsHeading(data)}</h2>
           {!loading && !requestError && data?.total > 0 && sort === 'recommended' && (
-            <p className="text-sm text-slate-600">
+            <p className="hidden text-sm text-slate-600 lg:block">
               {(data.personalised ?? data.tutors.some(tutor => tutor.match))
                 ? <>Best match first{data.rankedBy?.length ? `, based on ${data.rankedBy.join(' and ')}` : ''}. Every card shows its match score and why.</>
                 : 'Verified tutors first, then parent ratings and teaching experience. Choose a subject and education level to see match scores.'}
             </p>
           )}
         </div>
-        <Link to="/parent/favourites" className="ml-auto flex min-h-11 items-center gap-1.5 text-sm font-semibold text-brand-600 hover:underline">
-          <Icon name="heart" className="h-4 w-4" /> Saved tutors
+        <Link to="/parent/favourites" aria-label="Saved tutors" className="ml-auto flex min-h-11 items-center gap-1.5 text-sm font-semibold text-brand-600 hover:underline">
+          <Icon name="heart" className="h-4 w-4" /><span>Saved<span className="hidden sm:inline"> tutors</span></span>
         </Link>
-        <label className="flex items-center gap-2 text-sm font-semibold text-navy">
-          Sort by:
-          <select value={sort} onChange={(e) => setSort(e.target.value)} className="input h-10 w-48 font-medium">
-            {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </label>
       </div>
 
-      <div className="mt-3">
-        <FilterChips extra={extra} setExtra={setExtra} locationName={applied.location} showClear={false} />
-      </div>
-
-      <section aria-label="Tutor results" aria-busy={loading} className="mt-4">
+      <section aria-label="Tutor results" aria-busy={loading} className="mt-2 max-lg:[&>div[role=status]]:my-2 max-lg:[&>div[role=status]]:p-3 lg:mt-4">
         {requestError ? <LoadError title="We couldn't load tutors" message={requestError} onRetry={() => setRetry(value => value + 1)} /> : <>
         {loading && (data ? <p role="status" className="mb-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Updating tutor results…</p> : <Spinner label="Searching for tutors…" />)}
         <TutorSearchNotice scope={data?.searchScope} hasResults={data?.total > 0} />
         {data && data.tutors.length === 0 && !loading && data.searchScope?.mode !== 'PHYSICAL' && (
-          <div className="card"><EmptyState icon="search" title="No tutors match these filters">Try another subject or level, or remove some filters.</EmptyState></div>
+          <div className="card"><EmptyState icon="search" title="No tutors match these filters">Try another name or remove some filters.</EmptyState></div>
         )}
         <div inert={loading} className={`grid gap-4 md:grid-cols-2 xl:grid-cols-3 ${loading ? 'opacity-60' : ''}`}>
           {data?.tutors.map((t) => <TutorCard key={t.id} tutor={t} match={t.match} saved={t.isFavourite} onToggleSave={toggleSave} compare={compare} />)}
@@ -275,7 +315,7 @@ export function resultsHeading(data) {
 // "Select date & time" popover: a date and a 1-hour start time
 function AvailabilityPicker({ bar, setBar, label }) {
   return (
-    <FilterDropdown label={<span className="flex items-center gap-2"><Icon name="calendar" className="h-[18px] w-[18px] text-brand-500" />{label}</span>} width="w-72" active={!!bar.date}>
+    <FilterDropdown label={<span className="flex items-center gap-2"><Icon name="calendar" className="h-[18px] w-[18px] text-brand-500" />{label}</span>} width="w-72 max-w-[calc(100vw-3.25rem)]" active={!!bar.date}>
       {(close) => (
         <div className="space-y-3">
           <label className="block text-sm font-semibold text-navy">Date

@@ -22,6 +22,51 @@ beforeEach(() => {
 
 const open = () => render(<MemoryRouter><FindTutor /></MemoryRouter>)
 
+test('searching by name alone removes prefilled child and location constraints and returns to page one', async () => {
+  api.get.mockImplementation(async (_, { params }) => ({ data: {
+    tutors: [remoteTutor], total: 12, page: params.page, totalPages: 2, pageSize: 9,
+  } }))
+  open()
+  const name = await screen.findByRole('searchbox', { name: 'Tutor name' })
+  expect(name).toHaveAttribute('maxlength', '80')
+  fireEvent.click(await screen.findByRole('button', { name: 'Page 2' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params.page).toBe(2))
+  const before = api.get.mock.calls.length
+  fireEvent.change(name, { target: { value: '  Remote  ' } })
+  expect(api.get).toHaveBeenCalledTimes(before)
+  fireEvent.submit(screen.getByRole('form', { name: 'Search tutors' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ name: 'Remote', sort: 'recommended', page: 1, pageSize: 9 }))
+  expect(api.get).toHaveBeenCalledTimes(before + 1)
+  expect(name).toHaveValue('Remote')
+  fireEvent.click(screen.getByRole('button', { name: 'Page 2' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ name: 'Remote', sort: 'recommended', page: 2, pageSize: 9 }))
+})
+
+test('the filter disclosure keeps deliberate selections with a name, reports the applied count and clears the search', async () => {
+  open()
+  const disclosure = await screen.findByRole('button', { name: 'Filters, 3 applied' })
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  const panels = disclosure.getAttribute('aria-controls').split(' ').map(id => document.getElementById(id))
+  expect(panels.every(panel => panel.classList.contains('hidden'))).toBe(true)
+  fireEvent.click(disclosure)
+  expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+  expect(panels.every(panel => !panel.classList.contains('hidden'))).toBe(true)
+  fireEvent.change(screen.getByRole('combobox', { name: /Subject/ }), { target: { value: 'Mathematics' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Teaching Mode' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Online', exact: true }))
+  const name = screen.getByRole('searchbox', { name: 'Tutor name' })
+  fireEvent.change(name, { target: { value: 'Aisha' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Show results' }))
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ name: 'Aisha', subject: 'Mathematics', mode: 'ONLINE', sort: 'recommended', page: 1, pageSize: 9 }))
+  expect(disclosure).toHaveAccessibleName('Filters, 2 applied')
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  fireEvent.click(disclosure)
+  fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+  expect(name).toHaveValue('')
+  await waitFor(() => expect(api.get.mock.lastCall[1].params).toEqual({ sort: 'recommended', page: 1, pageSize: 9 }))
+  expect(disclosure).toHaveTextContent(/^Filters$/)
+})
+
 test('changing Form 5 to Primary 1 removes Chemistry and allows all subjects for the selected grade', async () => {
   open()
   const subject = await screen.findByRole('combobox', { name: /Subject/ })

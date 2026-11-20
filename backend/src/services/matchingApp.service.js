@@ -9,15 +9,15 @@ import { prisma } from '../config/prisma.js'
 import { rankTutorGroups, resolveTutorLocation } from './tutorSearchScope.js'
 import { AppError } from '../utils/AppError.js'
 import { toTutorCard } from './tutor.service.js'
-import { activeTutors } from '../controllers/parent/tutors.controller.js'
+import { activeTutors } from './activeTutors.js'
 
-// criteria: already validated by criteriaSchema (matching.controller.js). parentId: the logged-in parent's profile id.
+// criteria: already validated by criteriaSchema. parentId: the logged-in parent's profile id.
 // Read-only: performs no database writes.
 export async function tutorRecommendationsForParent(criteria, parentId, db = prisma) {
   const loc = resolveTutorLocation(criteria.location)
   if (criteria.location && !loc) throw new AppError(400, 'Choose a recognised area, town or postcode')
   const c = { ...criteria, location: loc?.name || criteria.location, lat: loc?.lat, lng: loc?.lng, grade: criteria.grade ?? undefined, budgetMax: criteria.budgetMax ?? undefined }
-  const tutors = await activeTutors(c.subject, c.level)
+  const tutors = await activeTutors({ subject: c.subject, level: c.level }, db)
   const groups = rankTutorGroups(tutors, c)
   const favourites = new Set(
     (await db.favouriteTutor.findMany({ where: { parentId }, select: { tutorId: true } })).map((f) => f.tutorId),

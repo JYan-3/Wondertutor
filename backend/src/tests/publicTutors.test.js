@@ -60,6 +60,33 @@ test('guest filters use one teaching row for subject, level and grade, and suppo
   expect((await api().get(`${route}?subject=Mathematics&level=PRIMARY&grade=1`)).total).toBe(0)
 })
 
+describe.each(['/public/tutors', '/parent/tutors'])('%s name search', endpoint => {
+  const search = params => api(endpoint === '/parent/tutors' ? family.token : undefined)
+    .get(`${endpoint}?${new URLSearchParams(params)}`)
+
+  test('matches a trimmed, case-insensitive name fragment before counting and paging', async () => {
+    const second = await search({ name: '  eST tU  ', sort: 'price_asc', pageSize: '1', page: '2' })
+    expect(second).toMatchObject({ status: 200, total: 2, totalPages: 2, page: 2 })
+    expect(second.tutors.map(t => t.id)).toEqual([secondary.tutor.id])
+    const maths = await search({ name: 'Test', subject: 'Mathematics' })
+    expect(maths.tutors.map(t => t.id)).toEqual([remote.tutor.id])
+  })
+
+  test('keeps name filtering on online alternatives', async () => {
+    const result = await search({ name: 'published tutor', location: 'Kuala Terengganu, Terengganu' })
+    expect(result).toMatchObject({ total: 0, onlineAlternatives: { total: 1 } })
+    expect(result.onlineAlternatives.tutors.map(t => t.id)).toEqual([nearby.tutor.id])
+  })
+
+  test('ignores blank input and searches only for literal text in the published name', async () => {
+    expect((await search({ name: '   ' })).total).toBe(3)
+    for (const name of ['%', '_', '\\', nearby.user.email, '60125555555']) {
+      expect(await search({ name })).toMatchObject({ status: 200, total: 0, tutors: [] })
+    }
+    expect((await search({ name: 'a'.repeat(81) })).status).toBe(400)
+  })
+})
+
 test('price sorting, bounded pagination and out-of-range pages are deterministic', async () => {
   const first = await api().get(`${route}?sort=price_asc&pageSize=2`)
   const second = await api().get(`${route}?sort=price_asc&pageSize=2&page=999`)

@@ -8,6 +8,23 @@ export const tutorInclude = {
   qualifications: true,
 }
 
+// Both directories search the same eligible profiles. MySQL's name collation
+// ignores case; escape LIKE metacharacters so a name fragment is literal.
+export function browseTutorWhere({ name, subject, level, grade } = {}) {
+  return {
+    user: {
+      status: 'ACTIVE', deletedAt: null,
+      ...(name && { fullName: { contains: name.replace(/[\\%_]/g, '\\$&') } }),
+    },
+    hourlyRate: { gt: 0 },
+    subjects: { some: {
+      ...(subject && { subject }),
+      ...(level && { educationLevel: level }),
+      ...(grade != null && { minGrade: { lte: grade }, maxGrade: { gte: grade } }),
+    } },
+  }
+}
+
 const LEVEL_SHORT = { KINDERGARTEN: 'Kindergarten', PRIMARY: 'Primary', SECONDARY: 'Secondary' }
 const ORDER = { KINDERGARTEN: 0, PRIMARY: 1, SECONDARY: 2 }
 

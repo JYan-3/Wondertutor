@@ -36,6 +36,7 @@ function PublicTutorCards({ tutors, fromSearch }) {
 function readFilters(params) {
   const level = params.get('level')?.toUpperCase() || ''
   return {
+    name: params.get('name')?.trim() || '',
     subject: params.get('subject') || '',
     level: LEVELS.some(item => item.value === level) ? level : '',
     grade: params.get('grade') || '',
@@ -47,9 +48,11 @@ function readFilters(params) {
 
 function TutorFilters({ initial, catalog, onSearch, onClear }) {
   const [draft, setDraft] = useState(initial)
+  const [expanded, setExpanded] = useState(false)
   const allowedSubjects = subjectsForLevel(catalog.subjects, catalog.subjectLevels, draft.level)
   const level = LEVELS.find(item => item.value === draft.level)
   const dirty = Object.keys(initial).some(key => initial[key] !== draft[key])
+  const filterCount = [initial.subject, initial.level, initial.grade, initial.location, initial.mode, initial.sort !== 'recommended'].filter(Boolean).length
   const change = (field, value) => setDraft(previous => {
     const next = { ...previous, [field]: value }
     if (field === 'level') {
@@ -58,13 +61,38 @@ function TutorFilters({ initial, catalog, onSearch, onClear }) {
     }
     return next
   })
+  const submit = event => {
+    event.preventDefault()
+    const values = { ...draft, name: draft.name.trim() }
+    setDraft(values)
+    setExpanded(false)
+    onSearch(values)
+  }
+  const clear = () => {
+    setDraft(readFilters(new URLSearchParams()))
+    setExpanded(false)
+    onClear()
+  }
   return (
-    <form aria-label="Browse tutors" onSubmit={event => { event.preventDefault(); onSearch(draft) }} className="card mt-5 p-4 sm:p-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-bold text-navy">Find a tutor</h2>
-        <button type="button" onClick={() => { setDraft({ subject: '', level: '', grade: '', location: '', mode: '', sort: 'recommended' }); onClear() }} className="min-h-11 rounded-lg px-3 text-sm font-semibold text-brand-600 hover:bg-brand-50">Clear filters</button>
+    <form aria-label="Browse tutors" onSubmit={submit} className="card mt-3 p-3 lg:mt-5 lg:p-5">
+      <h2 className="mb-4 hidden font-bold text-navy lg:block">Find a tutor</h2>
+      <div className="flex flex-wrap items-end gap-x-2 gap-y-1">
+        <div className="flex w-full items-end gap-2 sm:min-w-0 sm:flex-1 lg:max-w-xl">
+          <label className="min-w-0 flex-1 text-sm font-semibold text-navy">Tutor name
+            <input type="search" maxLength={80} placeholder="Search by name" className="input mt-1" value={draft.name} onChange={event => change('name', event.target.value)} />
+          </label>
+          <button type="submit" aria-label="Search Tutors" className="btn-primary h-11 w-11 shrink-0 px-0 sm:w-auto sm:px-5">
+            <Icon name="search" className="h-4 w-4" /><span className="hidden sm:inline">Search Tutors</span>
+          </button>
+        </div>
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto">
+          <button type="button" aria-label={filterCount ? `Filters, ${filterCount} applied` : 'Filters'} aria-expanded={expanded} aria-controls="public-tutor-filters" onClick={() => setExpanded(!expanded)} className="btn-outline min-h-11 px-3 lg:hidden">
+            <Icon name="sliders" className="h-4 w-4" /> Filters{filterCount > 0 && <span className="text-xs">({filterCount})</span>}
+          </button>
+          <button type="button" onClick={clear} className={`${expanded || dirty || initial.name || filterCount ? 'block' : 'hidden'} min-h-11 rounded-lg px-3 text-sm font-semibold text-brand-600 hover:bg-brand-50 lg:block`}>Clear filters</button>
+        </div>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div id="public-tutor-filters" className={`${expanded ? 'grid' : 'hidden'} mt-4 gap-4 sm:grid-cols-2 lg:grid lg:grid-cols-3`}>
         <label className="block text-sm font-semibold text-navy">Education level
           <select className="input mt-1" value={draft.level} onChange={event => change('level', event.target.value)}>
             <option value="">All education levels</option>
@@ -99,8 +127,8 @@ function TutorFilters({ initial, catalog, onSearch, onClear }) {
           <select className="input mt-1" value={draft.sort} onChange={event => change('sort', event.target.value)}>{SORTS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
         </label>
       </div>
-      {dirty && <p role="status" className="mt-4 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Your filters have changed. Select Search Tutors to update the results.</p>}
-      <button type="submit" className="btn-primary mt-5 min-h-11 w-full px-6 sm:w-auto">Search Tutors <Icon name="search" className="h-4 w-4" /></button>
+      {dirty && <p role="status" className="mt-3 rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy">Your filters have changed. Select Search Tutors to update the results.</p>}
+      {expanded && <button type="submit" className="btn-primary mt-3 min-h-11 w-full lg:hidden">Apply filters</button>}
     </form>
   )
 }
@@ -153,18 +181,18 @@ export default function PublicTutors() {
     resultsTop.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' })
   }
   return (
-    <div className="py-6">
-      <h1 className="section-title">Find the Right Tutor for Your Child</h1>
-      <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-600">Browse teaching information, qualifications, rates and parent reviews. Log in or create a parent account when you are ready to book.</p>
+    <div className="py-4 lg:py-6">
+      <h1 className="section-title">Find <span className="lg:hidden">a tutor</span><span className="hidden lg:inline">the Right Tutor for Your Child</span></h1>
+      <p className="mt-2 hidden max-w-2xl text-sm leading-relaxed text-slate-600 lg:block">Browse teaching information, qualifications, rates and parent reviews. Log in or create a parent account when you are ready to book.</p>
       <TutorFilters key={queryKey} initial={filters} catalog={catalog} onSearch={search} onClear={() => setParams({})} />
       {catalogError && <p role="status" className="mt-3 text-sm text-amber-800">{catalogError}</p>}
-      <div ref={resultsTop} aria-busy={loading} className="mt-6 scroll-mt-24">
+      <div ref={resultsTop} aria-busy={loading} className="mt-4 scroll-mt-24 sm:mt-6">
         {loading && <p role="status" className="rounded-xl bg-brand-50 p-4 text-sm text-navy">Loading tutors…</p>}
         {error && <div role="alert" className="card p-5 text-sm text-red-700"><p>{error}</p><button type="button" onClick={() => setRetry(value => value + 1)} className="btn-outline mt-3 min-h-11">Try again</button></div>}
         {!loading && !error && data && <>
           <p role="status" className="mb-4 text-sm text-slate-600">{data.total} {data.searchScope?.mode === 'PHYSICAL' ? 'nearby physical ' : ''}tutor{data.total === 1 ? '' : 's'} found</p>
           <TutorSearchNotice scope={data.searchScope} hasResults={data.total > 0} />
-          {data.tutors.length === 0 && data.searchScope?.mode !== 'PHYSICAL' && <div className="card p-6 text-center"><h2 className="font-bold text-navy">No tutors found</h2><p className="mt-2 text-sm text-slate-600">Try another subject, level or location.</p><button type="button" onClick={() => setParams({})} className="btn-outline mt-4 min-h-11">Clear all filters</button></div>}
+          {data.tutors.length === 0 && data.searchScope?.mode !== 'PHYSICAL' && <div className="card p-6 text-center"><h2 className="font-bold text-navy">No tutors found</h2><p className="mt-2 text-sm text-slate-600">Try a different name or adjust your filters.</p><button type="button" onClick={() => setParams({})} className="btn-outline mt-4 min-h-11">Clear all filters</button></div>}
           <PublicTutorCards tutors={data.tutors} fromSearch={location.pathname + location.search} />
           {data.total === 0 && <OnlineTutorAlternatives total={data.onlineAlternatives?.total}>
             <PublicTutorCards tutors={data.onlineAlternatives?.tutors || []} fromSearch={location.pathname + location.search} />

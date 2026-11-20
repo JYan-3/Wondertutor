@@ -3,13 +3,14 @@ import { prisma } from '../../config/prisma.js'
 import { AppError } from '../../utils/AppError.js'
 import { CHARACTERISTICS, LANGUAGES, LOCATIONS, MAX_CHILD_SUBJECTS, MAX_GRADE, SUBJECTS, SUBJECT_LEVELS, findLocation, isSubjectAtLevel } from '../../data/catalog.js'
 import { groupTutorCandidates } from '../../services/tutorSearchScope.js'
+import { activeTutors } from '../../services/activeTutors.js'
 import { distanceKm, rankTutors } from '../../services/matching.service.js'
 import { tutorInclude, toTutorCard, toTutorProfile } from '../../services/tutor.service.js'
 import { SLOT_BLOCKING, getTutorSlots } from '../../services/booking.service.js'
 import { effectiveSlots, slotAllows } from '../../services/availability.service.js'
 import { addDays, mondayOf, mytParts, mytToDate, toMinutes, todayMyt } from '../../utils/time.js'
 import { preferencesToCriteria } from '../../utils/preferences.js'
-import { hhmm, ymd } from '../../utils/validators.js'
+import { hhmm, optionalText, ymd } from '../../utils/validators.js'
 
 // GET /parent/catalog: option lists for the filter bar, wizard and chatbot
 export function catalog(req, res) {
@@ -31,6 +32,7 @@ export function catalog(req, res) {
 
 // Query params -> matching criteria (also the browse filter set)
 const browseSchema = z.object({
+  name: optionalText(80, 'Tutor name'),
   subject: z.enum(SUBJECTS).optional(),
   level: z.enum(['KINDERGARTEN', 'PRIMARY', 'SECONDARY']).optional(),
   grade: z.coerce.number().int().min(1).optional(),
@@ -55,22 +57,6 @@ const browseSchema = z.object({
   .refine((q) => q.minPrice == null || q.maxPrice == null || q.minPrice <= q.maxPrice, { message: 'The minimum price cannot be more than the maximum', path: ['maxPrice'] })
   .refine(q => !q.location || Boolean(findLocation(q.location)), { message: 'Choose a recognised area, town or postcode', path: ['location'] })
   .refine(q => Boolean(q.date) === Boolean(q.time), { message: 'Choose both a date and a start time', path: ['date'] })
-
-// Browse fields are optional; matching callers still supply subject and level.
-export async function activeTutors(subject, level, grade) {
-  return prisma.tutorProfile.findMany({
-    where: {
-      user: { status: 'ACTIVE', deletedAt: null },
-      hourlyRate: { gt: 0 },
-      subjects: { some: {
-        ...(subject && { subject }),
-        ...(level && { educationLevel: level }),
-        ...(grade != null && { minGrade: { lte: grade }, maxGrade: { gte: grade } }),
-      } },
-    },
-    include: tutorInclude,
-  })
-}
 
 // Which of these tutors are free for a 1-hour lesson at date+time? (date & time filter on the search bar)
 // One query for the clashing bookings of all candidates, instead of one query per tutor.
@@ -130,7 +116,7 @@ export async function browseTutors(req, res) {
     budgetMax: q.maxPrice ?? prefs.budgetMax ?? null,
   }
 
-  const candidates = await activeTutors(q.subject, q.level, q.grade)
+  const candidates = await activeTutors(q)
   // Apply the same non-location filters to local results and online alternatives.
   const tutors = candidates.filter(tutor => {
     const rate = Number(tutor.hourlyRate)
