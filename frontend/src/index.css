@@ -111,6 +111,11 @@ body {
 /* Tutor content surfaces share the reference's paper, blue and warm-yellow palette. */
 .tutor-portal { background: #eef6ff; --shadow-card: 0 2px 8px rgb(32 65 112 / 3%); }
 .tutor-portal > main { position: relative; isolation: isolate; }
+
+#quiz-question-dialog { display: flex; flex-direction: column; height: min(44rem, calc(100dvh - 2rem)); max-height: calc(100dvh - 2rem); overflow: hidden; padding: 0; }
+#quiz-question-dialog > div:first-child { flex: none; margin: 0; padding: 1rem 1.25rem; border-bottom: 1px solid #dbeafe; }
+.quiz-question-editor { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.quiz-question-fields { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .tutor-heading { background: linear-gradient(110deg, #edf7ff, #e6f2ff 60%, #fffaf0); border: 0; border-radius: .8rem; min-height: 12rem; }
 .tutor-heading-art { width: 55%; mask-image: linear-gradient(to right, transparent, black 50%); }
 .tutor-heading-copy { width: 72%; padding: 2.25rem 2rem; }
@@ -168,6 +173,27 @@ body {
   .tutor-profile-identity > img, .tutor-profile-identity > span:first-child { width: 5rem; height: 5rem; }
   .tutor-portal .tutor-filter-bar { align-items: stretch; }
   .tutor-portal .tutor-filter-bar button { flex: 1 1 auto; }
+}
+
+/* Quiz builder cards */
+.tutor-portal .quiz-builder-section { min-width: 0; }
+.tutor-portal .quiz-builder-heading { margin: 0 0 .8rem; font-family: var(--font-display); font-size: 1.65rem; font-weight: 700; color: #0c1b45; }
+.tutor-portal .quiz-format-card, .tutor-portal .quiz-type-card { display: flex; min-width: 0; align-items: center; text-align: left; border: 1px solid #b9d0ee; border-radius: .75rem; background: white; color: #15284b; transition: border-color .15s, background-color .15s; }
+.tutor-portal .quiz-format-card { min-height: 6.5rem; gap: 1rem; padding: .9rem 1.2rem; }
+.tutor-portal .quiz-format-card[aria-pressed='true'] { border: 2px solid #075cf4; background: #eaf4ff; }
+.tutor-portal .quiz-type-card { min-height: 6.8rem; gap: .55rem; padding: .75rem; }
+.tutor-portal .quiz-type-card:hover:not(:disabled) { border-color: #075cf4; background: #f4f9ff; }
+.tutor-portal .quiz-type-card:disabled { opacity: .5; cursor: not-allowed; }
+.tutor-portal .quiz-art { flex: 0 0 4.4rem; width: 4.4rem; color: #12479f; }
+.tutor-portal .quiz-art svg { display: block; width: 100%; height: auto; }
+.tutor-portal .quiz-format-card:focus-visible, .tutor-portal .quiz-type-card:focus-visible { outline: 3px solid #f0b400; outline-offset: 2px; }
+@media (max-width: 639px) {
+  .tutor-portal .quiz-builder-heading { font-size: 1.35rem; }
+  .tutor-portal .quiz-format-card { min-height: 5rem; padding: .55rem .75rem; }
+  .tutor-portal .quiz-type-card { min-height: 5.5rem; gap: .25rem; padding: .45rem; }
+  .tutor-portal .quiz-type-card strong { font-size: .82rem; line-height: 1.15; }
+  .tutor-portal .quiz-type-card .quiz-art { flex-basis: 2.6rem; width: 2.6rem; }
+  .tutor-portal .quiz-type-card span.text-xs { font-size: .66rem; }
 }
 
 /* Dual-handle budget slider: two range inputs stacked on one track */

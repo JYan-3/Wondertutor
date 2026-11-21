@@ -1,0 +1,192 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { vi } from 'vitest'
+import TutorQuizzes from '../pages/tutor/Quizzes'
+import ParentQuizzes from '../pages/parent/Quizzes'
+import api from '../api/client'
+vi.mock('../api/client', () => ({ default: { get: vi.fn(), post: vi.fn(), put: vi.fn() }, errorMessage: e => e.message }))
+const quiz = { id: 1, versionId: 2, title: 'Fractions', subject: 'Mathematics', level: 'PRIMARY', grade: 5, tutor: 'Tutor', description: 'Practice', questions: [{ type: 'CHOICE', text: 'One plus one?', points: 1, options: ['One', 'Two'] }] }
+beforeEach(() => { vi.resetAllMocks(); vi.spyOn(window, 'scrollTo').mockImplementation(() => {}) })
+afterEach(() => vi.restoreAllMocks())
+test('a parent selects a child and submits an answer with an idempotency key', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/parent/quizzes' ? { quizzes: [quiz] } : path === '/parent/children' ? { children: [{ id: 3, name: 'Alya' }] } : path === '/parent/quiz-attempts' ? { attempts: [] } : { id: 4, status: 'MARKED', score: 1, maxScore: 1, answers: [{ answer: '1', score: 1 }], version: { quizId: 1, quiz: { title: 'Fractions' }, content: { questions: [{ ...quiz.questions[0], correct: 1 }] } } } }))
+  api.post.mockResolvedValue({ data: { id: 4 } })
+  render(<MemoryRouter><ParentQuizzes /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Start quiz' }))
+  fireEvent.change(screen.getByLabelText('Choose your child'), { target: { value: '3' } })
+  fireEvent.change(screen.getByLabelText(/Leaderboard nickname/), { target: { value: 'Star' } })
+  fireEvent.click(screen.getByLabelText('Two'))
+  fireEvent.click(screen.getByRole('button', { name: 'Review answers' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm submission' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/parent/quizzes/1/attempts', { requestId: expect.stringMatching(/^[a-f0-9-]{36}$/), childId: 3, versionId: 2, nickname: 'Star', answers: ['1'] }))
+  expect(await screen.findByText('Final score: 1 / 1')).toBeVisible()
+})
+test('a tutor can create and save a draft', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  api.post.mockResolvedValue({ data: { id: 7 } })
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Create a quiz' })).toBeVisible()
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Fractions' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/tutor/quizzes', expect.objectContaining({ title: 'Fractions', questions: expect.any(Array) })))
+  expect(await screen.findByText('Draft saved.')).toBeVisible()
+})
+
+test('mixed quiz presents all question types and opens an editor for the chosen type', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Create a quiz' })).toBeVisible()
+  for (const label of ['Multiple choice', 'True or false', 'Multiple answers', 'Short answer', 'Fill in the blank', 'Matching pairs', 'Put in order', 'Long answer']) expect(screen.getByRole('button', { name: new RegExp(label) })).toBeEnabled()
+  fireEvent.click(screen.getByRole('button', { name: /Matching pairs/ }))
+  expect(screen.getByLabelText('Left 1')).toBeInTheDocument()
+  expect(screen.getByLabelText('Right 1')).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Match the pairs' } })
+  fireEvent.change(screen.getByLabelText('Left 1'), { target: { value: 'A' } })
+  fireEvent.change(screen.getByLabelText('Right 1'), { target: { value: 'One' } })
+  fireEvent.change(screen.getByLabelText('Left 2'), { target: { value: 'B' } })
+  fireEvent.change(screen.getByLabelText('Right 2'), { target: { value: 'Two' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save question' }))
+  fireEvent.click(screen.getByRole('button', { name: /Long answer/ }))
+  expect(screen.getByRole('dialog', { name: 'Edit Long answer question' })).toBeVisible()
+})
+
+test('question editor stays above the page with separate scrolling fields and actions', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: /True or false/ }))
+  const dialog = screen.getByRole('dialog', { name: 'Edit True or false question' })
+  expect(dialog.parentElement.parentElement).toBe(document.body)
+  const fields = dialog.querySelector('.quiz-question-fields')
+  expect(fields).toContainElement(screen.getByLabelText('Question'))
+  expect(fields).not.toContainElement(screen.getByRole('button', { name: 'Save question' }))
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('single-type mode prevents mixing formats', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Create a quiz' })).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: /Single-type quiz/ }))
+  fireEvent.click(screen.getByRole('button', { name: /True or false/ }))
+  expect(screen.getByRole('button', { name: /Multiple choice/ })).toBeDisabled()
+})
+
+test('parent can answer multiple, matching, ordering, true or false and fill questions', async () => {
+  const mixed = { ...quiz, questions: [
+    { type: 'TRUE_FALSE', text: 'True?', points: 1, options: ['True','False'] },
+    { type: 'MULTIPLE', text: 'Select', points: 1, options: ['Two','Three','Four'] },
+    { type: 'FILL', text: 'Fill', points: 1 },
+    { type: 'MATCH', text: 'Match', points: 1, options: ['A','B'], choices: ['2','1'] },
+    { type: 'ORDER', text: 'Order', points: 1, options: ['Second','First'] },
+  ] }
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/parent/quizzes' ? { quizzes: [mixed] } : path === '/parent/children' ? { children: [{ id: 3, name: 'Alya' }] } : { attempts: [] } }))
+  render(<MemoryRouter><ParentQuizzes /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Start quiz' }))
+  fireEvent.change(screen.getByLabelText('Choose your child'), { target: { value: '3' } })
+  fireEvent.change(screen.getByLabelText(/Leaderboard nickname/), { target: { value: 'Star' } })
+  fireEvent.click(screen.getByLabelText('True'))
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.click(screen.getByLabelText('Two'))
+  fireEvent.click(screen.getByLabelText('Four'))
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'text' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.change(screen.getByLabelText('Match for A'), { target: { value: '1' } })
+  fireEvent.change(screen.getByLabelText('Match for B'), { target: { value: '0' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.change(screen.getByLabelText('Position 1'), { target: { value: '1' } })
+  fireEvent.change(screen.getByLabelText('Position 2'), { target: { value: '0' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Review answers' }))
+  expect(screen.getByText('Check your answers before submitting.')).toBeVisible()
+})
+
+
+test('opens the builder immediately and keeps saved quizzes accessible', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  expect(await screen.findByRole('heading', { name: 'Create a quiz' })).toBeVisible()
+  expect(screen.queryByRole('button', { name: 'Create quiz' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'My saved quizzes and results' }))
+  expect(screen.getByText('No saved quizzes yet.')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Back to quiz builder' }))
+  expect(screen.getByRole('heading', { name: 'Choose a question type' })).toBeVisible()
+})
+
+test('publish saves the current draft before publishing', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  api.post.mockImplementation(path => Promise.resolve({ data: path === '/tutor/quizzes' ? { id: 7 } : { versionId: 2 } }))
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Fractions' } })
+  fireEvent.change(screen.getByLabelText('Subject'), { target: { value: 'Mathematics' } })
+  fireEvent.click(screen.getByRole('button', { name: /True or false/ }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'True statement' } })
+  fireEvent.click(screen.getByLabelText('True'))
+  fireEvent.click(screen.getByRole('button', { name: 'Save question' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Publish quiz' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/tutor/quizzes/7/publish'))
+  expect(api.post.mock.calls[0][1].title).toBe('Fractions')
+  expect(await screen.findByText('Quiz published. Parents can now see it.')).toBeVisible()
+})
+
+test('keeps the saved draft and shows the error when publishing fails', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  api.post.mockImplementation(path => path === '/tutor/quizzes' ? Promise.resolve({ data: { id: 7 } }) : Promise.reject(new Error('Add at least one question')))
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'My draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Publish quiz' }))
+  expect(await screen.findByText('Complete the quiz details and fix any questions marked below before publishing.')).toBeVisible()
+  expect(screen.getByLabelText('Title')).toHaveValue('My draft')
+})
+
+test('question dialog requires an explicit answer, can be cancelled and supports question management', async () => {
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [] } }))
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: /True or false/ }))
+  fireEvent.change(screen.getByLabelText('Question'), { target: { value: 'Is this true?' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save question' }))
+  expect(screen.getByText('Choose true or false.', { selector: 'p' })).toBeVisible()
+  fireEvent.click(screen.getByLabelText('True'))
+  fireEvent.click(screen.getByRole('button', { name: 'Save question' }))
+  expect(screen.getAllByText(/1 questions · 1 points/)[0]).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Duplicate' }))
+  expect(screen.getAllByText(/2 questions · 2 points/)[0]).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Move question 2 up' }))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[0])
+  expect(screen.getAllByText(/1 questions · 1 points/)[0]).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: /Long answer/ }))
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+  expect(screen.getAllByText(/1 questions · 1 points/)[0]).toBeVisible()
+})
+
+test('a parent can move back without losing answers and sees them in review', async () => {
+  const mixed = { ...quiz, questions: [...quiz.questions, { type: 'SHORT', text: 'Your number?', points: 1 }] }
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/parent/quizzes' ? { quizzes: [mixed] } : path === '/parent/children' ? { children: [{ id: 3, name: 'Alya' }] } : { attempts: [] } }))
+  render(<MemoryRouter><ParentQuizzes /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Start quiz' }))
+  fireEvent.change(screen.getByLabelText('Choose your child'), { target: { value: '3' } })
+  fireEvent.change(screen.getByLabelText(/Leaderboard nickname/), { target: { value: 'Star' } })
+  fireEvent.click(screen.getByLabelText('Two'))
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.change(screen.getByLabelText('Your answer'), { target: { value: 'five' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Previous' }))
+  expect(screen.getByLabelText('Two')).toBeChecked()
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Review answers' }))
+  expect(screen.getByText('Your answer: Two')).toBeVisible()
+  expect(screen.getByText('Your answer: five')).toBeVisible()
+})
+
+test('switching to another saved quiz asks before replacing an unsaved draft', async () => {
+  const saved = { id: 7, title: 'Saved quiz', description: '', subject: 'Mathematics', level: 'PRIMARY', grade: 5, status: 'DRAFT', draft: { questions: [] }, versions: [] }
+  api.get.mockImplementation(path => Promise.resolve({ data: path === '/tutor/catalog' ? { subjects: ['Mathematics'] } : { quizzes: [saved] } }))
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+  render(<MemoryRouter><TutorQuizzes /></MemoryRouter>)
+  fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Unfinished quiz' } })
+  fireEvent.click(screen.getByRole('button', { name: 'My saved quizzes and results' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+  expect(confirm).toHaveBeenCalledWith('Discard unsaved changes and open this quiz?')
+  fireEvent.click(screen.getByRole('button', { name: 'Back to quiz builder' }))
+  expect(screen.getByLabelText('Title')).toHaveValue('Unfinished quiz')
+})

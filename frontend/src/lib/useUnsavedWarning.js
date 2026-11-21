@@ -7,7 +7,7 @@ export const UNSAVED = 'You have unsaved changes to your availability. Leave wit
 
 const pushGuard = () => window.history.pushState({ ...window.history.state, unsavedGuard: true }, '')
 
-export function useUnsavedWarning(dirty) {
+export function useUnsavedWarning(dirty, message = UNSAVED) {
   const removal = useRef(null)
 
   useEffect(() => {
@@ -19,14 +19,14 @@ export function useUnsavedWarning(dirty) {
     const onLinkClick = (e) => {
       const link = e.target.closest?.('a[href]')
       if (!link || link.target === '_blank' || link.origin !== window.location.origin) return
-      if (!window.confirm(UNSAVED)) {
+      if (!window.confirm(message)) {
         e.preventDefault()
         e.stopPropagation()
       }
     }
     // Back has already removed the guard entry by the time this runs
     const onBack = () => {
-      if (!window.confirm(UNSAVED)) {
+      if (!window.confirm(message)) {
         pushGuard()
         return
       }
@@ -48,5 +48,5 @@ export function useUnsavedWarning(dirty) {
         if (window.history.state?.unsavedGuard) window.history.back()
       })
     }
-  }, [dirty])
+  }, [dirty, message])
 }

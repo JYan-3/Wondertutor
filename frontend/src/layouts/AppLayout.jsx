@@ -22,6 +22,7 @@ const NAV = {
     ['/parent/find-tutor', 'Find a Tutor', 'search'],
     ['/parent/bookings', 'My Bookings', 'calendar'],
     ['/parent/children', 'My Children', 'cap'],
+    ['/parent/quizzes', 'Quizzes', 'book'],
     ['/parent/payments', 'Payments', 'card'],
   ],
   TUTOR: [
@@ -29,6 +30,7 @@ const NAV = {
     ['/tutor/availability', 'Availability', 'clock'],
     ['/tutor/bookings', 'Bookings', 'calendar'],
     ['/tutor/students', 'Students', 'cap'],
+    ['/tutor/quizzes', 'Quizzes', 'book'],
     ['/tutor/earnings', 'Earnings', 'wallet'],
     ['/tutor/profile', 'My Profile', 'user'],
   ],
@@ -296,6 +298,7 @@ const ACCOUNT_LINKS = {
   PARENT: [
     ['/parent/profile', 'My Profile', 'user'],
     ['/parent/children', 'My Children', 'cap'],
+    ['/parent/quizzes', 'Quizzes', 'book'],
     ['/parent/favourites', 'Saved Tutors', 'heart'],
     ['/parent/complaints', 'My Complaints', 'shield'],
     ['/parent/help', 'Help & FAQs', 'info'],
