@@ -13,6 +13,7 @@ import * as profile from '../controllers/parent/profile.controller.js'
 import * as complaints from '../controllers/parent/complaints.controller.js'
 import * as calendar from '../controllers/parent/calendar.controller.js'
 import * as account from '../controllers/parent/account.controller.js'
+import * as quizzes from '../controllers/parent/quiz.controller.js'
 import { rateLimit } from '../middleware/rateLimit.js'
 import { dashboard } from '../controllers/parent/dashboard.controller.js'
 import * as assistant from '../controllers/parent/assistant.controller.js'
@@ -27,6 +28,12 @@ const router = validateIdParams(Router(), { publicIds: [
 router.use(requireAuth, requireRole('PARENT'), loadParentProfile)
 
 router.get('/dashboard', dashboard)
+router.get('/quizzes', quizzes.list)
+router.get('/quiz-attempts', quizzes.history)
+router.get('/quiz-attempts/:id', quizzes.result)
+router.get('/quizzes/:id', quizzes.get)
+router.get('/quizzes/:id/leaderboard', quizzes.leaderboard)
+router.post('/quizzes/:id/attempts', rateLimit({ name: 'quiz-attempt', windowMs: 60000, max: 15, keyBy: req => req.user.id }), quizzes.submit)
 
 router.get('/profile', profile.getProfile)
 router.put('/profile', profile.updateProfile)

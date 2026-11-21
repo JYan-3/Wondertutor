@@ -16,6 +16,8 @@ import AdminLogin from './pages/auth/AdminLogin'
 import Signup from './pages/auth/Signup'
 import ForgotPassword from './pages/auth/ForgotPassword'
 import NotFound from './pages/NotFound'
+const TutorQuizzes = lazy(() => import('./pages/tutor/Quizzes'))
+const ParentQuizzes = lazy(() => import('./pages/parent/Quizzes'))
 const Availability = lazy(() => import('./pages/tutor/Availability'))
 const TutorDashboard = lazy(() => import('./pages/tutor/Dashboard'))
 const BookingRequests = lazy(() => import('./pages/tutor/BookingRequests'))
@@ -89,6 +91,7 @@ export default function App() {
           <Route path="tutors/:id/book" element={<BookLesson />} />
           <Route path="bookings" element={<MyBookings />} />
           <Route path="children" element={<MyChildren />} />
+          <Route path="quizzes" element={<ParentQuizzes />} />
           <Route path="payments" element={<Payments />} />
           <Route path="payments/return" element={<PaymentReturn />} />
           <Route path="payments/:id/receipt" element={<Receipt />} />
@@ -111,6 +114,7 @@ export default function App() {
           <Route path="bookings" element={<BookingRequests />} />
           <Route path="bookings/:id/session" element={<LessonSession />} />
           <Route path="students" element={<Students />} />
+          <Route path="quizzes" element={<TutorQuizzes />} />
           <Route path="earnings" element={<Earnings />} />
           <Route path="setup" element={<ProfileSetup />} />
           {/* Verification now lives on My Profile; notifications already sent still link to this address */}

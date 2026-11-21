@@ -197,6 +197,7 @@ model Child {
   createdAt      DateTime       @default(now())
 
   bookings Booking[]
+  quizAttempts QuizAttempt[]
 }
 
 // Stores what the parent told the chatbot / matching wizard, for traceability
@@ -261,6 +262,8 @@ model TutorProfile {
   bankAccounts   BankAccount[]
   withdrawals    Withdrawal[]
   favouritedBy   FavouriteTutor[]
+  quizzes Quiz[]
+
 }
 
 model TutorSubject {
@@ -605,4 +608,56 @@ model AvailabilityException {
   date String @db.VarChar(10)
   ranges Json
   @@unique([tutorId, date])
+}
+
+// Published versions keep the questions used by each attempt unchanged.
+model Quiz {
+  id          Int            @id @default(autoincrement())
+  tutorId     Int
+  tutor       TutorProfile   @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  title       String
+  subject     String
+  level       EducationLevel
+  grade       Int
+  description String         @db.Text
+  status      String         @default("DRAFT")
+  draft       Json
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  versions    QuizVersion[]
+
+  @@index([tutorId, status])
+  @@index([status, subject, level])
+}
+
+model QuizVersion {
+  id        Int           @id @default(autoincrement())
+  quizId    Int
+  quiz      Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  number    Int
+  content   Json
+  createdAt DateTime      @default(now())
+  attempts  QuizAttempt[]
+
+  @@unique([quizId, number])
+}
+
+model QuizAttempt {
+  requestId  String? @unique @db.Char(36)
+  id         Int         @id @default(autoincrement())
+  versionId  Int
+  version    QuizVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  childId    Int
+  child      Child       @relation(fields: [childId], references: [id], onDelete: Cascade)
+  nickname   String      @db.VarChar(30)
+  status     String
+  answers    Json
+  score      Int
+  maxScore   Int
+  advice     String?     @db.Text
+  createdAt  DateTime    @default(now())
+  reviewedAt DateTime?
+
+  @@index([versionId, childId, createdAt])
+  @@index([childId])
 }

@@ -9,6 +9,7 @@ import * as availability from '../controllers/tutor/availability.controller.js'
 import * as bookings from '../controllers/tutor/bookings.controller.js'
 import * as session from '../controllers/tutor/lessonSession.controller.js'
 import * as earnings from '../controllers/tutor/earnings.controller.js'
+import * as quizzes from '../controllers/tutor/quiz.controller.js'
 import { rateLimit } from '../middleware/rateLimit.js'
 
 const router = validateIdParams(Router(), { publicIds: [
@@ -31,6 +32,13 @@ router.post('/submit-for-verification', profile.submitForVerification)
 
 // Teaching features: availability, requests, sessions and earnings go below this line
 router.get('/dashboard', profile.dashboard)
+router.get('/quizzes', quizzes.list)
+router.post('/quizzes', quizzes.create)
+router.put('/quizzes/:id', quizzes.update)
+router.post('/quizzes/:id/publish', quizzes.publish)
+router.post('/quizzes/:id/archive', quizzes.archive)
+router.get('/quizzes/:id/attempts', quizzes.attempts)
+router.post('/quiz-attempts/:id/review', quizzes.review)
 router.get('/earnings', earnings.dashboard)
 router.post('/earnings/bank-code', rateLimit({ name: 'bank-code', max: 5, windowMs: 900000, keyBy: req => req.user.id }), earnings.bankCode)
 router.put('/earnings/bank', rateLimit({ name: 'bank-confirm', max: 10, windowMs: 900000, keyBy: req => req.user.id }), earnings.bank)
