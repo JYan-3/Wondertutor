@@ -11,6 +11,7 @@ import * as session from '../controllers/tutor/lessonSession.controller.js'
 import * as earnings from '../controllers/tutor/earnings.controller.js'
 import * as quizzes from '../controllers/tutor/quiz.controller.js'
 import { rateLimit } from '../middleware/rateLimit.js'
+import { viewVerificationDocument } from '../controllers/verificationDocument.controller.js'
 
 const router = validateIdParams(Router(), { publicIds: [
   { prefix: '/bookings/', model: 'booking', scope: (req) => ({ tutorId: req.tutor.id }), notFound: 'Booking not found' },
@@ -25,6 +26,7 @@ router.get('/catalog', profile.catalog)
 router.get('/profile', profile.getProfile)
 router.put('/profile', profile.updateProfile)
 router.post('/documents', profile.addDocument)
+router.get('/documents/:id/file', rateLimit({ name: 'verification-document', max: 30, windowMs: 60000, keyBy: req => req.user.id }), viewVerificationDocument)
 router.delete('/documents/:id', profile.removeDocument)
 router.post('/portfolio', profile.addPortfolioItem)
 router.delete('/portfolio/:id', profile.removePortfolioItem)

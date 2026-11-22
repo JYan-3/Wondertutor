@@ -8,6 +8,8 @@ import { moderateReview } from '../controllers/admin/reviews.controller.js'
 import * as settings from '../controllers/admin/settings.controller.js'
 import * as ops from '../controllers/admin/operations.controller.js'
 import * as withdrawals from '../controllers/admin/withdrawals.controller.js'
+import { viewVerificationDocument } from '../controllers/verificationDocument.controller.js'
+import { rateLimit } from '../middleware/rateLimit.js'
 
 const router = validateIdParams(Router(), { publicIds: [
   { prefix: '/complaints/', model: 'complaint', scope: () => ({}), notFound: 'Complaint not found' },
@@ -23,6 +25,7 @@ router.post('/users/:id/deactivate', users.setStatus)
 router.post('/users/:id/reactivate', users.setStatus)
 router.post('/users/:id/warn', users.warnUser)
 router.post('/qualifications/:id/review', users.reviewQualification)
+router.get('/qualifications/:id/file', rateLimit({ name: 'verification-document', max: 30, windowMs: 60000, keyBy: req => req.user.id }), viewVerificationDocument)
 
 // [XY] complaints
 router.get('/complaints', complaints.listComplaints)

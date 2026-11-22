@@ -41,3 +41,9 @@ export function mediaLink(url, folder) {
     type: 'authenticated', expires_at: Math.floor(Date.now() / 1000) + 300,
   })
 }
+
+export function verificationLink(url, folder, role, id) {
+  const { apiKey, apiSecret } = env.cloudinary
+  if (!privateAsset(url, folder) || !apiKey || !apiSecret) return null
+  return role === 'tutor' ? `/tutor/documents/${id}/file` : `/admin/qualifications/${id}/file`
+}

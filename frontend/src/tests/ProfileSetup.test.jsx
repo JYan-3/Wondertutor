@@ -31,8 +31,8 @@ const COMPLETE = {
   bio: 'Mathematics tutor helping Form 1-5 students build confidence.', hourlyRate: 60, yearsExperience: 4,
   subjects: [{ subject: 'Mathematics', educationLevel: 'SECONDARY', minGrade: 1, maxGrade: 5 }],
   documents: [
-    { id: 1, kind: 'IDENTITY', title: 'NRIC', status: 'PENDING', documentUrl: 'https://res.cloudinary.com/x/nric.pdf' },
-    { id: 2, kind: 'QUALIFICATION', title: 'BSc Mathematics', status: 'PENDING', documentUrl: 'https://res.cloudinary.com/x/bsc.pdf' },
+    { id: 1, kind: 'IDENTITY', title: 'NRIC', status: 'PENDING', documentUrl: '/tutor/documents/1/file' },
+    { id: 2, kind: 'QUALIFICATION', title: 'BSc Mathematics', status: 'PENDING', documentUrl: '/tutor/documents/2/file' },
   ],
   profilePhotoUrl: 'https://res.cloudinary.com/x/me.jpg', missing: [],
 }
@@ -136,6 +136,38 @@ describe('verification on My Profile', () => {
 })
 
 describe('tutor profile setup: editing and documents', () => {
+  test('a tutor can open the private watermarked document before submitting', async () => {
+    setup(COMPLETE)
+    await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))
+    expect(screen.getByRole('link', { name: 'NRIC' })).toHaveAttribute('href', '/api/tutor/documents/1/file')
+    expect(screen.getAllByText('View watermarked copy')).toHaveLength(2)
+    expect(screen.getByText(/PDFs can have up to 30 pages/)).toBeVisible()
+  })
+  test('explains when a removed document shares its file with another record', async () => {
+    setup(COMPLETE)
+    api.delete.mockResolvedValue({ data: { ok: true, fileRetained: true } })
+    await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove NRIC' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('The file is still kept because another document uses it.')
+  })
+  test('keeps the document visible when removal fails', async () => {
+    setup(COMPLETE)
+    api.delete.mockRejectedValue(new Error('Could not remove the document. Please try again.'))
+    await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove NRIC' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not remove the document. Please try again.')
+    expect(screen.getByRole('link', { name: 'NRIC' })).toBeVisible()
+  })
+  test('explains when removal succeeded but refreshing the profile failed', async () => {
+    setup(COMPLETE)
+    api.delete.mockResolvedValue({ data: { ok: true, isVerified: false, fileRetained: false } })
+    await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))
+    api.get.mockRejectedValue(new Error('Offline'))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove NRIC' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The document was removed, but your profile could not be refreshed.')
+    expect(screen.queryByRole('link', { name: 'NRIC' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'BSc Mathematics' })).toBeVisible()
+  })
   test('Back keeps what was typed in the step', async () => {
     setup(COMPLETE)
     await userEvent.clear(await screen.findByLabelText(/Emergency contact name/))

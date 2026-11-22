@@ -1,5 +1,6 @@
-import { mediaLink } from './privateMedia.js'
+import { privateAsset, verificationLink } from './privateMedia.js'
 import { baseCommission } from './systemSettings.service.js'
+import { v2 as cloudinary } from 'cloudinary'
 // Tutor profile setup and verification [YH].
 // A new tutor fills in the setup wizard as a draft, submits it, and Admin reviews the uploaded documents.
 // Tutors can use every feature before that; once Admin approves an identity document AND a qualification
@@ -8,6 +9,7 @@ import { prisma } from '../config/prisma.js'
 import { AppError } from '../utils/AppError.js'
 import { resolvePlace } from './places.service.js'
 import { notify } from './notification.service.js'
+import { env } from '../config/env.js'
 
 export const TUTOR_STATUS = {
   NOT_SUBMITTED: 'NOT_SUBMITTED', // setup still a draft
@@ -101,7 +103,7 @@ export function toSetupDto(t) {
     characteristics: t.characteristics || [],
     subjects: t.subjects.map(({ subject, educationLevel, minGrade, maxGrade }) => ({ subject, educationLevel, minGrade, maxGrade })),
     documents: t.qualifications.map(({ id, kind, title, institution, year, documentUrl, status, reviewNote, createdAt }) => ({
-      id, kind, title, institution, year, documentUrl: mediaLink(documentUrl, 'wondertutor/qualifications/' + t.user.id), status, reviewNote, createdAt,
+      id, kind, title, institution, year, documentUrl: verificationLink(documentUrl, 'wondertutor/qualifications/' + t.user.id, 'tutor', id), status, reviewNote, createdAt,
     })),
     portfolio: t.portfolio.map(({ id, title, description, fileUrl }) => ({ id, title, description, fileUrl })),
     missing: missingForSubmit(t),
@@ -139,27 +141,60 @@ export async function saveProfile(tutor, data) {
 }
 
 export async function addDocument(tutor, data) {
-  const count = await prisma.qualification.count({ where: { tutorId: tutor.id } })
-  if (count >= 10) throw new AppError(400, 'You can upload up to 10 documents. Remove one first.')
-  return prisma.qualification.create({ data: { ...data, tutorId: tutor.id } })
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutor.id} FOR UPDATE`
+    const count = await tx.qualification.count({ where: { tutorId: tutor.id } })
+    if (count >= 10) throw new AppError(400, 'You can upload up to 10 documents. Remove one first.')
+    return tx.qualification.create({ data: { ...data, tutorId: tutor.id } })
+  })
 }
 
 // Removing an approved document puts the verified badge on hold until Admin approves a replacement:
 // the badge is worked out again from what is left. Pending or rejected documents never affect it.
 export async function removeDocument(tutor, id) {
-  const doc = await prisma.qualification.findFirst({ where: { id, tutorId: tutor.id } })
-  if (!doc) throw new AppError(404, 'Document not found')
-  const isVerified = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
+    // Serialize changes to documents that can share one Cloudinary asset.
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutor.id} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM Qualification WHERE id = ${id} AND tutorId = ${tutor.id} FOR UPDATE`
+    const doc = await tx.qualification.findFirst({ where: { id, tutorId: tutor.id } })
+    if (!doc) throw new AppError(404, 'Document not found')
+    const folder = `wondertutor/qualifications/${tutor.userId}`
+    const asset = privateAsset(doc.documentUrl, folder)
+    let fileRetained = false
+    if (asset) {
+      const [references, portfolio] = await Promise.all([
+        tx.qualification.findMany({ where: { id: { not: id }, documentUrl: { contains: asset.id } }, select: { documentUrl: true } }),
+        tx.portfolioItem.findMany({ where: { fileUrl: { contains: asset.id } }, select: { fileUrl: true } }),
+      ])
+      fileRetained = references.some(reference => privateAsset(reference.documentUrl, folder)?.id === asset.id) || portfolio.some(item => privateAsset(item.fileUrl, folder)?.id === asset.id)
+    } else if (!doc.documentUrl.startsWith('seed://')) {
+      throw new AppError(409, 'This document cannot be removed automatically. Please contact admin.')
+    }
     await tx.qualification.delete({ where: { id: doc.id } })
-    return doc.status === 'APPROVED' ? recomputeVerified(tx, tutor.id) : tutor.isVerified
-  })
-  return { isVerified }
+    const currentTutor = await tx.tutorProfile.findUniqueOrThrow({ where: { id: tutor.id }, select: { isVerified: true } })
+    const isVerified = doc.status === 'APPROVED' ? await recomputeVerified(tx, tutor.id) : currentTutor.isVerified
+    if (asset && !fileRetained) {
+      const { cloudName, apiKey, apiSecret } = env.cloudinary
+      if (!apiKey || !apiSecret) throw new AppError(503, 'Document removal is temporarily unavailable. Please try again later.')
+      let result
+      try {
+        result = await cloudinary.uploader.destroy(asset.id, { cloud_name: cloudName, api_key: apiKey, api_secret: apiSecret, type: 'authenticated', resource_type: 'image', invalidate: true, timeout: 8000 })
+      } catch {
+        throw new AppError(503, 'Could not remove the document. Please try again.')
+      }
+      if (!['ok', 'not found'].includes(result?.result)) throw new AppError(503, 'Could not remove the document. Please try again.')
+    }
+    return { isVerified, fileRetained }
+  }, { timeout: 20000 })
 }
 
 export async function addPortfolioItem(tutor, data) {
-  const count = await prisma.portfolioItem.count({ where: { tutorId: tutor.id } })
-  if (count >= 10) throw new AppError(400, 'You can add up to 10 portfolio items. Remove one first.')
-  return prisma.portfolioItem.create({ data: { ...data, tutorId: tutor.id } })
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutor.id} FOR UPDATE`
+    const count = await tx.portfolioItem.count({ where: { tutorId: tutor.id } })
+    if (count >= 10) throw new AppError(400, 'You can add up to 10 portfolio items. Remove one first.')
+    return tx.portfolioItem.create({ data: { ...data, tutorId: tutor.id } })
+  })
 }
 
 export async function removePortfolioItem(tutor, id) {

@@ -25,3 +25,11 @@ test('paging retains the search and filters, and editing the search resets the p
   await screen.findByText('Page 1 of 3')
   expect(api.get.mock.lastCall[1].params).toEqual({ ...filters, q: 'Adam', page: '1' })
 })
+
+test('an admin opens the watermarked verification copy', async () => {
+  const tutor = { id: 1, fullName: 'Example Tutor', email: 'tutor@example.test', role: 'TUTOR', status: 'ACTIVE', createdAt: '2026-01-01', suspicious: [], warnings: 0, warningHistory: [], children: [], tutor: { ratingAvg: 0, ratingCount: 0, isVerified: false, pendingQualifications: 1 }, qualifications: [{ id: 7, title: 'Identity document', status: 'PENDING', documentUrl: '/admin/qualifications/7/file' }] }
+  api.get.mockImplementation(async url => url === '/admin/users' ? { data: { users: [tutor], threshold: 3, page: 1, pages: 1 } } : { data: { user: tutor } })
+  render(<MemoryRouter><AdminUsers /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage' }))
+  expect(await screen.findByRole('link', { name: 'View watermarked document' })).toHaveAttribute('href', '/api/admin/qualifications/7/file')
+})

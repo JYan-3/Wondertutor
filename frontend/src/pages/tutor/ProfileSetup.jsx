@@ -11,6 +11,7 @@ import { ErrorBox, LoadError, Spinner } from '../../components/ui/Common'
 import { LEVELS, gradeLabel } from '../../lib/education'
 import { normalizePhone } from '../../lib/validation'
 import { SETUP_STEPS, checkStep } from '../../lib/tutorSetup'
+import { verificationDocumentUrl } from '../../lib/verificationDocuments'
 
 // Tutor profile setup (mockup 06), step 4 of sign-up. Five steps, each saved to the server as a draft
 // (PUT /tutor/profile), so a tutor can leave and come back. Submitting sends it to Admin for verification.
@@ -414,6 +415,8 @@ function DocumentsStep({ profile, setProfile, onStatus }) {
   const [file, setFile] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [removing, setRemoving] = useState(false)
   const input = useRef(null)
 
   async function add() {
@@ -442,22 +445,35 @@ function DocumentsStep({ profile, setProfile, onStatus }) {
 
   async function remove(d) {
     setError('')
+    setNotice('')
+    if (removing) return
     // Removing an approved document takes the verified badge away until Admin approves a replacement
     if (d.status === 'APPROVED' && !window.confirm(`"${d.title}" is approved. If you remove it, your verified badge is put on hold until Admin approves a replacement. Remove it?`)) return
+    setRemoving(true)
     try {
-      await api.delete(`/tutor/documents/${d.id}`)
-      const fresh = (await api.get('/tutor/profile')).data
-      setProfile(fresh)
-      // Keeps the menu and the page gate in step if the badge was just lost
-      onStatus(fresh.status)
+      const removed = await api.delete(`/tutor/documents/${d.id}`)
+      if (removed.data.fileRetained) setNotice('The file is still kept because another document uses it.')
+      try {
+        const fresh = (await api.get('/tutor/profile')).data
+        setProfile(fresh)
+        // Keeps the menu and the page gate in step if the badge was just lost
+        onStatus(fresh.status)
+      } catch {
+        setProfile(current => ({ ...current, isVerified: removed.data.isVerified, documents: current.documents.filter(item => item.id !== d.id) }))
+        setError('The document was removed, but your profile could not be refreshed. Please refresh the page.')
+      }
     } catch (err) {
       setError(errorMessage(err))
+    } finally {
+      setRemoving(false)
     }
   }
 
   return (
     <div className="mt-1">
       <p className="mb-5 text-sm text-slate-600">Admin checks one identity document (NRIC or passport) and at least one qualification before you are verified. Only Admin sees your identity document.</p>
+      <p className="mb-5 text-sm text-slate-600">Your document is shown with a verification watermark. PDFs can have up to 30 pages.</p>
+      {notice && <p role="status" className="mb-4 text-sm text-slate-700">{notice}</p>}
       {profile.documents.length > 0 && (
         <ul className="mb-5 space-y-2">
           {profile.documents.map((d) => {
@@ -466,12 +482,13 @@ function DocumentsStep({ profile, setProfile, onStatus }) {
               <li key={d.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-100 p-3">
                 <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-50 text-brand-600"><Icon name="file" className="h-5 w-5" /></span>
                 <span className="min-w-0 flex-1">
-                  {d.documentUrl ? <a href={d.documentUrl} target="_blank" rel="noreferrer" className="block truncate font-semibold text-navy hover:underline">{d.title}</a> : <span className="block font-semibold text-navy">{d.title} (file unavailable)</span>}
+                  {verificationDocumentUrl(d.documentUrl) ? <a href={verificationDocumentUrl(d.documentUrl)} target="_blank" rel="noreferrer" className="block truncate font-semibold text-navy hover:underline">{d.title}</a> : <span className="block font-semibold text-navy">{d.title} (file unavailable)</span>}
                   <span className="text-xs text-slate-600">{d.kind === 'IDENTITY' ? 'Identity document' : [d.institution, d.year].filter(Boolean).join(' · ') || 'Qualification'}</span>
+                  {verificationDocumentUrl(d.documentUrl) && <span className="block text-xs text-slate-600">View watermarked copy</span>}
                   {d.status === 'REJECTED' && d.reviewNote && <span className="block text-xs text-red-700">Admin: {d.reviewNote}</span>}
                 </span>
                 <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${cls}`}>{label}</span>
-                <button type="button" onClick={() => remove(d)} className="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 hover:bg-red-50" aria-label={`Remove ${d.title}`}>
+                <button type="button" disabled={removing} onClick={() => remove(d)} className="flex h-11 w-11 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-50" aria-label={`Remove ${d.title}`}>
                   <Icon name="trash" className="h-5 w-5" />
                 </button>
               </li>

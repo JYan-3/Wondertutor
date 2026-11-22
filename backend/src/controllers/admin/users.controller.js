@@ -1,4 +1,4 @@
-import { mediaLink } from '../../services/privateMedia.js'
+import { verificationLink } from '../../services/privateMedia.js'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { AppError } from '../../utils/AppError.js'
@@ -130,7 +130,7 @@ export async function getUser(req, res) {
       ...dto(user, threshold, { ...signals.get(user.id), threshold }),
       warningHistory: warnings.map((w) => ({ id: w.id, reason: w.reason, issuedBy: w.issuedBy.fullName, createdAt: w.createdAt, complaintId: w.complaintId })),
       upcomingLessons,
-      qualifications: (user.tutor?.qualifications ?? []).map(q => ({ ...q, documentUrl: mediaLink(q.documentUrl, 'wondertutor/qualifications/' + user.id) })),
+      qualifications: (user.tutor?.qualifications ?? []).map(q => ({ ...q, documentUrl: verificationLink(q.documentUrl, 'wondertutor/qualifications/' + user.id, 'admin', q.id) })),
       subjects: user.tutor?.subjects ?? [],
       children: user.parent?.children.map((c) => ({ id: c.id, publicId: c.publicId, name: c.name, educationLevel: c.educationLevel, grade: c.grade })) ?? [],
     },

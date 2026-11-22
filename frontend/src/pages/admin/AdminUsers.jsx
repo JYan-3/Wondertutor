@@ -7,6 +7,7 @@ import { EmptyState, ErrorBox, LoadError, Modal, PageTitle, Spinner, VerifiedTic
 import { fmtShortDate } from '../../lib/format'
 import { gradeLabel } from '../../lib/education'
 import WarnUser from '../../components/WarnUser'
+import { verificationDocumentUrl } from '../../lib/verificationDocuments'
 
 // Admin user management: search, deactivate / reactivate, approve tutor qualifications
 export default function AdminUsers() {
@@ -186,7 +187,7 @@ function UserModal({ id, onClose, onChanged }) {
                         <div className="font-bold text-navy">{q.title}</div>
                         <div className="text-xs text-slate-500">{q.institution}{q.year && ` · ${q.year}`}</div>
                         {/* Admin checks the uploaded certificate before granting the verified badge */}
-                        {/^https?:\/\//i.test(q.documentUrl || '') && <a href={q.documentUrl} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-semibold text-brand-600 hover:underline"><Icon name="file" className="h-3.5 w-3.5" /> View uploaded document</a>}
+                        {verificationDocumentUrl(q.documentUrl) && <a href={verificationDocumentUrl(q.documentUrl)} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex min-h-9 items-center gap-1 text-xs font-semibold text-brand-600 hover:underline"><Icon name="file" className="h-3.5 w-3.5" /> View watermarked document</a>}
                       </div>
                       <span className={`pill ${q.status === 'APPROVED' ? 'bg-ok-50 text-ok' : q.status === 'REJECTED' ? 'bg-red-50 text-red-600' : 'bg-accent-100 text-amber-700'}`}>{q.status.charAt(0) + q.status.slice(1).toLowerCase()}</span>
                     </div>
