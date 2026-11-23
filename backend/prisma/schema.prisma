@@ -268,6 +268,7 @@ model TutorProfile {
 
   subjects       TutorSubject[]
   qualifications Qualification[]
+  verificationCleanups VerificationCleanup[]
   portfolio      PortfolioItem[]
   availability   AvailabilitySlot[]
   availabilityWeeks AvailabilityWeek[]
@@ -305,6 +306,19 @@ model Qualification {
   status      VerificationStatus @default(PENDING)
   reviewNote  String?
   createdAt   DateTime           @default(now())
+}
+
+model VerificationCleanup {
+  publicId      String       @id @db.VarChar(191)
+  tutorId       Int?
+  tutor         TutorProfile? @relation(fields: [tutorId], references: [id], onDelete: SetNull)
+  ownerUserId   Int
+  documentUrl   String       @db.VarChar(500)
+  attempts      Int          @default(0)
+  createdAt     DateTime     @default(now())
+  nextAttemptAt DateTime     @default(now())
+
+  @@index([nextAttemptAt])
 }
 
 model PortfolioItem {
@@ -374,6 +388,9 @@ model Withdrawal {
   reviewedAt    DateTime?
   paidAt        DateTime?
   paidById      Int?
+  approvalBasis String? @db.Char(64)
+  transferStartedAt DateTime?
+  transferStartedById Int?
   transferRef   String? @unique @db.VarChar(100)
   receiptUrl    String? @db.Text
   legacyPaid    Boolean @default(false)

@@ -6,7 +6,7 @@ import TutorPageHeader from '../../components/TutorPageHeader'
 import { ErrorBox, LoadError, SectionCard, Spinner } from '../../components/ui/Common'
 import { fmtDate, money } from '../../lib/format'
 
-const statusLabel = { PENDING: 'In review', APPROVED: 'Awaiting transfer', AWAITING_TRANSFER: 'Awaiting transfer', PAID: 'Paid', LEGACY_PAID: 'Previously approved (legacy record)', REJECTED: 'Rejected', ESCALATED: 'Bank change under review' }
+const statusLabel = { PENDING: 'In review', APPROVED: 'Awaiting transfer', AWAITING_TRANSFER: 'Awaiting transfer', ON_HOLD: 'On hold — earnings under review', TRANSFER_IN_PROGRESS: 'Transfer in progress', TRANSFER_REVIEW: 'Transfer in progress — earnings under review', PAID: 'Paid', LEGACY_PAID: 'Previously approved (legacy record)', REJECTED: 'Rejected', ESCALATED: 'Bank change under review' }
 const monthKey = date => new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(date))
 const accountLabel = bank => bank.bankName + ' ••' + bank.lastFour
 function exportCsv(rows) {
@@ -53,6 +53,7 @@ function WithdrawalList({ rows }) {
   return <ul className="divide-y divide-brand-100">{rows.map(w =>
     <li key={w.id} className="break-words py-3"><strong>{money(w.amount)} · {statusLabel[w.payoutStatus || w.status]}</strong>
       <p className="text-sm">{fmtDate(w.date)} · {accountLabel(w.bank)}</p>{w.reason && <p>Reason: {w.reason}</p>}
+      {['ON_HOLD', 'TRANSFER_REVIEW'].includes(w.payoutStatus) && <p className="text-sm">Your earnings changed. Admin will review the withdrawal.</p>}
       {w.transferRef && <p className="text-sm">Transfer reference: {w.transferRef}</p>}
       {w.paidAt && <p className="text-sm">Paid on {fmtDate(w.paidAt)}</p>}
       {w.receiptUrl && <a className="inline-flex min-h-11 items-center underline" href={w.receiptUrl} target="_blank" rel="noreferrer">View transfer receipt</a>}
@@ -128,7 +129,7 @@ export default function Earnings() {
   if (!data) return <Spinner />
   const rows = data.transactions.filter(r => period === 'all' || monthKey(r.date) === data.month)
 
-  const isPending = w => w.status === 'PENDING' || w.status === 'ESCALATED' || w.payoutStatus === 'AWAITING_TRANSFER'
+  const isPending = w => w.status === 'PENDING' || w.status === 'ESCALATED' || ['AWAITING_TRANSFER', 'ON_HOLD', 'TRANSFER_IN_PROGRESS', 'TRANSFER_REVIEW'].includes(w.payoutStatus)
   const pendingWithdrawals = data.withdrawals.filter(isPending)
   const closedWithdrawals = data.withdrawals.filter(w => !isPending(w))
 

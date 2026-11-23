@@ -110,8 +110,21 @@ export function isOwnUpload(url) {
   } catch { return false }
 }
 
+const notVerificationUpload = url => {
+  try {
+    let path = new URL(url).pathname
+    for (let i = 0; i < 3; i++) {
+      const decoded = decodeURIComponent(path)
+      if (decoded === path) break
+      path = decoded
+    }
+    return !/\/qualifications\/\d+\/wtv_[a-f0-9]{32}_[a-f0-9]{32}\./i.test(path)
+  }
+  catch { return false }
+}
 export const cloudinaryUrl = (label = 'File') =>
   z.string().trim().max(500, `${label} link is too long`).url(`${label} link is invalid`)
     .refine(isOwnUpload, `${label} must be uploaded through WonderTutor`)
+    .refine(url => label === 'Document' || notVerificationUpload(url), 'Verification uploads cannot be used here')
 // A photo (profile, child, review): optional, and from our account only
-export const imageUrl = () => z.string().max(500).url('Invalid photo').refine(isOwnUpload, 'Invalid photo')
+export const imageUrl = () => z.string().max(500).url('Invalid photo').refine(isOwnUpload, 'Invalid photo').refine(notVerificationUpload, 'Invalid photo')

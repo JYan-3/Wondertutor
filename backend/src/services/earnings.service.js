@@ -15,8 +15,14 @@ import { sendEmail } from './email.service.js'
 const zero = new Prisma.Decimal(0)
 const holding = ['PENDING', 'ESCALATED']
 export const withdrawalPaid = w => w.status === 'APPROVED' && Boolean(w.paidAt || w.legacyPaid)
-const withdrawalState = w => withdrawalPaid(w) ? (w.legacyPaid ? 'LEGACY_PAID' : 'PAID') : w.status === 'APPROVED' ? 'AWAITING_TRANSFER' : w.status
-const transferFields = w => ({ payoutStatus: withdrawalState(w), paidAt: w.paidAt, transferRef: w.transferRef,
+const withdrawalState = (w, l) => {
+  if (withdrawalPaid(w)) return w.legacyPaid ? 'LEGACY_PAID' : 'PAID'
+  if (w.status !== 'APPROVED') return w.status
+  const changed = !w.approvalBasis || w.approvalBasis !== l.basis || l.balance.lt(0)
+  if (w.transferStartedById) return changed ? 'TRANSFER_REVIEW' : 'TRANSFER_IN_PROGRESS'
+  return changed ? 'ON_HOLD' : 'AWAITING_TRANSFER'
+}
+const transferFields = (w, l) => ({ payoutStatus: withdrawalState(w, l), paidAt: w.paidAt, transferRef: w.transferRef,
   receiptUrl: mediaLink(w.receiptUrl, 'wondertutor/withdrawals/' + w.id) })
 const bankView = b => b && ({ id: b.id, bankName: b.bankName, accountName: readBank(b).accountName, lastFour: b.accountNumber.slice(-4) })
 const lockTutor = (db, tutorId) => db.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutorId} FOR UPDATE`
@@ -66,9 +72,11 @@ async function ledger(db, tutorId) {
     if (withdrawalPaid(w)) paidOut = paidOut.plus(w.amount)
   }
   const balance = earned.minus(held).minus(paidOut)
+  // Compare the lesson earnings reviewed at approval with the current ledger.
+  const basis = createHash('sha256').update(JSON.stringify(transactions.map(t => [t.id, t.bookingStatus, t.state, String(t.fee), String(t.commission), String(t.net), String(t.refunded)]))).digest('hex')
   // A repeat submission from the same displayed balance must not reserve a second amount.
   const version = createHash('sha256').update([balance, withdrawals[0]?.id || 0, held, paidOut].join('|')).digest('hex')
-  return { transactions, withdrawals, earned, pending, held, paidOut, balance, version }
+  return { transactions, withdrawals, earned, pending, held, paidOut, balance, version, basis }
 }
 
 export function earnings(tutorId) {
@@ -79,7 +87,7 @@ export function earnings(tutorId) {
     const base = await baseCommission(db)
     return { available: Prisma.Decimal.max(l.balance, 0), totalEarned: l.earned, pending: l.pending, held: l.held, withdrawn: l.paidOut,
       version: l.version, rate: tutor.commissionRate ?? base, baseRate: base, bank: bankView(bank), transactions: l.transactions,
-      withdrawals: l.withdrawals.map(w => ({ id: w.id, date: w.createdAt, reviewedAt: w.reviewedAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w), bank: bankView(w.bankAccount) })) }
+      withdrawals: l.withdrawals.map(w => ({ id: w.id, date: w.createdAt, reviewedAt: w.reviewedAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w, l), bank: bankView(w.bankAccount) })) }
   })
 }
 
@@ -111,10 +119,14 @@ export function requestWithdrawal(tutorId, input) {
   })
 }
 
-export async function pendingReviews() {
+export async function pendingReviews(adminId) {
   const rows = await prisma.withdrawal.findMany({ orderBy: { id: 'asc' },
     include: { bankAccount: true, tutor: { select: { user: { select: { fullName: true } } } } } })
-  return rows.map(w => ({ id: w.id, tutor: w.tutor.user.fullName, date: w.createdAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w), bank: bankView(w.bankAccount) }))
+  const ledgers = new Map(await Promise.all([...new Set(rows.map(w => w.tutorId))].map(async id => [id, await ledger(prisma, id)])))
+  return rows.map(w => {
+    const l = ledgers.get(w.tutorId)
+    return { id: w.id, tutor: w.tutor.user.fullName, date: w.createdAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w, l), transferStartedAt: w.transferStartedAt, transferOwned: w.transferStartedById === adminId, earned: l.earned, held: l.held, paidOut: l.paidOut, balance: l.balance, bank: bankView(w.bankAccount) }
+  })
 }
 
 export async function reviewWithdrawal(id, adminId, decision) {
@@ -124,8 +136,9 @@ export async function reviewWithdrawal(id, adminId, decision) {
     await lockTutor(db, w.tutorId)
     const row = await db.withdrawal.findUniqueOrThrow({ where: { id }, include: { tutor: { include: { user: true } }, bankAccount: true } })
     if (!holding.includes(row.status) || decision.expectedStatus !== row.status) throw new AppError(409, 'This request changed. Refresh before reviewing it.')
-    if (decision.status === 'APPROVED' && (await ledger(db, w.tutorId)).balance.lt(0)) throw new AppError(409, 'The earned balance no longer covers the held funds.')
-    await db.withdrawal.update({ where: { id }, data: { status: decision.status, rejectReason: decision.reason ?? null, reviewedById: adminId, reviewedAt: new Date() } })
+    const l = decision.status === 'APPROVED' ? await ledger(db, w.tutorId) : null
+    if (l?.balance.lt(0)) throw new AppError(409, 'The earned balance no longer covers the held funds.')
+    await db.withdrawal.update({ where: { id }, data: { status: decision.status, rejectReason: decision.reason ?? null, reviewedById: adminId, reviewedAt: new Date(), approvalBasis: l?.basis ?? null } })
     const title = decision.status === 'APPROVED' ? 'Withdrawal approved' : 'Withdrawal rejected'
     const message = 'Your RM ' + row.amount.toFixed(2) + ' request to ' + row.bankAccount.bankName + ' ending ' + row.bankAccount.accountNumber.slice(-4) +
       (decision.status === 'APPROVED' ? ' was approved and is awaiting bank transfer.' : ' was rejected. Reason: ' + decision.reason)
@@ -138,13 +151,64 @@ export async function reviewWithdrawal(id, adminId, decision) {
   return { emailSent: true }
 }
 
-// Only the approved request's original destination is exposed for the manual transfer.
-export async function withdrawalDestination(id) {
-  const w = await prisma.withdrawal.findUnique({ where: { id }, include: { bankAccount: true } })
+async function withWithdrawalLock(id, fn) {
+  const w = await prisma.withdrawal.findUnique({ where: { id }, select: { tutorId: true } })
   if (!w) throw new AppError(404, 'Withdrawal not found')
-  if (w.status !== 'APPROVED' || withdrawalPaid(w)) throw new AppError(409, 'This withdrawal is not awaiting transfer.')
-  const bank = readBank(w.bankAccount)
-  return { bankName: bank.bankName, accountName: bank.accountName, accountNumber: bank.accountNumber }
+  return prisma.$transaction(async db => {
+    await lockTutor(db, w.tutorId)
+    const row = await db.withdrawal.findUniqueOrThrow({ where: { id }, include: { bankAccount: true } })
+    if (row.status !== 'APPROVED' || withdrawalPaid(row)) throw new AppError(409, 'This withdrawal is not awaiting transfer.')
+    return fn(db, row, await ledger(db, w.tutorId))
+  })
+}
+
+export function recheckWithdrawal(id, adminId) {
+  return withWithdrawalLock(id, async (db, w, l) => {
+    if (w.transferStartedById) throw new AppError(409, 'A transfer is already in progress. Check the bank before making any changes.')
+    if (l.balance.lt(0)) throw new AppError(409, 'The earned balance no longer covers the reserved withdrawals.')
+    await db.withdrawal.update({ where: { id }, data: { approvalBasis: l.basis, reviewedById: adminId, reviewedAt: new Date() } })
+  })
+}
+
+export async function rejectHeldWithdrawal(id, adminId, reason) {
+  const result = await withWithdrawalLock(id, async (db, w, l) => {
+    if (w.transferStartedById || withdrawalState(w, l) !== 'ON_HOLD') throw new AppError(409, 'This withdrawal is no longer on hold. Refresh before reviewing it.')
+    const tutor = await db.tutorProfile.findUniqueOrThrow({ where: { id: w.tutorId }, include: { user: true } })
+    await db.withdrawal.update({ where: { id }, data: { status: 'REJECTED', rejectReason: reason, reviewedById: adminId, reviewedAt: new Date() } })
+    const title = 'Withdrawal rejected'
+    const message = 'Your withdrawal was rejected after an earnings review. Reason: ' + reason
+    const link = '/tutor/earnings'
+    await db.notification.create({ data: { userId: tutor.userId, type: 'WITHDRAWAL_REJECTED', title, message, link } })
+    return { user: tutor.user, title, message, link }
+  })
+  try { await sendEmail({ to: result.user.email, subject: 'WonderTutor — ' + result.title, html: renderEmail({ ...result, name: result.user.fullName }) }) }
+  catch { return { emailSent: false } }
+  return { emailSent: true }
+}
+
+export function startWithdrawalTransfer(id, adminId) {
+  return withWithdrawalLock(id, async (db, w, l) => {
+    if (w.transferStartedById) throw new AppError(409, 'Another transfer is already in progress. Check the bank before trying again.')
+    if (withdrawalState(w, l) !== 'AWAITING_TRANSFER') throw new AppError(409, 'Earnings changed since approval. Review the withdrawal before transferring.')
+    await db.withdrawal.update({ where: { id }, data: { transferStartedById: adminId, transferStartedAt: new Date() } })
+  })
+}
+
+export function releaseWithdrawalTransfer(id, adminId) {
+  return withWithdrawalLock(id, async (db, w) => {
+    if (w.transferStartedById !== adminId) throw new AppError(409, 'Only the admin handling this transfer can release it.')
+    await db.withdrawal.update({ where: { id }, data: { transferStartedById: null, transferStartedAt: null } })
+  })
+}
+
+// Recheck the ledger before revealing bank details for an external transfer.
+export function withdrawalDestination(id, adminId) {
+  return withWithdrawalLock(id, async (_db, w, l) => {
+    if (w.transferStartedById !== adminId) throw new AppError(409, 'Start this transfer before viewing bank details.')
+    if (withdrawalState(w, l) !== 'TRANSFER_IN_PROGRESS') throw new AppError(409, 'Earnings changed. Do not transfer; check the bank and review this withdrawal.')
+    const bank = readBank(w.bankAccount)
+    return { bankName: bank.bankName, accountName: bank.accountName, accountNumber: bank.accountNumber }
+  })
 }
 
 export async function recordWithdrawalTransfer(id, adminId, input) {
@@ -160,13 +224,16 @@ export async function recordWithdrawalTransfer(id, adminId, input) {
     await lockTutor(db, w.tutorId)
     const row = await db.withdrawal.findUniqueOrThrow({ where: { id }, include: { tutor: { include: { user: true } }, bankAccount: true } })
     if (row.status !== 'APPROVED' || withdrawalPaid(row)) throw new AppError(409, 'This withdrawal is not awaiting transfer or has already been paid.')
+    if (row.transferStartedById !== adminId) throw new AppError(409, 'Only the admin handling this transfer can record it.')
+    if (withdrawalState(row, await ledger(db, w.tutorId)) === 'TRANSFER_REVIEW' && !input.balanceChangedConfirmed) throw new AppError(409, 'Earnings changed. Confirm the bank transfer actually succeeded before recording it.')
     // The unique reference also prevents one bank transaction being recorded against two requests.
     await db.withdrawal.update({ where: { id }, data: {
       paidAt: new Date(), paidById: adminId, transferRef: input.reference, receiptUrl: input.receipt.url,
     } })
     const title = 'Withdrawal paid'
     const message = 'Your RM ' + row.amount.toFixed(2) + ' withdrawal to ' + row.bankAccount.bankName + ' ending ' +
-      row.bankAccount.accountNumber.slice(-4) + ' has been recorded as paid. Transfer reference: ' + input.reference
+      row.bankAccount.accountNumber.slice(-4) + ' has been recorded as paid. Transfer reference: ' + input.reference +
+      (input.balanceChangedConfirmed ? '. Admin confirmed the transfer after an earnings change.' : '')
     const link = '/tutor/earnings'
     await db.notification.create({ data: { userId: row.tutor.userId, type: 'WITHDRAWAL_PAID', title, message, link } })
     return { user: row.tutor.user, title, message, link }

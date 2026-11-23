@@ -10,9 +10,11 @@ vi.mock('../api/client', () => ({
   default: { get: vi.fn(), put: vi.fn(), post: vi.fn(), delete: vi.fn() },
   errorMessage: (e) => e?.response?.data?.message || e.message,
 }))
+vi.mock('../components/PhotoPicker', async (importOriginal) => ({ ...await importOriginal(), uploadDocument: vi.fn() }))
 
 import api from '../api/client'
 import ProfileSetup from '../pages/tutor/ProfileSetup'
+import { uploadDocument } from '../components/PhotoPicker'
 import { checkStep } from '../lib/tutorSetup'
 
 const CATALOG = {
@@ -136,6 +138,48 @@ describe('verification on My Profile', () => {
 })
 
 describe('tutor profile setup: editing and documents', () => {
+  test('shows the server validation message and keeps existing documents when an upload is unreadable', async () => {
+    const { container } = setup(COMPLETE)
+    uploadDocument.mockResolvedValue('https://example.test/private.pdf')
+    api.post.mockRejectedValue({ response: { status: 422, data: { message: 'The PDF must contain no more than 30 pages.' } } })
+    await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))
+    await userEvent.type(screen.getByLabelText('Document name'), 'Identity')
+    await userEvent.upload(container.querySelector('input[type="file"]'), new File(['document'], 'identity.pdf', { type: 'application/pdf' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The PDF must contain no more than 30 pages.')
+    expect(screen.getByRole('link', { name: 'NRIC' })).toBeVisible()
+    expect(screen.getByRole('link', { name: 'BSc Mathematics' })).toBeVisible()
+  })
+  test('retries a cleanup failure using the same upload instead of uploading another file', async () => {
+    const { container } = setup(COMPLETE)
+    uploadDocument.mockResolvedValue('https://example.test/private.pdf')
+    api.post.mockRejectedValueOnce({ response: { status: 503, data: { message: 'Could not remove the rejected upload. Please retry the same upload.' } } })
+      .mockRejectedValueOnce({ response: { status: 422, data: { message: 'The PDF is invalid.' } } })
+    await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))
+    await userEvent.type(screen.getByLabelText('Document name'), 'Identity')
+    await userEvent.upload(container.querySelector('input[type="file"]'), new File(['document'], 'identity.pdf', { type: 'application/pdf' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please retry the same upload')
+    expect(screen.getByRole('button', { name: 'Change file' })).toBeDisabled()
+    await userEvent.click(screen.getByRole('button', { name: 'Retry upload' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The PDF is invalid.')
+    expect(uploadDocument).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Change file' })).toBeEnabled()
+  })
+  test('allows a new file when the queued cleanup already removed the earlier upload', async () => {
+    const { container } = setup(COMPLETE)
+    uploadDocument.mockResolvedValue('https://example.test/private.pdf')
+    api.post.mockRejectedValueOnce({ response: { status: 503, data: { message: 'Please retry the same upload.' } } })
+      .mockRejectedValueOnce({ response: { status: 404, data: { message: 'The uploaded document is no longer available. Please choose a file again.' } } })
+    await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))
+    await userEvent.type(screen.getByLabelText('Document name'), 'Identity')
+    await userEvent.upload(container.querySelector('input[type="file"]'), new File(['document'], 'identity.pdf', { type: 'application/pdf' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Retry upload' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Please choose a file again.')
+    expect(screen.getByRole('button', { name: 'Change file' })).toBeEnabled()
+    expect(uploadDocument).toHaveBeenCalledTimes(1)
+  })
   test('a tutor can open the private watermarked document before submitting', async () => {
     setup(COMPLETE)
     await userEvent.click(await screen.findByRole('button', { name: /Qualifications/ }))

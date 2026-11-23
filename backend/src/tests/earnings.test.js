@@ -137,6 +137,10 @@ test('manual payout needs approval and a verified receipt; concurrent and reused
     for (const id of [first.id, second.id]) expect((await admin.post(path(id) + '/review', { status: 'APPROVED', expectedStatus: 'PENDING' })).status).toBe(200)
     expect(Number((await get()).held)).toBe(176)
     expect((await client.post('/uploads/signature', { purpose: 'withdrawal-receipt', withdrawalId: first.id })).status).toBe(403)
+    expect((await admin.post('/uploads/signature', { purpose: 'withdrawal-receipt', withdrawalId: first.id })).status).toBe(409)
+    expect((await admin.get(path(first.id) + '/destination')).status).toBe(409)
+    expect((await admin.post(path(first.id) + '/start-transfer')).status).toBe(200)
+    expect((await admin.post(path(second.id) + '/start-transfer')).status).toBe(200)
     const upload = await admin.post('/uploads/signature', { purpose: 'withdrawal-receipt', withdrawalId: first.id })
     expect(upload.status).toBe(200)
     expect(upload.type).toBe('authenticated')
@@ -170,6 +174,100 @@ test('manual payout needs approval and a verified receipt; concurrent and reused
   } finally { Object.assign(env.cloudinary, saved) }
 })
 
+test('a change after approval holds the withdrawal until earnings are reviewed', async () => {
+  const { t, get, request, pay } = await setup()
+  const payment = await pay()
+  const w = await request(await get(), '88')
+  const path = '/admin/withdrawals/' + w.id
+  expect((await admin.post(path + '/review', { status: 'APPROVED', expectedStatus: 'PENDING' })).status).toBe(200)
+  const refund = await prisma.refund.create({ data: { paymentId: payment.id, type: 'ADMIN_REVIEW', amount: 20, reason: 'Refund review' } })
+  expect((await get()).withdrawals[0].payoutStatus).toBe('ON_HOLD')
+  expect((await admin.get('/admin/withdrawals')).requests.find(row => row.id === w.id).payoutStatus).toBe('ON_HOLD')
+  expect((await admin.post(path + '/start-transfer')).status).toBe(409)
+  expect((await admin.get(path + '/destination')).status).toBe(409)
+  expect((await admin.post(path + '/recheck', { confirmedReview: true })).status).toBe(409)
+  await prisma.refund.update({ where: { id: refund.id }, data: { status: 'REJECTED' } })
+  await pay()
+  expect((await get()).withdrawals[0].payoutStatus).toBe('ON_HOLD')
+  expect((await admin.post(path + '/recheck', { confirmedReview: true })).status).toBe(200)
+  expect((await get()).withdrawals[0].payoutStatus).toBe('AWAITING_TRANSFER')
+  expect((await prisma.withdrawal.findUnique({ where: { id: w.id } })).tutorId).toBe(t.tutor.id)
+})
+
+test('only one admin can handle a transfer, including when earnings change afterward', async () => {
+  const saved = { ...env.cloudinary }
+  Object.assign(env.cloudinary, { cloudName: 'test-cloud', apiKey: 'test-key', apiSecret: 'test-secret' })
+  try {
+    const { get, request, pay } = await setup()
+    const payment = await pay()
+    const w = await request(await get(), '88')
+    const path = '/admin/withdrawals/' + w.id
+    const other = api((await makeAdmin()).token)
+    await admin.post(path + '/review', { status: 'APPROVED', expectedStatus: 'PENDING' })
+    const starts = await Promise.all([admin.post(path + '/start-transfer'), other.post(path + '/start-transfer')])
+    expect(starts.map(r => r.status).sort()).toEqual([200, 409])
+    const owner = starts[0].status === 200 ? admin : other
+    const nonOwner = starts[0].status === 200 ? other : admin
+    expect((await nonOwner.get(path + '/destination')).status).toBe(409)
+    expect((await nonOwner.post(path + '/release-transfer', { confirmedNoTransfer: true })).status).toBe(409)
+    expect((await owner.get(path + '/destination')).status).toBe(200)
+    await prisma.refund.create({ data: { paymentId: payment.id, type: 'ADMIN_REVIEW', amount: 20, reason: 'Refund review' } })
+    expect((await get()).withdrawals[0].payoutStatus).toBe('TRANSFER_REVIEW')
+    expect((await owner.get(path + '/destination')).status).toBe(409)
+    const public_id = 'wondertutor/withdrawals/' + w.id + '/receipt'
+    const receipt = { url: 'https://res.cloudinary.com/test-cloud/image/authenticated/v1/' + public_id + '.pdf', version: 1, signature: cloudinary.utils.api_sign_request({ public_id, version: 1 }, env.cloudinary.apiSecret) }
+    const input = { reference: 'CONFIRMED-TRANSFER-1', receipt }
+    expect((await owner.post(path + '/transfer', input)).status).toBe(409)
+    expect((await nonOwner.post(path + '/transfer', { ...input, balanceChangedConfirmed: true })).status).toBe(409)
+    expect((await owner.post(path + '/transfer', { ...input, balanceChangedConfirmed: true })).status).toBe(200)
+    expect((await get()).withdrawals[0].payoutStatus).toBe('PAID')
+    expect((await owner.post(path + '/transfer', { ...input, balanceChangedConfirmed: true })).status).toBe(409)
+  } finally { Object.assign(env.cloudinary, saved) }
+})
+
+test('a started transfer can be released only after confirming nothing was sent', async () => {
+  const { get, request, pay } = await setup()
+  await pay()
+  const w = await request(await get(), '88')
+  const path = '/admin/withdrawals/' + w.id
+  await admin.post(path + '/review', { status: 'APPROVED', expectedStatus: 'PENDING' })
+  expect((await admin.post(path + '/start-transfer')).status).toBe(200)
+  expect((await admin.post(path + '/release-transfer', {})).status).toBe(400)
+  expect((await admin.post(path + '/release-transfer', { confirmedNoTransfer: true })).status).toBe(200)
+  expect((await get()).withdrawals[0].payoutStatus).toBe('AWAITING_TRANSFER')
+})
+
+test('admin can reject an uncovered held request and the tutor sees the reason', async () => {
+  const { t, get, request, pay } = await setup()
+  const payment = await pay()
+  const w = await request(await get(), '88')
+  const path = '/admin/withdrawals/' + w.id
+  await admin.post(path + '/review', { status: 'APPROVED', expectedStatus: 'PENDING' })
+  await prisma.refund.create({ data: { paymentId: payment.id, type: 'ADMIN_REVIEW', amount: 20, reason: 'Refund review' } })
+  expect((await admin.post(path + '/reject-held', { reason: 'Earnings are under refund review.' })).status).toBe(200)
+  expect((await admin.post(path + '/reject-held', { reason: 'Duplicate' })).status).toBe(409)
+  const view = await get()
+  expect(view.withdrawals[0]).toMatchObject({ payoutStatus: 'REJECTED', reason: 'Earnings are under refund review.' })
+  expect(Number(view.held)).toBe(0)
+  expect(await prisma.notification.count({ where: { userId: t.user.id, type: 'WITHDRAWAL_REJECTED' } })).toBe(1)
+})
+
+test('a parent refund racing with the transfer puts the withdrawal under review', async () => {
+  const { get, request, pay } = await setup()
+  const payment = await pay()
+  const w = await request(await get(), '88')
+  const path = '/admin/withdrawals/' + w.id
+  await admin.post(path + '/review', { status: 'APPROVED', expectedStatus: 'PENDING' })
+  const [refund, start] = await Promise.all([
+    api(parent.token).post('/parent/bookings/' + payment.bookingId + '/refund-request', { reason: 'Please review the lesson payment.' }),
+    admin.post(path + '/start-transfer'),
+  ])
+  expect(refund.status).toBe(201)
+  expect([200, 409]).toContain(start.status)
+  expect(['ON_HOLD', 'TRANSFER_REVIEW']).toContain((await get()).withdrawals[0].payoutStatus)
+  expect((await admin.get(path + '/destination')).status).toBe(409)
+})
+
 test('historical approvals retain their balance and are labelled as legacy records', async () => {
   const { get, request, pay } = await setup()
   await pay()
@@ -179,4 +277,16 @@ test('historical approvals retain their balance and are labelled as legacy recor
   expect(Number(view.withdrawn)).toBe(88)
   expect(Number(view.held)).toBe(0)
   expect(view.withdrawals[0].payoutStatus).toBe('LEGACY_PAID')
+})
+
+test('an unpaid approval from before the safety update is held for a fresh review', async () => {
+  const { get, request, pay } = await setup()
+  await pay()
+  const w = await request(await get(), '88')
+  await prisma.withdrawal.update({ where: { id: w.id }, data: { status: 'APPROVED' } })
+  expect((await get()).withdrawals[0].payoutStatus).toBe('ON_HOLD')
+  const path = '/admin/withdrawals/' + w.id
+  expect((await admin.post(path + '/start-transfer')).status).toBe(409)
+  expect((await admin.post(path + '/recheck', { confirmedReview: true })).status).toBe(200)
+  expect((await get()).withdrawals[0].payoutStatus).toBe('AWAITING_TRANSFER')
 })

@@ -73,6 +73,7 @@ export async function updateComplaint(req, res) {
   const { updated, notices } = await prisma.$transaction(async (tx) => {
     let notices = []
     if (existing.category === MISSED_CHECK_IN && existing.bookingId) {
+      await tx.$queryRaw`SELECT t.id FROM TutorProfile t JOIN Booking b ON b.tutorId = t.id WHERE b.id = ${existing.bookingId} FOR UPDATE`
       await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${existing.bookingId} FOR UPDATE`
     }
     const { count } = await tx.complaint.updateMany({

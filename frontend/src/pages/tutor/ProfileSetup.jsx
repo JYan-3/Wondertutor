@@ -413,6 +413,7 @@ function TeachingStep({ form, update, catalog }) {
 function DocumentsStep({ profile, setProfile, onStatus }) {
   const [doc, setDoc] = useState({ kind: 'IDENTITY', title: '', institution: '', year: '' })
   const [file, setFile] = useState(null)
+  const [pendingUpload, setPendingUpload] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -425,18 +426,29 @@ function DocumentsStep({ profile, setProfile, onStatus }) {
     if (doc.year && !/^\d{4}$/.test(doc.year)) return setError('Enter the year as 4 digits, e.g. 2020.')
     if (!file) return setError('Choose the file to upload.')
     setBusy(true)
+    let saved = false
     try {
-      const documentUrl = await uploadDocument(file, true)
+      const documentUrl = pendingUpload || await uploadDocument(file, true)
+      setPendingUpload(documentUrl)
       await api.post('/tutor/documents', {
         kind: doc.kind, title: doc.title.trim(), documentUrl,
         institution: doc.institution.trim() || null, year: doc.year ? Number(doc.year) : null,
       })
+      saved = true
+      setPendingUpload(null)
       const fresh = (await api.get('/tutor/profile')).data
       setProfile(fresh)
       onStatus(fresh.status)
       setDoc({ kind: doc.kind, title: '', institution: '', year: '' })
       setFile(null)
     } catch (err) {
+      if (saved) {
+        setDoc({ kind: doc.kind, title: '', institution: '', year: '' })
+        setFile(null)
+        setError('The document was saved, but your profile could not be refreshed. Please refresh the page.')
+        return
+      }
+      if ([400, 404, 422].includes(err?.response?.status)) setPendingUpload(null)
       setError(uploadError(err))
     } finally {
       setBusy(false)
@@ -514,10 +526,10 @@ function DocumentsStep({ profile, setProfile, onStatus }) {
           )}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={() => input.current?.click()} className="btn-outline min-h-11"><Icon name="file" className="h-4 w-4" /> {file ? 'Change file' : 'Choose file'}</button>
+          <button type="button" disabled={Boolean(pendingUpload)} onClick={() => input.current?.click()} className="btn-outline min-h-11"><Icon name="file" className="h-4 w-4" /> {file ? 'Change file' : 'Choose file'}</button>
           <span className="text-sm text-slate-600">{file ? file.name : 'PDF, JPG or PNG, up to 10MB'}</span>
           <input ref={input} type="file" accept="application/pdf,image/jpeg,image/png" className="hidden" onChange={(e) => { setFile(e.target.files?.[0] || null); e.target.value = '' }} />
-          <button type="button" onClick={add} disabled={busy} className="btn-primary ml-auto min-h-11 px-5">{busy ? 'Uploading…' : 'Upload'}</button>
+          <button type="button" onClick={add} disabled={busy} className="btn-primary ml-auto min-h-11 px-5">{busy ? 'Uploading…' : pendingUpload ? 'Retry upload' : 'Upload'}</button>
         </div>
         <ErrorBox className="mt-3">{error}</ErrorBox>
       </fieldset>

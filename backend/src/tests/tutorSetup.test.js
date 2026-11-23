@@ -2,16 +2,27 @@
 // submitting for verification, Admin approval of an identity document + a qualification, and that every tutor
 // can use the tutor features whether or not they are verified.
 import bcrypt from 'bcrypt'
+import { PDFDocument } from 'pdf-lib'
 import { prisma } from '../config/prisma.js'
 import { env } from '../config/env.js'
 import { api, makeAdmin, makeParent, resetDb, startServer, stopServer } from './helpers.js'
 
+const savedCloudinary = { ...env.cloudinary }
+const originalFetch = globalThis.fetch
+let testPdf
 beforeAll(async () => {
-  env.cloudinary.cloudName = 'demo'
+  Object.assign(env.cloudinary, { cloudName: 'demo', apiKey: 'test-key', apiSecret: 'test-secret' })
+  const pdf = await PDFDocument.create()
+  pdf.addPage([100, 100])
+  testPdf = Buffer.from(await pdf.save())
   await resetDb()
   await startServer()
 })
-afterAll(stopServer)
+beforeEach(() => {
+  globalThis.fetch = (url, options) => String(url).startsWith('https://api.cloudinary.com/') ? Promise.resolve(new Response(testPdf, { status: 200 })) : originalFetch(url, options)
+})
+afterEach(() => { globalThis.fetch = originalFetch })
+afterAll(async () => { Object.assign(env.cloudinary, savedCloudinary); await stopServer() })
 
 const PHOTO = 'https://res.cloudinary.com/demo/image/upload/tutor.jpg'
 const tutorOwners = new Map()

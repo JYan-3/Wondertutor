@@ -63,3 +63,13 @@ test('approved funds await transfer and paid history shows reference and receipt
   expect(screen.getByText('Transfer reference: BANK123')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'View transfer receipt' })).toHaveAttribute('href', 'https://example.test/receipt')
 })
+
+test('a withdrawal on hold stays in pending history and explains why', async () => {
+  api.get.mockResolvedValue({ data: { ...view, held: 88, withdrawals: [
+    { id: 1, amount: 88, date: '2026-11-19', status: 'APPROVED', payoutStatus: 'ON_HOLD', bank },
+  ] } })
+  render(<MemoryRouter><Earnings /></MemoryRouter>)
+  expect(await screen.findByText(/RM 88.00 · On hold — earnings under review/)).toBeInTheDocument()
+  expect(screen.getByText('Your earnings changed. Admin will review the withdrawal.')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Pending withdrawals' })).toBeInTheDocument()
+})

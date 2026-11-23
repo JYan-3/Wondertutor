@@ -1,4 +1,7 @@
 import { privateAsset, verificationLink } from './privateMedia.js'
+import { watermarkedDocument } from './verificationWatermark.js'
+import { isVerificationUpload } from './verificationUpload.js'
+import { queueRejectedAsset, processVerificationCleanup } from './verificationCleanup.js'
 import { baseCommission } from './systemSettings.service.js'
 import { v2 as cloudinary } from 'cloudinary'
 // Tutor profile setup and verification [YH].
@@ -140,13 +143,52 @@ export async function saveProfile(tutor, data) {
   return loadSetup(tutor.id)
 }
 
-export async function addDocument(tutor, data) {
-  return prisma.$transaction(async tx => {
+async function finishRejectedUpload(tutor, outcome) {
+  if (outcome.publicId && !(await processVerificationCleanup(tutor.id, outcome.publicId))) {
+    throw new AppError(503, 'Could not remove the rejected upload. Please retry the same upload.')
+  }
+  if (outcome.error) throw outcome.error
+  return outcome.document
+}
+
+export async function cleanupRejectedUpload(tutor, url) {
+  if (typeof url !== 'string' || url.length > 500) return
+  const publicId = await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutor.id} FOR UPDATE`
+    return queueRejectedAsset(tx, tutor, url)
+  }, { timeout: 20000 })
+  return finishRejectedUpload(tutor, { publicId })
+}
+
+export async function addDocument(tutor, data) {
+  const outcome = await prisma.$transaction(async tx => {
+    // Serialize validation, cleanup and saved references for this tutor.
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutor.id} FOR UPDATE`
+    const folder = `wondertutor/qualifications/${tutor.userId}`
+    const asset = privateAsset(data.documentUrl, folder)
+    if (!asset) throw new AppError(400, 'Upload this document through your verification form')
+    if (isVerificationUpload(asset, tutor.userId)) {
+      const existing = await tx.qualification.findFirst({ where: { tutorId: tutor.id, documentUrl: data.documentUrl } })
+      if (existing) {
+        if (existing.kind === data.kind && existing.title === data.title && (existing.institution ?? null) === (data.institution ?? null) && (existing.year ?? null) === (data.year ?? null)) return { document: existing }
+        throw new AppError(409, 'This upload was already saved. Choose a new file for another document.')
+      }
+    }
     const count = await tx.qualification.count({ where: { tutorId: tutor.id } })
-    if (count >= 10) throw new AppError(400, 'You can upload up to 10 documents. Remove one first.')
-    return tx.qualification.create({ data: { ...data, tutorId: tutor.id } })
-  })
+    if (count >= 10) {
+      return { publicId: await queueRejectedAsset(tx, tutor, data.documentUrl), error: new AppError(400, 'You can upload up to 10 documents. Remove one first.') }
+    }
+    try {
+      await watermarkedDocument(data.documentUrl, folder, asset.format)
+    } catch (error) {
+      if (error.status === 422) return { publicId: await queueRejectedAsset(tx, tutor, data.documentUrl), error }
+      throw error
+    }
+    const document = await tx.qualification.create({ data: { ...data, tutorId: tutor.id } })
+    await tx.verificationCleanup.deleteMany({ where: { publicId: asset.id } })
+    return { document }
+  }, { timeout: 90000 })
+  return finishRejectedUpload(tutor, outcome)
 }
 
 // Removing an approved document puts the verified badge on hold until Admin approves a replacement:

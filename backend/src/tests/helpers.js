@@ -69,7 +69,7 @@ export async function resetDb() {
   for (const model of [
     'authSession',
     'accountWarning', 'refund', 'payment', 'review', 'attendance', 'sessionSummary', 'rescheduleRequest', 'complaint', 'booking',
-    'notification', 'matchingRequest', 'favouriteTutor', 'withdrawal', 'bankAccount', 'availabilitySlot',
+    'notification', 'matchingRequest', 'favouriteTutor', 'withdrawal', 'bankAccount', 'availabilitySlot', 'verificationCleanup',
     'availabilityException', 'portfolioItem', 'qualification', 'tutorSubject', 'child', 'tutorProfile', 'parentProfile', 'emailOtp', 'user', 'systemSetting',
   ]) await prisma[model].deleteMany()
   await prisma.systemSetting.createMany({

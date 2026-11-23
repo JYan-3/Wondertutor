@@ -2,6 +2,8 @@ import { prisma } from '../config/prisma.js'
 import { createHash } from 'node:crypto'
 import { env } from '../config/env.js'
 import { AppError } from '../utils/AppError.js'
+import { v2 as cloudinary } from 'cloudinary'
+import { newVerificationUploadName } from '../services/verificationUpload.js'
 
 // POST /api/uploads/signature
 // Cloudinary "signed upload": the browser sends the image directly to Cloudinary using this one-time signature,
@@ -20,6 +22,7 @@ export async function uploadSignature(req, res) {
       if (!Number.isSafeInteger(id) || id < 1) throw new AppError(400, 'Invalid withdrawal')
       const withdrawal = await prisma.withdrawal.findUnique({ where: { id } })
       if (!withdrawal || withdrawal.status !== 'APPROVED' || withdrawal.paidAt || withdrawal.legacyPaid) throw new AppError(409, 'This withdrawal is not awaiting transfer.')
+      if (withdrawal.transferStartedById !== req.user.id) throw new AppError(409, 'Only the admin handling this transfer can upload its receipt.')
       folder = 'wondertutor/withdrawals/' + id
     } else if (purpose === 'child-avatar') {
       if (req.user.role !== 'PARENT') throw new AppError(403, 'Parent access required')
@@ -36,6 +39,11 @@ export async function uploadSignature(req, res) {
       folder = 'wondertutor/attendance/' + id
     } else throw new AppError(400, 'Unknown upload purpose')
     const allowed_formats = purpose === 'attendance' || purpose === 'child-avatar' ? 'jpg,jpeg,png' : 'jpg,jpeg,png,pdf'
+    if (purpose === 'qualification') {
+      const public_id = newVerificationUploadName(req.user.id)
+      const params = { allowed_formats, folder, overwrite: false, public_id, timestamp, type: 'authenticated' }
+      return res.json({ cloudName, apiKey, ...params, signature: cloudinary.utils.api_sign_request(params, apiSecret) })
+    }
     const signature = createHash('sha1').update('allowed_formats=' + allowed_formats + '&folder=' + folder + '&timestamp=' + timestamp + '&type=authenticated' + apiSecret).digest('hex')
     return res.json({ cloudName, apiKey, timestamp, folder, signature, type: 'authenticated', allowed_formats })
   }

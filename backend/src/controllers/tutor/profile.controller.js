@@ -77,8 +77,15 @@ const documentSchema = z.object({
 
 // POST /tutor/documents: a qualification or identity document for Admin to review (starts as PENDING)
 export async function addDocument(req, res) {
-  const data = documentSchema.parse(req.body)
-  if (!privateAsset(data.documentUrl, 'wondertutor/qualifications/' + req.user.id))
+  const parsed = documentSchema.safeParse(req.body)
+  if (!parsed.success) {
+    await setup.cleanupRejectedUpload(req.tutor, req.body?.documentUrl)
+    throw parsed.error
+  }
+  const data = parsed.data
+  const folder = 'wondertutor/qualifications/' + req.user.id
+  const asset = privateAsset(data.documentUrl, folder)
+  if (!asset)
     throw new AppError(400, 'Upload this document through your verification form')
   const doc = await setup.addDocument(req.tutor, { ...data, documentUrl: unsignedReference(data.documentUrl) })
   res.status(201).json({ id: doc.id })

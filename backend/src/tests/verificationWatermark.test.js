@@ -134,3 +134,48 @@ test('does not return the original when processing fails', async () => {
   expect(response.status).toBe(422)
   expect(await response.text()).not.toContain('invalid private data')
 })
+
+test.each(['jpg', 'png', 'pdf'])('tutor can save a readable %s and both tutor and admin can view it', async format => {
+  const input = format === 'pdf' ? await samplePdf() : await image(format)
+  jest.spyOn(globalThis, 'fetch').mockImplementation((url, options) => String(url).startsWith('https://api.cloudinary.com/') ? Promise.resolve(new Response(input, { status: 200 })) : originalFetch(url, options))
+  const documentUrl = `https://res.cloudinary.com/watermark-test/image/authenticated/v1/wondertutor/qualifications/${owner.user.id}/valid-${format}.${format}`
+  const saved = await api(owner.token).post('/tutor/documents', { kind: 'QUALIFICATION', title: `Readable ${format}`, documentUrl })
+  expect(saved.status).toBe(201)
+  for (const [token, path] of [[owner.token, `/tutor/documents/${saved.id}/file`], [admin.token, `/admin/qualifications/${saved.id}/file`]]) {
+    const response = await originalFetch(apiBase() + path, { headers: authHeaders(token) })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toMatch(/no-store/)
+  }
+  expect((await api(admin.token).post(`/admin/qualifications/${saved.id}/review`, { status: 'APPROVED' })).status).toBe(200)
+  expect((await api(owner.token).get('/tutor/profile')).documents.find(doc => doc.id === saved.id).status).toBe('APPROVED')
+})
+
+test('invalid or oversized uploads are not saved for admin verification', async () => {
+  const overlong = await PDFDocument.create()
+  for (let i = 0; i < 31; i++) overlong.addPage([100, 100])
+  const files = [
+    { name: 'mismatch.jpg', input: await image('png') },
+    { name: 'invalid.pdf', input: Buffer.from('invalid PDF') },
+    { name: 'pages.pdf', input: Buffer.from(await overlong.save()) },
+    { name: 'large.png', input: Buffer.alloc(10 * 1024 * 1024 + 1) },
+  ]
+  let current
+  jest.spyOn(globalThis, 'fetch').mockImplementation((url, options) => String(url).startsWith('https://api.cloudinary.com/') ? Promise.resolve(new Response(current, { status: 200 })) : originalFetch(url, options))
+  const count = await prisma.qualification.count({ where: { tutorId: owner.tutor.id } })
+  for (const file of files) {
+    current = file.input
+    const documentUrl = `https://res.cloudinary.com/watermark-test/image/authenticated/v1/wondertutor/qualifications/${owner.user.id}/${file.name}`
+    const response = await api(owner.token).post('/tutor/documents', { kind: 'QUALIFICATION', title: 'Invalid document', documentUrl })
+    expect(response.status).toBe(422)
+  }
+  expect(await prisma.qualification.count({ where: { tutorId: owner.tutor.id } })).toBe(count)
+})
+
+test('missing private uploads and another tutor’s documents cannot be submitted', async () => {
+  jest.spyOn(globalThis, 'fetch').mockImplementation((url, options) => String(url).startsWith('https://api.cloudinary.com/') ? Promise.resolve(new Response('', { status: 404 })) : originalFetch(url, options))
+  const url = id => `https://res.cloudinary.com/watermark-test/image/authenticated/v1/wondertutor/qualifications/${id}/missing.pdf`
+  const post = (token, documentUrl) => api(token).post('/tutor/documents', { kind: 'IDENTITY', title: 'Identity', documentUrl })
+  expect((await post(owner.token, url(owner.user.id))).status).toBe(404)
+  expect((await post(owner.token, url(other.user.id))).status).toBe(400)
+  expect((await post(parent.token, url(owner.user.id))).status).toBe(403)
+})

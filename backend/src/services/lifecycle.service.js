@@ -15,6 +15,7 @@ import { notify, notifyWithEmail } from './notification.service.js'
 import { promoteChildren } from './progression.service.js'
 import { publicReference } from '../utils/publicIds.js'
 import { cleanupExpiredSessions } from './session.service.js'
+import { retryVerificationCleanups } from './verificationCleanup.js'
 
 import { paymentDeadline, PAYMENT_DEADLINE_MINUTES } from './paymentWindow.js'
 export { PAYMENT_DEADLINE_MINUTES }
@@ -115,14 +116,18 @@ export async function sendPaymentReminders(now = new Date()) {
 
 // One finite pass, shared by the local timer and the Hostinger cron entry point.
 export async function runHousekeeping(now = new Date()) {
-  await cleanupExpiredSessions(now)
-  const { expired } = await expireStaleBookings(now)
-  const { sent } = await sendLessonReminders(now)
-  const { sent: paymentReminders } = await sendPaymentReminders(now)
-  const { moved } = await promoteChildren(now)
-  // A browser may disappear permanently without ever sending an unsubscribe.
-  await prisma.pushSubscription.deleteMany({ where: { expiresAt: { lte: now } } })
-  return { expired, sent, paymentReminders, moved }
+  try {
+    await cleanupExpiredSessions(now)
+    const { expired } = await expireStaleBookings(now)
+    const { sent } = await sendLessonReminders(now)
+    const { sent: paymentReminders } = await sendPaymentReminders(now)
+    const { moved } = await promoteChildren(now)
+    // A browser may disappear permanently without ever sending an unsubscribe.
+    await prisma.pushSubscription.deleteMany({ where: { expiresAt: { lte: now } } })
+    return { expired, sent, paymentReminders, moved }
+  } finally {
+    try { await retryVerificationCleanups(now) } catch { console.error('Verification upload cleanup could not be started.') }
+  }
 }
 
 // Runs once at start-up and then every few minutes. Errors are logged, never thrown, so the API keeps running.

@@ -35,6 +35,8 @@ export async function uploadDocument(file, privateDocument = false) {
   if (privateDocument) {
     form.append('type', sig.type)
     form.append('allowed_formats', sig.allowed_formats)
+    if (sig.public_id) form.append('public_id', sig.public_id)
+    if (sig.overwrite === false) form.append('overwrite', 'false')
   }
   form.append('file', file)
   form.append('api_key', sig.apiKey)

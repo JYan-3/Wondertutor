@@ -95,6 +95,7 @@ export async function watermarkedDocument(url, folder, format) {
   processing++
   try {
     const response = await fetch(signed, { redirect: 'error', signal: AbortSignal.timeout(20000) })
+    if (response.status === 404) throw new AppError(404, 'The uploaded document is no longer available. Please choose a file again.')
     if (!response.ok || !response.body) throw new AppError(502, 'Could not load this document. Please try again.')
     if (Number(response.headers.get('content-length')) > MAX_BYTES) throw new AppError(422, 'The document must be 10MB or smaller.')
     const chunks = []

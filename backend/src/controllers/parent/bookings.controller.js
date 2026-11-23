@@ -321,6 +321,8 @@ export async function requestRefund(req, res) {
 
   const disputing = attendanceDispute && b.status === 'COMPLETED'
   await prisma.$transaction(async (tx) => {
+    // Serialize refund requests with withdrawal approval and transfer checks.
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${b.tutorId} FOR UPDATE`
     if (await lockPaymentAndCountOpenRefunds(tx, b.payment.id)) throw alreadyAsked()
     if (await tx.complaint.count({ where: { bookingId: b.id, attendanceRefundId: { not: null } } })) throw alreadyAsked()
     // An administrator may have completed a refund, or the lesson may have

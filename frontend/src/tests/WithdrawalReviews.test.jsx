@@ -6,7 +6,7 @@ import { uploadImage } from '../components/PhotoPicker'
 
 vi.mock('../api/client', () => ({ default: { get: vi.fn(), post: vi.fn() }, errorMessage: e => e.message }))
 vi.mock('../components/PhotoPicker', () => ({ uploadImage: vi.fn(), uploadError: e => e.message }))
-const row = { id: 1, tutor: 'Iris', amount: '88', date: '2026-11-19', status: 'APPROVED', payoutStatus: 'AWAITING_TRANSFER',
+const row = { id: 1, tutor: 'Iris', amount: '88', date: '2026-11-19', status: 'APPROVED', payoutStatus: 'TRANSFER_IN_PROGRESS', transferOwned: true,
   bank: { bankName: 'Test Bank', accountName: 'Iris', lastFour: '8901' } }
 beforeEach(() => {
   vi.resetAllMocks()
@@ -60,7 +60,7 @@ test('a duplicate transfer response is displayed and does not resubmit', async (
 
 test('approval changes to awaiting transfer and reports an email failure clearly', async () => {
   api.get.mockResolvedValueOnce({ data: { requests: [{ ...row, status: 'PENDING', payoutStatus: 'PENDING' }] } })
-    .mockResolvedValue({ data: { requests: [row] } })
+    .mockResolvedValue({ data: { requests: [{ ...row, payoutStatus: 'AWAITING_TRANSFER' }] } })
   api.post.mockResolvedValue({ data: { emailSent: false } })
   render(<WithdrawalReviews />)
   fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
@@ -68,4 +68,58 @@ test('approval changes to awaiting transfer and reports an email failure clearly
   expect(await screen.findByText('Awaiting transfer')).toBeInTheDocument()
   expect(screen.getByRole('status')).toHaveTextContent('email could not be delivered')
   expect(api.post).toHaveBeenCalledWith('/admin/withdrawals/1/review', { status: 'APPROVED', expectedStatus: 'PENDING' })
+})
+
+test('a held withdrawal explains the problem and does not offer a transfer', async () => {
+  api.get.mockResolvedValue({ data: { requests: [{ ...row, payoutStatus: 'ON_HOLD', earned: 0, held: 88, paidOut: 0, balance: -88 }] } })
+  render(<WithdrawalReviews />)
+  expect(await screen.findByText('On hold — earnings changed')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Confirm earnings review' })).toBeDisabled()
+  expect(screen.queryByRole('button', { name: 'Start transfer' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Show bank details for transfer' })).toBeNull()
+})
+
+test('admin can reject a held request with a reason', async () => {
+  api.get.mockResolvedValue({ data: { requests: [{ ...row, payoutStatus: 'ON_HOLD', earned: 0, held: 88, paidOut: 0, balance: -88 }] } })
+  render(<WithdrawalReviews />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Reject held request' }))
+  fireEvent.change(screen.getByLabelText('Reason for rejection'), { target: { value: 'Earnings are under refund review.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm decision' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/withdrawals/1/reject-held', { reason: 'Earnings are under refund review.' }))
+})
+
+test('only the admin handling the transfer can see the recording form', async () => {
+  api.get.mockResolvedValue({ data: { requests: [{ ...row, transferOwned: false }] } })
+  render(<WithdrawalReviews />)
+  expect(await screen.findByText('Another admin is handling this transfer. Do not send money.')).toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Record transfer as paid' })).toBeNull()
+})
+
+test('admin can start a transfer and release it after checking the bank', async () => {
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+  api.get.mockResolvedValueOnce({ data: { requests: [{ ...row, payoutStatus: 'AWAITING_TRANSFER' }] } })
+    .mockResolvedValueOnce({ data: { requests: [row] } })
+    .mockResolvedValue({ data: { requests: [{ ...row, payoutStatus: 'AWAITING_TRANSFER' }] } })
+  render(<WithdrawalReviews />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Start transfer' }))
+  expect(await screen.findByRole('button', { name: 'Release transfer' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Release transfer' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/withdrawals/1/release-transfer', { confirmedNoTransfer: true }))
+  expect(api.post).toHaveBeenCalledWith('/admin/withdrawals/1/start-transfer', {})
+  confirm.mockRestore()
+})
+
+test('a transfer already sent can be recorded after an earnings change with an extra confirmation', async () => {
+  api.get.mockResolvedValue({ data: { requests: [{ ...row, payoutStatus: 'TRANSFER_REVIEW', earned: 0, held: 88, paidOut: 0, balance: -88 }] } })
+  uploadImage.mockResolvedValue({ url: 'https://example.test/receipt.pdf', version: 1, signature: 'test' })
+  render(<WithdrawalReviews />)
+  expect(await screen.findByText(/Do not start a transfer/)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Bank transfer reference'), { target: { value: 'BANK123' } })
+  fireEvent.change(screen.getByLabelText('Transfer receipt'), { target: { files: [new File(['receipt'], 'receipt.pdf', { type: 'application/pdf' })] } })
+  const button = await screen.findByRole('button', { name: 'Record transfer as paid' })
+  expect(button).toBeDisabled()
+  fireEvent.click(screen.getByLabelText(/I checked the bank and confirm/))
+  fireEvent.click(screen.getByLabelText(/I confirm the bank transfer succeeded/))
+  fireEvent.click(button)
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/withdrawals/1/transfer', expect.objectContaining({ balanceChangedConfirmed: true })))
 })
