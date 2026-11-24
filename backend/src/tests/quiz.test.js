@@ -37,6 +37,11 @@ test('publication, marking, notifications, privacy, retries and versioning', asy
   const result = await api(parent.token).get(`/parent/quiz-attempts/${submitted.id}`)
   expect(result.score).toBe(9)
   expect(result.advice).toBe('Keep practising')
+  expect(result.child).toEqual({ id: parent.child.id, publicId: parent.child.publicId, name: parent.child.name })
+  const history = (await api(parent.token).get('/parent/quiz-attempts')).attempts
+  expect(history).toHaveLength(1)
+  expect(history[0].child).toEqual(result.child)
+  expect(history[0].version).toEqual({ quizId: created.id, quiz: { title: 'Fractions' } })
   let board = (await api(parent.token).get(`/parent/quizzes/${created.id}/leaderboard?version=${quiz.versionId}`)).leaderboard
   expect(board).toEqual([{ rank: 1, nickname: 'Math Star', score: 9, maxScore: 10 }])
   const retry = await api(parent.token).post(`/parent/quizzes/${created.id}/attempts`, { ...attempt, requestId: 'dfb3822c-9b0a-424a-858a-a0e3366c1f4e', answers: ['0', 'wrong', 'again'] })
@@ -45,9 +50,35 @@ test('publication, marking, notifications, privacy, retries and versioning', asy
   expect(board).toEqual([{ rank: 1, nickname: 'Math Star', score: 1, maxScore: 10 }])
   expect((await api(tutor.token).put(`/tutor/quizzes/${created.id}`, { ...body, title: 'Changed' })).status).toBe(200)
   expect((await api(parent.token).get(`/parent/quizzes/${created.id}`)).title).toBe('Fractions')
+  expect((await api(parent.token).get(`/parent/quiz-attempts/${submitted.id}`)).version.quiz.title).toBe('Fractions')
+  expect((await api(parent.token).get('/parent/quiz-attempts')).attempts.every(a => a.version.quiz.title === 'Fractions')).toBe(true)
   await api(tutor.token).post(`/tutor/quizzes/${created.id}/publish`)
   expect((await api(parent.token).post(`/parent/quizzes/${created.id}/attempts`, { ...attempt, requestId: 'efa1ff96-e1c2-487d-b942-666de36cf942' })).status).toBe(409)
-  expect((await api(parent.token).get(`/parent/quiz-attempts/${submitted.id}`)).version.content.title).toBe('Fractions')
+  const historical = await api(parent.token).get(`/parent/quiz-attempts/${submitted.id}`)
+  expect(historical.version.content.title).toBe('Fractions')
+  expect(historical.version.quiz.title).toBe('Fractions')
+  expect((await api(parent.token).get('/parent/quiz-attempts')).attempts.every(a => a.version.quiz.title === 'Fractions')).toBe(true)
+})
+
+test('deactivated authors receive no new quiz work while family history and retries remain available', async () => {
+  const t = await makeTutor(), p = await makeParent()
+  const q = await api(t.token).post('/tutor/quizzes', body)
+  const published = await api(t.token).post(`/tutor/quizzes/${q.id}/publish`)
+  const submission = { requestId: '923cf553-6bb4-419d-bd8a-ea51ea7198a3', childId: p.child.id, versionId: published.versionId, nickname: 'Star', answers: ['1', '30', 'Explanation'] }
+  const attempt = await api(p.token).post(`/parent/quizzes/${q.id}/attempts`, submission)
+  expect(attempt.status).toBe(201)
+  await prisma.user.update({ where: { id: t.user.id }, data: { status: 'DEACTIVATED' } })
+  expect((await api(p.token).get('/parent/quizzes')).quizzes.some(quiz => quiz.id === q.id)).toBe(false)
+  expect((await api(p.token).get(`/parent/quizzes/${q.id}`)).status).toBe(404)
+  expect((await api(p.token).get(`/parent/quizzes/${q.id}/leaderboard?version=${published.versionId}`)).status).toBe(404)
+  expect((await api(p.token).post(`/parent/quizzes/${q.id}/attempts`, { ...submission, requestId: '563b3fa2-6079-43cd-b489-2031010b095f' })).status).toBe(409)
+  expect((await api(p.token).post(`/parent/quizzes/${q.id}/attempts`, submission)).id).toBe(attempt.id)
+  const historical = await api(p.token).get(`/parent/quiz-attempts/${attempt.id}`)
+  expect(historical.status).toBe(200)
+  expect(historical.child.id).toBe(p.child.id)
+  const saved = (await api(p.token).get('/parent/quiz-attempts')).attempts.find(a => a.id === attempt.id)
+  expect(saved.child.publicId).toBe(p.child.publicId)
+  expect(saved.score).toBeNull()
 })
 
 test('draft validation, automatic result, ties and archived visibility', async () => {

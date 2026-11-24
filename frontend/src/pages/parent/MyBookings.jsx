@@ -14,6 +14,7 @@ import { fmtDate, fmtDateLong, fmtTime, fmtTimeRange, money, toYmd } from '../..
 import { matchesRecordRef, recordRef } from '../../lib/recordRef'
 import { canEditLessonLocation, hasConfirmedLessonLocation } from '../../lib/lessonLocation'
 import { lessonLocationError, lessonLocationPayload } from '../../lib/lessonLocationInput'
+import { paymentDeadline } from '../../lib/paymentWindow'
 
 const GROUPS = {
   pending: ['PENDING', 'COUNTER_OFFERED', 'AWAITING_PAYMENT'],
@@ -31,7 +32,7 @@ function groupFor(b, now) {
   return Object.keys(GROUPS).find(group => GROUPS[group].includes(b.status)) || 'all'
 }
 const joinable = (b, now) => b.status === 'CONFIRMED' && Date.parse(b.endAt) > now && b.teachingMode === 'ONLINE' && /^https:\/\//i.test(b.meetingLink || '')
-const payable = (b, now) => b.status === 'AWAITING_PAYMENT' && Date.parse(b.startAt) > now && (!b.payBy || Date.parse(b.payBy) > now)
+const payable = (b, now) => b.status === 'AWAITING_PAYMENT' && paymentDeadline(b).getTime() > now
 function orderBookings(rows, group, order) {
   const latestFirst = order === 'new' || (order === 'auto' && ['attention', 'completed', 'cancelled'].includes(group))
   return [...rows].sort((a, b) => latestFirst ? new Date(b.startAt) - new Date(a.startAt) : new Date(a.startAt) - new Date(b.startAt))
@@ -246,7 +247,7 @@ export default function MyBookings() {
       </section>})}
     </div>
 
-    <LessonDetails key={currentDetail ? recordRef(currentDetail) : 'closed'} booking={currentDetail} now={now} actionsDisabled={needsRefresh || acting} onClose={() => setDetail(null)} onChanged={load}
+    <LessonDetails key={'detail-' + (currentDetail ? recordRef(currentDetail) : 'closed')} booking={currentDetail} now={now} actionsDisabled={needsRefresh || acting} onClose={() => setDetail(null)} onChanged={load}
       onLocation={b => { if (!refreshRequired.current) { setDetail(null); setLocationFor(b) } }}
       actions={currentDetail && <div className="min-w-0 space-y-3">
         <ErrorBox>{needsRefresh ? loadError : notice}</ErrorBox>
@@ -258,23 +259,23 @@ export default function MyBookings() {
           <BookingDetailActions key={recordRef(currentDetail)} b={currentDetail} now={now} {...handlers} />
         </fieldset>}
       </div>} />
-    {locationFor && <LocationModal key={recordRef(locationFor)} booking={locationFor} now={now} onClose={() => setLocationFor(null)} onUpdate={updatedLocation} onRefresh={async () => {
+    {locationFor && <LocationModal key={'location-' + recordRef(locationFor)} booking={locationFor} now={now} onClose={() => setLocationFor(null)} onUpdate={updatedLocation} onRefresh={async () => {
       const { data } = await api.get('/parent/bookings')
       applyBookings(data)
       const fresh = data.bookings.find(b => matchesRecordRef(b, recordRef(locationFor)))
       if (!fresh) throw new Error('This booking is no longer available. Close this form and review your bookings.')
       return fresh
     }} />}
-    <RescheduleModal booking={rescheduleFor} onClose={() => setRescheduleFor(null)} onSubmit={async body => {
+    <RescheduleModal booking={rescheduleFor} now={now} onClose={() => setRescheduleFor(null)} onSubmit={async body => {
       try { await api.post('/parent/bookings/' + recordRef(rescheduleFor) + '/reschedule', body); setRescheduleFor(null); await load(); return null }
       catch (err) { return errorMessage(err) }
     }} />
-    <CancelModal key={cancelFor ? recordRef(cancelFor) : 'closed'} booking={cancelFor} error={notice} onClose={() => setCancelFor(null)} onConfirm={async reason => {
+    <CancelModal key={'cancel-' + (cancelFor ? recordRef(cancelFor) : 'closed')} booking={cancelFor} error={notice} onClose={() => setCancelFor(null)} onConfirm={async reason => {
       const cancelled = await act('/parent/bookings/' + recordRef(cancelFor) + '/cancel', { reason })
       if (cancelled) setCancelFor(null)
       return cancelled
     }} />
-    <ReviewModal key={reviewFor ? recordRef(reviewFor) : 'closed'} booking={reviewFor} onClose={() => setReviewFor(null)} onDone={() => { setReviewFor(null); load() }} />
+    <ReviewModal key={'review-' + (reviewFor ? recordRef(reviewFor) : 'closed')} booking={reviewFor} onClose={() => setReviewFor(null)} onDone={() => { setReviewFor(null); load() }} />
   </div>
 }
 
@@ -284,7 +285,9 @@ function bookingHint(b, now) {
   if (needsAttention(b, now)) return 'Attendance or completion needs review.'
   if (b.reschedule?.status === 'ESCALATED') return 'Time change under administrator review.'
   if (b.reschedule?.status === 'PENDING') return b.reschedule.requestedBy === 'PARENT' ? 'Reschedule requested; waiting for tutor.' : 'New time proposed — review the details.'
-  if (b.status === 'AWAITING_PAYMENT') return b.payBy ? 'Pay by ' + fmtDate(b.payBy) + ', ' + fmtTime(b.payBy) : 'Payment needed to confirm this lesson.'
+  if (b.status === 'AWAITING_PAYMENT') return payable(b, now)
+    ? 'Pay by ' + fmtDate(paymentDeadline(b)) + ', ' + fmtTime(paymentDeadline(b))
+    : 'The payment window has ended. Refresh to check the latest status.'
   if (b.status === 'COUNTER_OFFERED') return 'Tutor proposed a different rate.'
   if (b.status === 'PENDING') return 'Waiting for the tutor’s response.'
   if (b.status === 'DISPUTED') return 'Attendance is under administrator review.'
@@ -425,14 +428,14 @@ function BookingDetailActions({ b, now, onCancel, onReview, onReschedule, act })
       <div><p className="text-slate-600">Your proposed price</p><b>{money(b.proposedPrice)} / hour</b></div>
       <div><p className="text-slate-600">Tutor's counter-offer</p><b>{money(b.counterPrice)} / hour</b></div>
     </div>
-    <div className="grid gap-2 sm:grid-cols-2"><Btn kind="primary" onClick={() => act('/parent/bookings/' + recordRef(b) + '/accept-counter')}>Accept Counter Offer</Btn><Btn onClick={() => act('/parent/bookings/' + recordRef(b) + '/decline-counter')}>Decline</Btn></div>
+    <div className="grid gap-2 sm:grid-cols-2"><Btn kind="primary" onClick={() => act('/parent/bookings/' + recordRef(b) + '/accept-counter', { version: b.updatedAt })}>Accept Counter Offer</Btn><Btn onClick={() => act('/parent/bookings/' + recordRef(b) + '/decline-counter', { version: b.updatedAt })}>Decline</Btn></div>
     <NegotiationForm b={b} act={act} counter />
   </div>
   if (b.status === 'AWAITING_PAYMENT') return <div className="space-y-3">
-    {b.payBy && <p className="text-sm">Pay by {fmtDate(b.payBy)}, {fmtTime(b.payBy)} (Malaysia time).</p>}
+    <p className="text-sm">Pay by {fmtDate(paymentDeadline(b))}, {fmtTime(paymentDeadline(b))} (Malaysia time).</p>
     <RescheduleBanner b={b} act={act} />
     {payable(b, now) ? <Link to="/parent/payments" className="btn-primary min-h-11 w-full">Pay Now</Link> : <p className="text-sm text-amber-800">The payment window has ended. Refresh your bookings to check the latest status.</p>}
-    {future && <div className="grid gap-2 sm:grid-cols-2">{canMove && <Btn onClick={() => onReschedule(b)}>Reschedule</Btn>}<Btn kind="danger" onClick={() => onCancel(b)}>Cancel Booking</Btn></div>}
+    {future && <div className="grid gap-2 sm:grid-cols-2">{canMove && payable(b, now) && <Btn onClick={() => onReschedule(b)}>Reschedule</Btn>}<Btn kind="danger" onClick={() => onCancel(b)}>Cancel Booking</Btn></div>}
   </div>
   if (b.status === 'CONFIRMED' && ended && b.attendanceReview?.attendanceOutcome === 'NOT_HELD') return <div className="space-y-2 rounded-xl bg-brand-25 p-3 text-sm text-slate-700">
     <p className="font-bold text-navy">Admin confirmed this lesson did not take place.</p>

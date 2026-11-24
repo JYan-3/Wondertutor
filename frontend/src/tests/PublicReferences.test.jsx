@@ -19,7 +19,7 @@ vi.mock('../components/WarnUser', () => ({ default: () => null }))
 const child = { id: 1, publicId: 'bbeb101f-87b2-4ddb-9625-799f01ea005d', name: 'Sarah', educationLevel: 'PRIMARY', grade: 5, subjects: ['Mathematics'], bookingCount: 0 }
 const booking = {
   id: 7, publicId: '822299af-7798-4e30-984d-3dbe931bfb2f', status: 'COUNTER_OFFERED', subject: 'Mathematics',
-  startAt: '2027-01-02T09:00:00Z', endAt: '2027-01-02T10:00:00Z', createdAt: '2026-11-11T09:00:00Z',
+  startAt: '2027-01-02T09:00:00Z', endAt: '2027-01-02T10:00:00Z', createdAt: '2026-11-11T09:00:00Z', updatedAt: '2026-11-11T10:00:00Z',
   teachingMode: 'ONLINE', child, tutor: { id: 2, name: 'Ms Tan', rating: 4.5, reviewCount: 2 },
   proposedPrice: 50, counterPrice: 55, hourlyPrice: 55, totalAmount: 55, hours: 1,
 }
@@ -57,7 +57,7 @@ test.each([booking.publicId, '7'])('booking notification link %s opens details a
   render(<MemoryRouter initialEntries={[`/parent/bookings?booking=${ref}`]}><MyBookings /></MemoryRouter>)
   expect(await screen.findByTestId('lesson-details')).toHaveTextContent(booking.publicId)
   fireEvent.click(screen.getByRole('button', { name: 'Accept Counter Offer' }))
-  await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/parent/bookings/${booking.publicId}/accept-counter`, undefined))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/parent/bookings/${booking.publicId}/accept-counter`, { version: booking.updatedAt }))
 })
 
 test.each([booking.publicId, '7'])('complaint deep link %s preselects the lesson and preserves its public reference on submit', async ref => {

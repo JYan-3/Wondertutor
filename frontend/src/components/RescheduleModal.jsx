@@ -3,10 +3,11 @@ import api, { errorMessage } from '../api/client'
 import Icon from './ui/Icon'
 import { ErrorBox, Modal, Spinner } from './ui/Common'
 import { addDaysYmd, dateLabel, fmtDateLong, fmtTimeRange, hhmmLabel, mondayOfYmd, todayYmd } from '../lib/format'
+import { paymentDeadline } from '../lib/paymentWindow'
 
 // Ask the tutor for a new lesson time. Only the tutor's free 1-hour slots are offered, week by week,
 // so the parent cannot pick a time the tutor cannot teach. The tutor then accepts, or Admin decides.
-export default function RescheduleModal({ booking, onClose, onSubmit }) {
+export default function RescheduleModal({ booking, onClose, onSubmit, now = Date.now() }) {
   const [week, setWeek] = useState(() => mondayOfYmd(todayYmd()))
   const [days, setDays] = useState(null)
   const [pick, setPick] = useState(null) // { date, start }
@@ -16,14 +17,21 @@ export default function RescheduleModal({ booking, onClose, onSubmit }) {
 
   useEffect(() => {
     if (!booking) return
+    const controller = new AbortController()
     setDays(null)
-    api.get(`/parent/tutors/${booking.tutor.id}/slots`, { params: { from: week } })
-      .then((r) => setDays(r.data.days))
-      .catch((e) => setError(errorMessage(e)))
+    setPick(null)
+    setError('')
+    api.get(`/parent/tutors/${booking.tutor.id}/slots`, { params: { from: week }, signal: controller.signal })
+      .then((r) => { if (!controller.signal.aborted) setDays(r.data.days) })
+      .catch((e) => { if (!controller.signal.aborted) setError(errorMessage(e)) })
+    return () => controller.abort()
   }, [booking, week])
 
   if (!booking) return null
   const thisWeek = mondayOfYmd(todayYmd())
+  const freeForLesson = (slot, date) => slot.status === 'available'
+    && (!slot.mode || slot.mode === 'BOTH' || slot.mode === booking.teachingMode)
+    && (booking.status !== 'AWAITING_PAYMENT' || paymentDeadline({ payBy: booking.payBy, startAt: `${date}T${slot.start}:00+08:00` }).getTime() > now)
 
   async function submit() {
     if (!pick) return setError('Choose a new time first.')
@@ -42,7 +50,7 @@ export default function RescheduleModal({ booking, onClose, onSubmit }) {
       title="Request a new lesson time"
       footer={<>
         <button onClick={onClose} className="btn-outline">Keep current time</button>
-        <button disabled={busy || !pick} onClick={submit} className="btn-primary">{busy ? 'Sending…' : 'Send Request'}</button>
+        <button disabled={busy || !pick || !days} onClick={submit} className="btn-primary">{busy ? 'Sending…' : 'Send Request'}</button>
       </>}
     >
       <p className="text-sm text-slate-700">
@@ -57,10 +65,10 @@ export default function RescheduleModal({ booking, onClose, onSubmit }) {
       </div>
 
       <div className="mt-3 max-h-72 space-y-3 overflow-y-auto pr-1">
-        {!days ? <Spinner /> : days.every((d) => !d.slots.some((s) => s.status === 'available')) ? (
+        {!days ? !error && <Spinner /> : days.every((d) => !d.slots.some(s => freeForLesson(s, d.date))) ? (
           <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">No free times this week. Try the next week.</p>
         ) : days.map((d) => {
-          const free = d.slots.filter((s) => s.status === 'available')
+          const free = d.slots.filter(s => freeForLesson(s, d.date))
           if (!free.length) return null
           return (
             <div key={d.date}>

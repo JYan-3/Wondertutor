@@ -7,8 +7,8 @@ import { activeTutors } from '../../services/activeTutors.js'
 import { distanceKm, rankTutors } from '../../services/matching.service.js'
 import { tutorInclude, toTutorCard, toTutorProfile } from '../../services/tutor.service.js'
 import { SLOT_BLOCKING, getTutorSlots } from '../../services/booking.service.js'
-import { effectiveSlots, slotAllows } from '../../services/availability.service.js'
-import { addDays, mondayOf, mytParts, mytToDate, toMinutes, todayMyt } from '../../utils/time.js'
+import { effectiveSlots, slotAllows, slotsCoverInterval } from '../../services/availability.service.js'
+import { addDays, mondayOf, mytParts, mytToDate, todayMyt } from '../../utils/time.js'
 import { preferencesToCriteria } from '../../utils/preferences.js'
 import { hhmm, optionalText, ymd } from '../../utils/validators.js'
 
@@ -65,8 +65,7 @@ async function freeAt(tutors, date, time, mode) {
   const end = new Date(start.getTime() + 3600000)
   if (start <= new Date()) return new Set()
   const hours = await effectiveSlots(tutors.map((t) => t.id), [date]) // date change, then week, then usual hours
-  const covering = tutors.filter((t) => hours.get(t.id).get(date).some((a) =>
-    toMinutes(a.startTime) <= toMinutes(time) && toMinutes(a.endTime) >= toMinutes(time) + 60 && (!mode || slotAllows(a.mode, mode))))
+  const covering = tutors.filter(tutor => slotsCoverInterval(hours.get(tutor.id).get(date), start, end, mode))
   const busy = await prisma.booking.findMany({
     where: { tutorId: { in: covering.map((t) => t.id) }, status: { in: SLOT_BLOCKING }, startAt: { lt: end }, endAt: { gt: start } },
     select: { tutorId: true },

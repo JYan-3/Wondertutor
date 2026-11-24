@@ -2,6 +2,9 @@
 import { prisma } from '../config/prisma.js'
 import { requestReschedule, respondReschedule } from '../services/reschedule.service.js'
 import { bookingInclude } from '../services/booking.dto.js'
+import { jest } from '@jest/globals'
+import { mytToDate } from '../utils/time.js'
+import { paymentDeadline } from '../services/paymentWindow.js'
 import { MONDAY, api, makeAdmin, makeBooking, makeChild, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 let parent, tutor, admin, date
@@ -14,6 +17,7 @@ beforeAll(async () => {
   date = nextDate(MONDAY)
 })
 afterAll(stopServer)
+afterEach(() => jest.useRealTimers())
 
 const confirmed = (start = '17:00', child = parent.child) =>
   makeBooking({ parent: parent.parent, child, tutor: tutor.tutor, date, start, status: 'CONFIRMED' })
@@ -21,6 +25,66 @@ const full = (b) => prisma.booking.findUnique({ where: { id: b.id }, include: bo
 const ask = (b, body) => api(parent.token).post(`/parent/bookings/${b.id}/reschedule`, body)
 const answer = (b, rid, action) => api(parent.token).post(`/parent/bookings/${b.id}/reschedule/${rid}/${action}`)
 const hhmm = (d) => new Date(d).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' })
+
+// Keep database/network timers real while controlling only the lesson clock.
+const freezeAt = time => jest.useFakeTimers({
+  now: mytToDate(date, time),
+  doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'hrtime', 'performance', 'queueMicrotask'],
+})
+async function paymentWindowBooking(status = 'AWAITING_PAYMENT', payBy = mytToDate(date, '18:30')) {
+  const p = await makeParent()
+  const t = await makeTutor()
+  const b = await makeBooking({ parent: p.parent, child: p.child, tutor: t.tutor, date, start: '19:00', status, extra: { payBy } })
+  return { p, t, b: await full(b) }
+}
+
+describe('reschedule payment window', () => {
+  test.each(['16:30', '17:00'])('an unpaid lesson cannot request %s when the payment cutoff has already arrived', async startTime => {
+    const { p, b } = await paymentWindowBooking()
+    freezeAt('16:00')
+    await expect(requestReschedule({ booking: b, byUserId: p.user.id, date, startTime })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/more than one hour/) })
+    expect(await prisma.rescheduleRequest.count({ where: { bookingId: b.id } })).toBe(0)
+    expect((await full(b)).startAt).toEqual(b.startAt)
+  })
+
+  test('acceptance rechecks the proposed cutoff and leaves a request pending when it has passed', async () => {
+    const { p, t, b } = await paymentWindowBooking()
+    freezeAt('16:00')
+    const request = await requestReschedule({ booking: b, byUserId: p.user.id, date, startTime: '18:00' })
+    jest.setSystemTime(mytToDate(date, '17:00'))
+    await expect(respondReschedule({ booking: b, requestId: request.id, byUserId: t.user.id, accept: true })).rejects.toMatchObject({ status: 400 })
+    expect((await prisma.rescheduleRequest.findUnique({ where: { id: request.id } })).status).toBe('PENDING')
+    expect((await full(b)).startAt).toEqual(b.startAt)
+  })
+
+  test('acceptance keeps the saved payment deadline and refuses an expired hold even for a later lesson', async () => {
+    const { p, t, b } = await paymentWindowBooking('AWAITING_PAYMENT', mytToDate(date, '16:30'))
+    freezeAt('16:00')
+    const request = await requestReschedule({ booking: b, byUserId: p.user.id, date, startTime: '18:00' })
+    jest.setSystemTime(mytToDate(date, '16:30'))
+    await expect(respondReschedule({ booking: b, requestId: request.id, byUserId: t.user.id, accept: true })).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/payment window has ended/) })
+    expect((await full(b)).startAt).toEqual(b.startAt)
+    expect((await prisma.rescheduleRequest.findUnique({ where: { id: request.id } })).status).toBe('PENDING')
+  })
+
+  test('an unpaid reschedule with time to pay succeeds without extending the saved hold', async () => {
+    const { p, t, b } = await paymentWindowBooking()
+    freezeAt('16:00')
+    const request = await requestReschedule({ booking: b, byUserId: p.user.id, date, startTime: '18:00' })
+    await respondReschedule({ booking: b, requestId: request.id, byUserId: t.user.id, accept: true })
+    const moved = await full(b)
+    expect(moved).toMatchObject({ status: 'AWAITING_PAYMENT', startAt: mytToDate(date, '18:00'), payBy: b.payBy })
+    expect(paymentDeadline(moved)).toEqual(mytToDate(date, '17:00'))
+  })
+
+  test('a confirmed lesson can still be moved within the next hour', async () => {
+    const { p, t, b } = await paymentWindowBooking('CONFIRMED')
+    freezeAt('16:00')
+    const request = await requestReschedule({ booking: b, byUserId: p.user.id, date, startTime: '16:30' })
+    await respondReschedule({ booking: b, requestId: request.id, byUserId: t.user.id, accept: true })
+    expect(await full(b)).toMatchObject({ status: 'CONFIRMED', startAt: mytToDate(date, '16:30') })
+  })
+})
 
 describe('parent asks to reschedule', () => {
   test('an unanswered request cannot move a lesson after it has started', async () => {

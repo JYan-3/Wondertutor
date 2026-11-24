@@ -66,12 +66,14 @@ export async function publish(tutorId, id) {
 }
 export async function archive(tutorId, id) { await own(id, tutorId); return prisma.quiz.update({ where: { id }, data: { status: 'ARCHIVED' } }) }
 const publicInclude = { tutor: { include: { user: { select: { fullName: true } } } }, versions: { orderBy: { number: 'desc' }, take: 1 } }
+// Match the tutor directory: unavailable authors cannot receive new quiz work.
+const parentVisibleQuiz = { status: 'PUBLISHED', tutor: { user: { status: 'ACTIVE' } } }
 export async function parentList() {
-  const rows = await prisma.quiz.findMany({ where: { status: 'PUBLISHED' }, include: publicInclude, orderBy: { updatedAt: 'desc' } })
+  const rows = await prisma.quiz.findMany({ where: parentVisibleQuiz, include: publicInclude, orderBy: { updatedAt: 'desc' } })
   return rows.filter(q => q.versions.length).map(publicQuiz)
 }
 export async function parentQuiz(id) {
-  const q = await prisma.quiz.findFirst({ where: { id, status: 'PUBLISHED' }, include: publicInclude })
+  const q = await prisma.quiz.findFirst({ where: { id, ...parentVisibleQuiz }, include: publicInclude })
   if (!q || !q.versions.length) throw new AppError(404, 'Quiz not found.')
   return publicQuiz(q)
 }
@@ -86,7 +88,7 @@ export async function submit(parentId, quizId, raw) {
       if (existing.childId !== child.id || existing.version.quizId !== quizId) throw new AppError(409, 'This request has already been used.')
       return { id: existing.id }
     }
-    const q = await tx.quiz.findFirst({ where: { id: quizId, status: 'PUBLISHED' }, include: { versions: { orderBy: { number: 'desc' }, take: 1 }, tutor: true } })
+    const q = await tx.quiz.findFirst({ where: { id: quizId, ...parentVisibleQuiz }, include: { versions: { orderBy: { number: 'desc' }, take: 1 }, tutor: true } })
     if (!q || q.versions[0]?.id !== input.versionId) throw new AppError(409, 'This quiz has changed. Please open it again.')
     const questions = q.versions[0].content.questions
     if (input.answers.length !== questions.length || input.answers.some(a => !a)) throw new AppError(400, 'Answer every question before submitting.')
@@ -133,16 +135,27 @@ export async function review(tutorId, id, raw) {
     return updated
   })
 }
+const attemptChildSelect = { id: true, publicId: true, name: true }
 export async function result(parentId, id) {
-  const a = await prisma.quizAttempt.findFirst({ where: { id, child: { parentId } }, include: { version: { include: { quiz: { select: { title: true } } } } } })
-  if (!a) throw new AppError(404, 'Attempt not found.')
+  const row = await prisma.quizAttempt.findFirst({ where: { id, child: { parentId } }, include: { version: true, child: { select: attemptChildSelect } } })
+  if (!row) throw new AppError(404, 'Attempt not found.')
+  // Keep each attempt's published name even after the tutor edits or republishes it.
+  const a = { ...row, version: { ...row.version, quiz: { title: row.version.content.title } } }
   if (a.status !== 'PENDING') return a
   const answers = a.answers.map((x, i) => a.version.content.questions[i].type === 'LONG' ? { ...x, score: null, feedback: '' } : x)
   return { ...a, advice: null, answers, score: answers.reduce((sum, x) => sum + (x.score || 0), 0) }
 }
-export async function history(parentId) { const rows = await prisma.quizAttempt.findMany({ where: { child: { parentId } }, select: { id: true, status: true, nickname: true, score: true, maxScore: true, createdAt: true, version: { select: { quizId: true, quiz: { select: { title: true } } } }, child: { select: { name: true } } }, orderBy: { createdAt: 'desc' } }); return rows.map(a => a.status === 'PENDING' ? { ...a, score: null } : a) }
+export async function history(parentId) {
+  const rows = await prisma.quizAttempt.findMany({ where: { child: { parentId } }, select: { id: true, status: true, nickname: true, score: true, maxScore: true, createdAt: true, version: { select: { quizId: true, content: true } }, child: { select: attemptChildSelect } }, orderBy: { createdAt: 'desc' } })
+  return rows.map(a => ({
+    ...a,
+    score: a.status === 'PENDING' ? null : a.score,
+    // The history list needs the published title, never the question answer keys.
+    version: { quizId: a.version.quizId, quiz: { title: a.version.content.title } },
+  }))
+}
 export async function leaderboard(quizId, versionId) {
-  const quiz = await prisma.quiz.findFirst({ where: { id: quizId, status: 'PUBLISHED' }, include: { versions: { orderBy: { number: 'desc' }, take: 1 } } })
+  const quiz = await prisma.quiz.findFirst({ where: { id: quizId, ...parentVisibleQuiz }, include: { versions: { orderBy: { number: 'desc' }, take: 1 } } })
   if (!quiz || quiz.versions[0]?.id !== versionId) throw new AppError(404, 'Quiz not found.')
   const rows = await prisma.quizAttempt.findMany({ where: { versionId, status: 'MARKED' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { childId: true, nickname: true, score: true, maxScore: true } })
   const seen = new Set(), latest = rows.filter(a => { if (seen.has(a.childId)) return false; seen.add(a.childId); return true })

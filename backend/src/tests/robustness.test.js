@@ -105,8 +105,8 @@ describe('refund requests and cancelling', () => {
     const t = await makeTutor()
     const b = await makeBooking({ parent: parent.parent, child: parent.child, tutor: t.tutor, date: monday, start: '19:00', status: 'COUNTER_OFFERED', extra: { counterPrice: 70 } })
     const [first, second] = await Promise.all([
-      api(parent.token).post(`/parent/bookings/${b.id}/accept-counter`),
-      api(parent.token).post(`/parent/bookings/${b.id}/decline-counter`),
+      api(parent.token).post(`/parent/bookings/${b.id}/accept-counter`, { version: b.updatedAt.toISOString() }),
+      api(parent.token).post(`/parent/bookings/${b.id}/decline-counter`, { version: b.updatedAt.toISOString() }),
     ])
     // exactly one of the two answers wins; the other is told to refresh
     expect([first.status, second.status].filter((s) => s === 200)).toHaveLength(1)

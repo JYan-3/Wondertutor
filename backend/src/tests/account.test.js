@@ -2,7 +2,7 @@
 // "delete my account" (personal details go, lesson and payment records stay without a name).
 import { prisma } from '../config/prisma.js'
 import { outbox } from '../services/email.service.js'
-import { testSession, authHeaders, MONDAY, api, apiBase, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { testSession, authHeaders, MONDAY, api, apiBase, makeAdmin, makeBooking, makeChild, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 let tutor, monday
 beforeAll(async () => {
@@ -15,6 +15,21 @@ afterAll(stopServer)
 beforeEach(() => { outbox.length = 0 })
 
 const del = (p, body = {}) => api(p.token).post('/parent/account/delete', { confirmEmail: p.user.email, password: 'Test1234', ...body })
+const makeQuiz = () => prisma.quiz.create({
+  data: {
+    tutorId: tutor.tutor.id, title: 'Published fractions', description: 'Practice', subject: 'Mathematics', level: 'PRIMARY', grade: 5,
+    status: 'PUBLISHED', draft: { questions: [] },
+    versions: { create: { number: 1, content: {
+      title: 'Published fractions', description: 'Practice', subject: 'Mathematics', level: 'PRIMARY', grade: 5, quizMode: 'MIXED',
+      questions: [{ type: 'CHOICE', text: 'Choose', points: 2, options: ['One', 'Two'], correct: 1 }, { type: 'LONG', text: 'Explain', points: 4 }],
+    } } },
+  }, include: { versions: true },
+})
+const makeAttempt = (quiz, childId, extra = {}) => prisma.quizAttempt.create({ data: {
+  versionId: quiz.versions[0].id, childId, nickname: 'Quiz Star', status: 'MARKED', score: 5, maxScore: 6,
+  answers: [{ answer: '1', score: 2, feedback: '' }, { answer: 'My explanation', score: 3, feedback: 'Final feedback' }],
+  advice: 'Keep practising', reviewedAt: new Date(), ...extra,
+} })
 
 describe('privacy notice at sign-up', () => {
   const body = (n, extra = {}) => ({ role: 'PARENT', fullName: 'Miki Lim', email: `consent${n}@test.local`, phone: '012-345 6789', password: 'Parent1234', ...extra })
@@ -69,6 +84,28 @@ describe('download my data', () => {
 
   test('needs a login', async () => {
     expect((await fetch(`${apiBase()}/parent/account/export`)).status).toBe(401)
+  })
+
+  test('includes owned quiz attempts and their published snapshot while hiding unfinished tutor reviews', async () => {
+    const p = await makeParent(), other = await makeParent(), quiz = await makeQuiz()
+    const marked = await makeAttempt(quiz, p.child.id)
+    const pending = await makeAttempt(quiz, p.child.id, {
+      status: 'PENDING', reviewedAt: null, nickname: 'Still practising', advice: 'Private draft advice',
+      answers: [{ answer: '1', score: 2, feedback: '' }, { answer: 'Another explanation', score: 3, feedback: 'Private draft feedback' }],
+    })
+    await makeAttempt(quiz, other.child.id, { nickname: 'Another family' })
+    await prisma.quiz.update({ where: { id: quiz.id }, data: { title: 'Unpublished draft title' } })
+
+    const data = await api(p.token).get('/parent/account/export')
+    expect(data.quizAttempts.map(a => a.id)).toEqual([marked.id, pending.id])
+    expect(data.quizAttempts[0]).toMatchObject({
+      child: { publicId: p.child.publicId, name: p.child.name }, nickname: 'Quiz Star', score: 5, maxScore: 6,
+      advice: 'Keep practising', answers: [{ answer: '1', score: 2 }, { answer: 'My explanation', score: 3, feedback: 'Final feedback' }],
+      quiz: { id: quiz.id, versionId: quiz.versions[0].id, version: 1, title: 'Published fractions', questions: quiz.versions[0].content.questions },
+    })
+    expect(data.quizAttempts[1]).toMatchObject({ status: 'PENDING', score: 2, advice: null, reviewedAt: null, answers: [{ score: 2 }, { answer: 'Another explanation', score: null, feedback: '' }] })
+    expect(JSON.stringify(data.quizAttempts)).not.toMatch(/Another family|Unpublished draft title|Private draft/)
+    expect(data.quizAttempts.every(a => !('requestId' in a) && !('childId' in a))).toBe(true)
   })
 })
 
@@ -144,6 +181,22 @@ describe('delete my account', () => {
     expect((await api().post('/auth/login', { email: oldEmail, password: 'Test1234' })).status).toBe(401)
     const again = await api().post('/auth/register', { role: 'PARENT', fullName: 'Back Again', email: oldEmail, phone: '012-345 6789', password: 'Parent1234', acceptedPrivacy: true })
     expect(again.status).toBe(201)
+  })
+
+  test('erases every owned child’s quiz answers and nicknames without removing another family’s attempts', async () => {
+    const p = await makeParent(), other = await makeParent(), quiz = await makeQuiz()
+    const sibling = await makeChild(p.parent.id)
+    await makeAttempt(quiz, p.child.id, { nickname: 'Remove my nickname' })
+    await makeAttempt(quiz, sibling.id, { status: 'PENDING', reviewedAt: null, nickname: 'Remove sibling' })
+    const retained = await makeAttempt(quiz, other.child.id, { nickname: 'Other learner' })
+
+    expect((await del(p)).status).toBe(200)
+    expect(await prisma.quizAttempt.count({ where: { child: { parentId: p.parent.id } } })).toBe(0)
+    expect(await prisma.quizAttempt.findUnique({ where: { id: retained.id } })).toMatchObject({ nickname: 'Other learner', score: 5 })
+    const board = await api(other.token).get(`/parent/quizzes/${quiz.id}/leaderboard?version=${quiz.versions[0].id}`)
+    expect(board.leaderboard).toEqual([{ rank: 1, nickname: 'Other learner', score: 5, maxScore: 6 }])
+    const results = await api(tutor.token).get(`/tutor/quizzes/${quiz.id}/attempts`)
+    expect(results.attempts.map(a => a.id)).toEqual([retained.id])
   })
 
   test('a Google-only account (no password) confirms with the email alone', async () => {

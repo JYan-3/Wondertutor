@@ -98,7 +98,7 @@ test('a changed hourly offer emails the tutor the new and previous rates', async
 })
 
 test.each(['acceptCounter', 'declineCounter'])('%s emails the tutor exactly once', async action => {
-  await parentActions[action](req({}), response())
+  await parentActions[action](req({ version: booking.updatedAt.toISOString() }), response())
   expectTutorMail(action === 'acceptCounter' ? 'Counter offer accepted' : 'Counter offer declined')
   if (action === 'acceptCounter') expect(latestMail().html).toContain('not confirmed yet')
 })

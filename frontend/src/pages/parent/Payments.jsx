@@ -8,9 +8,9 @@ import LessonDetails from '../../components/LessonDetails'
 import { fmtDate, fmtTime, fmtTimeRange, money } from '../../lib/format'
 import { gradeLabel } from '../../lib/education'
 import { recordRef } from '../../lib/recordRef'
+import { paymentDeadline as payBy } from '../../lib/paymentWindow'
 
 const lessonTitle = (b) => `${b.subject}${b.isTrial ? ' Trial' : ''} Lesson`
-const payBy = (b) => new Date(Math.min(b.payBy ? Date.parse(b.payBy) : Infinity, Date.parse(b.startAt) - 3_600_000))
 const BANK_KEY = 'wt_preferred_bank'
 const savedBank = () => { try { return localStorage.getItem(BANK_KEY) || '' } catch { return '' } }
 

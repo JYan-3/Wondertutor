@@ -5,7 +5,7 @@ import { homeFor } from '../components/ProtectedRoute'
 
 // Plain-language Privacy Notice (Malaysia's Personal Data Protection Act 2010, PDPA) and the few rules of using the site.
 // Everything stated here is what the system really does. Contact details come from VITE_PRIVACY_EMAIL when it is set.
-const UPDATED = '20 November 2026'
+const UPDATED = '24 November 2026'
 const CONTACT_EMAIL = import.meta.env.VITE_PRIVACY_EMAIL
 
 function Section({ id, title, children }) {
@@ -61,7 +61,7 @@ export default function Privacy() {
             </thead>
             <tbody className="divide-y divide-brand-100">
               <tr><td className="px-4 py-2.5 font-semibold text-navy">Everyone</td><td className="px-4 py-2.5">Name, email, phone number, password (stored scrambled, nobody can read it), and the time you accepted this notice. If you use Google sign-in, your name and email from Google.</td></tr>
-              <tr><td className="px-4 py-2.5 font-semibold text-navy">Parents</td><td className="px-4 py-2.5">Your area for tutor matching, your children’s first names, level and subject, learning goals, tutor preferences, lessons booked, messages to tutors, payments, reviews and complaints. For a physical booking, the full lesson address and entrance pin you explicitly confirm are stored separately on that booking.</td></tr>
+              <tr><td className="px-4 py-2.5 font-semibold text-navy">Parents</td><td className="px-4 py-2.5">Your area for tutor matching, your children’s first names, level and subject, learning goals, tutor preferences, lessons booked, messages to tutors, payments, reviews, complaints and quiz attempts. Quiz attempts include answers, scores, tutor feedback and the leaderboard nickname you choose. For a physical booking, the full lesson address and entrance pin you explicitly confirm are stored separately on that booking.</td></tr>
               <tr><td className="px-4 py-2.5 font-semibold text-navy">Tutors</td><td className="px-4 py-2.5">Profile, photo, qualifications and identity documents for verification, availability, emergency contact, lessons taught, and attendance records (the phone’s location and a photo when checking in to a physical lesson).</td></tr>
               <tr><td className="px-4 py-2.5 font-semibold text-navy">Everyone, automatically</td><td className="px-4 py-2.5">A saved login on your device and the notifications we send you. We do not use advertising or tracking cookies.</td></tr>
             </tbody>
@@ -83,6 +83,7 @@ export default function Privacy() {
         <List items={[
           'The selected tutor sees your child’s first name, level, subject, learning goals and, for a physical booking, the full lesson address and confirmed entrance pin. This venue is used to coordinate the lesson and check the tutor’s GPS attendance. It is not shown on public profiles.',
           'Parents see a tutor’s public profile: name, photo, subjects, qualifications (once approved), rating and reviews. Reviews show the parent’s name.',
+          'The tutor who published a quiz can see attempts submitted to that quiz and mark long answers. Other parents can see leaderboard nicknames and fully marked scores. Use a nickname that does not identify your child.',
           'The centre’s admin team can see accounts, bookings, payments and complaints in order to run the service and help you.',
           'Companies that help us run the service see only what they need: Google (sign-in and the “I’m not a robot” check), Cloudinary (photos and documents), our email provider, our hosting provider, and ToyyibPay for payments (payer name, email, phone, lesson amount and payment reference).',
           'If you open the optional venue map, OpenStreetMap tile servers receive your IP address and viewed map area. The separate place-search box sends only the search terms you type there to Geoapify when enabled. We do not send the full lesson-address field or child/account details to that search service. You can enter coordinates instead. Opening a separate map link shares that location with the map provider.',
@@ -102,6 +103,7 @@ export default function Privacy() {
         <List items={[
           'Your account details stay while your account is open.',
           'When you delete your account, your name, contact details, address, children’s details and notifications are removed.',
+          'Your children’s quiz attempts, answers, tutor feedback and leaderboard nicknames are deleted with your account.',
           'Records of lessons and payments are kept without your name, because the centre must keep accounting records for the period the law requires (commonly several years).',
         ]} />
       </Section>

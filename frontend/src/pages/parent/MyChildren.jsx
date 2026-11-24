@@ -128,6 +128,7 @@ export default function MyChildren() {
             <div className="mt-3 grid grid-cols-2 gap-2">
               <button onClick={() => { applyChild(c); navigate('/parent/find-tutor/match') }} className="btn-accent col-span-2"><Icon name="search" className="h-4 w-4" /> Find a Tutor</button>
               <Link to={`/parent/children/${recordRef(c)}/progress`} className="btn-outline col-span-2"><Icon name="chart" className="h-4 w-4" /> View Learning Progress</Link>
+              <Link to={`/parent/quizzes?child=${recordRef(c)}`} className="btn-outline col-span-2"><Icon name="book" className="h-4 w-4" /> Practise quizzes</Link>
               {/* A child with lessons keeps their profile: bookings, payments and progress refer to it */}
               <button onClick={() => openForm(c)} className={`btn-outline ${c.bookingCount ? 'col-span-2' : ''}`}><Icon name="edit" className="h-4 w-4" /> Edit</button>
               {!c.bookingCount && <button onClick={() => { setError(''); setRemoving(c) }} className="btn-danger"><Icon name="trash" className="h-4 w-4" /> Remove</button>}

@@ -2,7 +2,8 @@
 import { prisma } from '../config/prisma.js'
 import { jest } from '@jest/globals'
 import { env } from '../config/env.js'
-import { MONDAY, api, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { outbox } from '../services/email.service.js'
+import { MONDAY, api, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 let parent, other, monday
 
@@ -143,12 +144,69 @@ describe('cancelling and refunds', () => {
   }
 
   test('parent cancelling a PAID lesson creates an ADMIN_REVIEW refund (never automatic)', async () => {
+    const activeAdmin = await makeAdmin()
+    const inactiveAdmin = await makeAdmin()
+    await prisma.user.update({ where: { id: inactiveAdmin.user.id }, data: { status: 'DEACTIVATED' } })
     const b = await paidBooking()
     const res = await api(parent.token).post(`/parent/bookings/${b.id}/cancel`, { reason: 'Clash with school' })
+    expect(res.status).toBe(200)
     expect(res.booking.status).toBe('CANCELLED')
     const refund = await prisma.refund.findFirst({ where: { payment: { bookingId: b.id } } })
     expect(refund.type).toBe('ADMIN_REVIEW')
     expect(refund.status).toBe('PENDING')
+    expect(await prisma.notification.findFirst({ where: { userId: activeAdmin.user.id, type: 'REFUND_REQUEST' } })).toMatchObject({ link: '/admin/finance' })
+    expect(await prisma.notification.count({ where: { userId: inactiveAdmin.user.id, type: 'REFUND_REQUEST' } })).toBe(0)
+    expect(await prisma.notification.findFirst({ where: { userId: parent.user.id, type: 'REFUND_REQUESTED' } })).toMatchObject({ link: '/parent/payments' })
+    const tutor = await prisma.tutorProfile.findUnique({ where: { id: b.tutorId }, include: { user: true } })
+    expect(outbox.some(mail => mail.to === tutor.user.email && mail.subject.includes('Booking cancelled'))).toBe(true)
+  })
+
+  test('simultaneous cancellation requests queue and announce a paid refund once', async () => {
+    const admin = await makeAdmin()
+    const b = await paidBooking()
+    const parentNoticeCount = await prisma.notification.count({ where: { userId: parent.user.id, type: 'REFUND_REQUESTED' } })
+    const replies = await Promise.all([1, 2].map(() => api(parent.token).post(`/parent/bookings/${b.id}/cancel`)))
+    expect(replies.filter(reply => reply.status === 200)).toHaveLength(1)
+    expect(replies.every(reply => [200, 400, 409].includes(reply.status))).toBe(true)
+    expect(await prisma.refund.count({ where: { payment: { bookingId: b.id } } })).toBe(1)
+    expect(await prisma.notification.count({ where: { userId: admin.user.id, type: 'REFUND_REQUEST' } })).toBe(1)
+    expect(await prisma.notification.count({ where: { userId: parent.user.id, type: 'REFUND_REQUESTED' } })).toBe(parentNoticeCount + 1)
+  })
+
+  test('a lesson rescheduled while cancellation loads must be reviewed again', async () => {
+    const b = await paidBooking()
+    const findBooking = prisma.booking.findFirst.bind(prisma.booking)
+    const spy = jest.spyOn(prisma.booking, 'findFirst').mockImplementationOnce(async args => {
+      const snapshot = await findBooking(args)
+      await prisma.booking.update({ where: { id: b.id }, data: { startAt: new Date(b.startAt.getTime() + 3600000), endAt: new Date(b.endAt.getTime() + 3600000) } })
+      return snapshot
+    })
+    try {
+      const reply = await api(parent.token).post(`/parent/bookings/${b.id}/cancel`)
+      expect(reply.status).toBe(409)
+      expect((await prisma.booking.findUnique({ where: { id: b.id } })).status).toBe('CONFIRMED')
+      expect(await prisma.refund.count({ where: { payment: { bookingId: b.id } } })).toBe(0)
+    } finally { spy.mockRestore() }
+  })
+
+  test('a payment refunded while cancellation loads is not queued or announced again', async () => {
+    const admin = await makeAdmin()
+    const b = await paidBooking()
+    const parentNoticeCount = await prisma.notification.count({ where: { userId: parent.user.id, type: 'REFUND_REQUESTED' } })
+    const findBooking = prisma.booking.findFirst.bind(prisma.booking)
+    const spy = jest.spyOn(prisma.booking, 'findFirst').mockImplementationOnce(async args => {
+      const snapshot = await findBooking(args)
+      await prisma.payment.update({ where: { bookingId: b.id }, data: { status: 'REFUNDED' } })
+      return snapshot
+    })
+    try {
+      const reply = await api(parent.token).post(`/parent/bookings/${b.id}/cancel`)
+      expect(reply.status).toBe(200)
+      expect(reply.booking.status).toBe('CANCELLED')
+      expect(await prisma.refund.count({ where: { payment: { bookingId: b.id } } })).toBe(0)
+      expect(await prisma.notification.count({ where: { userId: admin.user.id, type: 'REFUND_REQUEST' } })).toBe(0)
+      expect(await prisma.notification.count({ where: { userId: parent.user.id, type: 'REFUND_REQUESTED' } })).toBe(parentNoticeCount)
+    } finally { spy.mockRestore() }
   })
 
   test('refund request needs a real reason', async () => {

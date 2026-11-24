@@ -26,7 +26,7 @@ const num = (d) => (d == null ? null : Number(d))
 // GET /parent/account/export: one JSON file with the person's own data (never anyone else's, never the password)
 export async function exportMyData(req, res) {
   const parentId = req.parent.id
-  const [children, bookings, complaints, favourites, searches, notifications] = await Promise.all([
+  const [children, bookings, complaints, favourites, searches, notifications, quizAttempts] = await Promise.all([
     prisma.child.findMany({ where: { parentId }, orderBy: { id: 'asc' } }),
     prisma.booking.findMany({
       where: { parentId },
@@ -37,6 +37,11 @@ export async function exportMyData(req, res) {
     prisma.favouriteTutor.findMany({ where: { parentId }, include: { tutor: { include: { user: { select: { fullName: true } } } } } }),
     prisma.matchingRequest.findMany({ where: { parentId }, orderBy: { createdAt: 'asc' }, select: { createdAt: true, source: true, criteria: true } }),
     prisma.notification.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 200 }),
+    prisma.quizAttempt.findMany({
+      where: { child: { parentId } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      include: { child: { select: { publicId: true, name: true } }, version: { select: { id: true, quizId: true, number: true, content: true } } },
+    }),
   ])
 
   const data = {
@@ -88,6 +93,24 @@ export async function exportMyData(req, res) {
     savedTutors: favourites.map((f) => f.tutor.user.fullName),
     tutorSearches: searches,
     notifications: notifications.map((n) => ({ title: n.title, message: n.message, at: n.createdAt })),
+    quizAttempts: quizAttempts.map((a) => {
+      // A saved tutor review is private until completed, just as on the quiz result page.
+      const pending = a.status === 'PENDING'
+      const answers = pending ? a.answers.map((answer, i) => a.version.content.questions[i].type === 'LONG' ? { ...answer, score: null, feedback: '' } : answer) : a.answers
+      return {
+        id: a.id,
+        child: a.child,
+        nickname: a.nickname,
+        status: a.status,
+        answers,
+        score: pending ? answers.reduce((sum, answer) => sum + (answer.score || 0), 0) : a.score,
+        maxScore: a.maxScore,
+        advice: pending ? null : a.advice,
+        createdAt: a.createdAt,
+        reviewedAt: a.reviewedAt,
+        quiz: { id: a.version.quizId, versionId: a.version.id, version: a.version.number, ...a.version.content },
+      }
+    }),
   }
 
   res.set('Content-Type', 'application/json; charset=utf-8')
@@ -144,6 +167,7 @@ export async function deleteMyAccount(req, res) {
     // The address copied onto each booking, and the free-text the parent wrote to tutors
     prisma.booking.updateMany({ where: { parentId }, data: { location: null, latitude: null, longitude: null, locationConfirmedAt: null, messageToTutor: null } }),
     prisma.review.updateMany({ where: { parentId }, data: { photoUrl: null } }),
+    prisma.quizAttempt.deleteMany({ where: { child: { parentId } } }),
     prisma.child.updateMany({ where: { parentId }, data: { name: 'Child', notes: null, goals: null, preferredLanguage: null, photoUrl: null } }),
     prisma.favouriteTutor.deleteMany({ where: { parentId } }),
     prisma.matchingRequest.deleteMany({ where: { parentId } }),
@@ -178,7 +202,7 @@ export async function deleteMyAccount(req, res) {
       subject: 'WonderTutor — your account was deleted',
       html: renderEmail({
         name: fullName,
-        message: 'Your WonderTutor account has been deleted and your profile details have been removed. Required lesson, payment and complaint records are retained for accounting and dispute handling. Retained free-text notes and evidence may still contain names or other personal information. You are welcome to sign up again at any time.',
+        message: 'Your WonderTutor account has been deleted and your profile details and children’s quiz attempts have been removed. Required lesson, payment and complaint records are retained for accounting and dispute handling. Retained free-text notes and evidence may still contain names or other personal information. You are welcome to sign up again at any time.',
         note: 'If you did not do this, please contact the centre as soon as possible.',
       }),
     })

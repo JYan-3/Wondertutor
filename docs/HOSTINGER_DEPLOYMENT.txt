@@ -1,5 +1,5 @@
 WONDERTUTOR HOSTINGER DEPLOYMENT AND ARCHITECTURE
-Updated 16 November 2026; ToyyibPay integration added
+Updated 24 November 2026; quiz and tutor safety integration
 
 DECISION
 
@@ -112,6 +112,39 @@ the merchant secret, checking its reference and exact amount before confirming.
 Original bills are reused, including after an unsuccessful payment attempt.
 Ambiguous checkout timeouts stay pending; they must not create another bill.
 See TOYYIBPAY_DEPLOYMENT.txt for setup, recovery and acceptance checks.
+
+QUIZ RELEASE
+
+The tutor and parent quiz release also needs the additive migrations
+20261120120000_quiz_platform and 20261120121000_quiz_attempt_request.
+Use the existing npm run db:deploy release step with a backup before activating
+the updated code. Quiz authoring, attempts and tutor review use the same API
+and database. Published quiz versions preserve the questions used for each
+attempt. No extra quiz service or API key is required.
+
+TUTOR VERIFICATION AND WITHDRAWAL RELEASE
+
+Yan Hsi's safety release adds these migrations to the same db:deploy step:
+  20261122020000_withdrawal_transfer_safety
+  20261122030000_rejected_verification_cleanup
+  20261122040000_preserve_verification_cleanup
+They add transfer checks and a retry queue for removing rejected verification
+uploads. Review the SQL and take a backup before applying the additive migrations.
+Keep the existing Cloudinary configuration available to the API and housekeeping.
+The housekeeping command retries pending cleanup after its normal tasks.
+
+Run the locked backend npm ci step on Hostinger so sharp and @napi-rs/canvas use
+the correct Linux binaries. Verification previews also use pdf-lib and pdfjs-dist.
+Test the admin's View watermarked document link with a synthetic image and PDF
+after deployment, including a second request while a preview is being generated.
+Document previews require a signed-in admin or the document's tutor.
+
+Activate frontend and backend together. Accepting or declining a counter-offer
+now sends the booking version the parent saw. Older open pages receive a
+refresh message instead of acting on a changed price. Parent booking/payment
+pages also use the same effective deadline after a lesson is rescheduled.
+Approved withdrawals whose underlying balance changes need administrator
+rechecking before transfer. Follow the updated Withdrawals screen.
 
 OPTIONAL PHONE ALERTS FOR PARENTS AND TUTORS
 

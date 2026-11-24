@@ -12,6 +12,7 @@ import { notify, notifyWithEmail } from './notification.service.js'
 import { assertChildFree, assertSlotBookable } from './booking.service.js'
 import { formatLessonTime, mytToDate } from '../utils/time.js'
 import { publicReference } from '../utils/publicIds.js'
+import { paymentDeadline } from './paymentWindow.js'
 
 export const RESCHEDULABLE = ['AWAITING_PAYMENT', 'CONFIRMED']
 
@@ -22,6 +23,13 @@ const otherParty = (booking, userId) => (userId === booking.parent.userId ? book
 const linkFor = (booking, userId) => `/${userId === booking.parent.userId ? 'parent' : 'tutor'}/bookings?booking=${publicReference(booking)}`
 
 async function assertNewTimeOk(booking, startAt, endAt, db = prisma) {
+  if (booking.status === 'AWAITING_PAYMENT') {
+    const now = new Date()
+    // A time change keeps the original payment hold. It cannot revive an
+    // expired hold or move the lesson inside the one-hour payment cutoff.
+    if (paymentDeadline(booking) <= now) throw new AppError(400, 'The payment window has ended. Please book another time.')
+    if (paymentDeadline({ ...booking, startAt }) <= now) throw new AppError(400, 'Choose a new lesson time more than one hour away so payment can be completed.')
+  }
   await assertSlotBookable({ tutorId: booking.tutorId, startAt, endAt, ignoreBookingId: booking.id, teachingMode: booking.teachingMode }, db)
   await assertChildFree({ childId: booking.childId, startAt, endAt, ignoreBookingId: booking.id }, db)
 }
@@ -47,7 +55,7 @@ export async function requestReschedule({ booking, byUserId, date, startTime, re
     if (open) throw new AppError(409, open.status === 'ESCALATED'
       ? 'An administrator is reviewing the existing time change. Wait for their decision before requesting another change.'
       : 'There is already a reschedule request waiting for an answer')
-    await assertNewTimeOk(booking, startAt, endAt, tx)
+    await assertNewTimeOk(current, startAt, endAt, tx)
     return tx.rescheduleRequest.create({
       data: { bookingId: booking.id, requestedById: byUserId, newStartAt: startAt, newEndAt: endAt, reason: reason || null },
     })
@@ -82,7 +90,7 @@ export async function respondReschedule({ booking, requestId, byUserId, accept }
       if (!current || current.status !== booking.status || current.startAt.getTime() !== booking.startAt.getTime() ||
           current.endAt.getTime() !== booking.endAt.getTime() || current.startAt <= new Date()) throw stale()
       await answerPending(tx, request.id, 'APPROVED')
-      await assertNewTimeOk(booking, request.newStartAt, request.newEndAt, tx)
+      await assertNewTimeOk(current, request.newStartAt, request.newEndAt, tx)
       const { count } = await tx.booking.updateMany({
         where: { id: booking.id, status: booking.status, startAt: booking.startAt, endAt: booking.endAt },
         data: { startAt: request.newStartAt, endAt: request.newEndAt },

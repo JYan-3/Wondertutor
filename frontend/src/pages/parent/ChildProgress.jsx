@@ -57,7 +57,10 @@ export default function ChildProgress() {
         title={`${child.name}'s Learning Progress`}
         subtitle={`${gradeLabel(child.educationLevel, child.grade)}${stats.firstLessonAt ? ` · learning with WonderTutor since ${fmtDate(stats.firstLessonAt)}` : ''}`}
         sparkle={false}
-        right={<Link to={`/parent/children/${recordRef(child) || id}/report`} className="btn-primary px-5"><Icon name="file" className="h-4 w-4" /> Progress report</Link>}
+        right={<div className="flex flex-wrap gap-2">
+          <Link to={`/parent/quizzes?child=${recordRef(child) || id}`} className="btn-outline min-h-11 px-5"><Icon name="book" className="h-4 w-4" /> Practise quizzes</Link>
+          <Link to={`/parent/children/${recordRef(child) || id}/report`} className="btn-primary px-5"><Icon name="file" className="h-4 w-4" /> Progress report</Link>
+        </div>}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

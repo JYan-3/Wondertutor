@@ -5,7 +5,7 @@ import { screenModelProse } from '../services/assistant/answers.js'
 import { createSession, getSession, refFor, resolveRef, _clearAll, _store } from '../services/assistant/session.js'
 import { searchFaq, FAQ } from '../services/assistant/faq.js'
 import { executeTool, toolDeclarations, TOOLS } from '../services/assistant/tools.js'
-import { toolArgs } from '../services/assistant/schemas.js'
+import { cardSchema, toolArgs } from '../services/assistant/schemas.js'
 import { rateLimit } from '../middleware/rateLimit.js'
 
 test('assistant tools reject impossible calendar dates before querying records', () => {
@@ -115,6 +115,26 @@ describe('FAQ', () => {
     expect(entry.answer).toContain('Upcoming by default')
     expect(entry.answer).toContain('Booking group dropdown')
     expect(entry.answer).toContain('View Details')
+  })
+  test.each(['How do quizzes work?', 'Bagaimana kuiz dan papan kedudukan berfungsi?', '测验排行榜和昵称', 'quiz awaiting tutor review'])('quiz guidance is discoverable in the parent’s language: %s', question => {
+    expect(searchFaq(question)[0].id).toBe('faq.quizzes')
+  })
+  test('quiz guidance explains result access, grading and nickname privacy without promising account lookups', () => {
+    const entry = searchFaq('quiz results')[0]
+    expect(cardSchema.safeParse({ type: 'faq', entries: [{ id: entry.id, topic: entry.topic, answer: entry.answer }] }).success).toBe(true)
+    expect(entry.answer).toContain('Only published quizzes from active tutors')
+    expect(entry.answer).toContain('long answers wait for the publishing tutor')
+    expect(entry.answer).toContain('feedback and tutor advice stay hidden until the tutor completes the review')
+    expect(entry.answer).toContain('Refresh result')
+    expect(entry.answer).toContain('in-app notification')
+    expect(entry.answer).toContain('Your children’s attempts')
+    expect(entry.answer).toContain('keep their published quiz version')
+    expect(entry.answer).toContain('latest fully marked attempt for the current published version')
+    expect(entry.answer).toContain('nickname that does not identify your child')
+    expect(entry.answer).toContain('cannot retrieve your quiz attempts or scores or submit quiz answers')
+    expect(entry.answer).not.toMatch(/email|phone alert/i)
+    expect(FAQ.find(e => e.id === 'faq.assistant-scope').answer).toContain('must be opened on the Quizzes page')
+    expect(Object.keys(TOOLS).some(name => /quiz/i.test(name))).toBe(false)
   })
   test.each(['What happens if my paid lesson date has passed?', 'needs attention', '老师没来', 'kelas terlepas'])('missed-lesson FAQ stays truthful about unresolved paid lessons: %s', question => {
     const entry = searchFaq(question)[0]

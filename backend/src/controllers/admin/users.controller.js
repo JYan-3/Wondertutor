@@ -166,6 +166,10 @@ export async function reviewQualification(req, res) {
   if (!q) throw new AppError(404, 'Qualification not found')
 
   const verified = await prisma.$transaction(async (tx) => {
+    // Document removal and uploads use this order before changing verification.
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${q.tutorId} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM Qualification WHERE id = ${q.id} AND tutorId = ${q.tutorId} FOR UPDATE`
+    if (!(await tx.qualification.findFirst({ where: { id: q.id, tutorId: q.tutorId } }))) throw new AppError(404, 'Qualification not found')
     await tx.qualification.update({ where: { id: q.id }, data: { status, reviewNote: note || null } })
     // A tutor is "verified" while an identity document AND at least one qualification are approved
     return recomputeVerified(tx, q.tutorId)

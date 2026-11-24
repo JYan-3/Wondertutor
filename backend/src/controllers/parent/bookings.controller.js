@@ -251,10 +251,19 @@ export async function updateLessonLocation(req, res) {
   res.json({ booking: toBookingDto(booking) })
 }
 
+function requireCurrentOffer(req, booking) {
+  const input = z.object({ version: z.iso.datetime() }).safeParse(req.body)
+  if (!input.success || input.data.version !== booking.updatedAt.toISOString()) {
+    throw new AppError(409, 'This counter offer has changed. Please refresh the booking and check the price before responding.')
+  }
+}
+
+// The parent's decision applies to the exact offer displayed on their screen.
 // POST /parent/bookings/:id/accept-counter: parent agrees to the tutor's price, then must pay
 export async function acceptCounter(req, res) {
   const b = await ownBooking(req)
   if (b.status !== 'COUNTER_OFFERED' || b.counterPrice == null) throw new AppError(400, 'There is no counter offer to accept')
+  requireCurrentOffer(req, b)
   await prisma.$transaction(async (tx) => {
     // Use the same resource order as booking creation and availability changes.
     // Two competing counter offers must not both reserve the tutor's last slot.
@@ -266,7 +275,7 @@ export async function acceptCounter(req, res) {
     await assertChildFree({ childId: b.childId, startAt: b.startAt, endAt: b.endAt, ignoreBookingId: b.id }, tx)
     assertCanAccept(b.startAt)
     const changed = await tx.booking.updateMany({
-      where: { id: b.id, status: b.status, counterPrice: b.counterPrice, startAt: b.startAt, endAt: b.endAt },
+      where: { id: b.id, status: b.status, updatedAt: b.updatedAt, counterPrice: b.counterPrice, startAt: b.startAt, endAt: b.endAt },
       data: { status: 'AWAITING_PAYMENT', agreedPrice: b.counterPrice, payBy: newPayBy(b.startAt) },
     })
     if (!changed.count) throw new AppError(409, 'This counter offer has changed. Please refresh the page and try again.')
@@ -285,7 +294,12 @@ export async function acceptCounter(req, res) {
 export async function declineCounter(req, res) {
   const b = await ownBooking(req)
   if (b.status !== 'COUNTER_OFFERED') throw new AppError(400, 'There is no counter offer to decline')
-  await changeStatus(prisma, b, { status: 'CANCELLED', cancelReason: 'Parent declined the counter offer', cancelledById: req.user.id })
+  requireCurrentOffer(req, b)
+  const changed = await prisma.booking.updateMany({
+    where: { id: b.id, status: b.status, updatedAt: b.updatedAt },
+    data: { status: 'CANCELLED', cancelReason: 'Parent declined the counter offer', cancelledById: req.user.id },
+  })
+  if (!changed.count) throw new AppError(409, 'This counter offer has changed. Please refresh the booking and check the price before responding.')
   const updated = await reload(b.id)
   await notifyWithEmail(b.tutor.userId, {
     type: 'COUNTER_DECLINED',
@@ -362,17 +376,27 @@ export async function cancelBooking(req, res) {
     throw new AppError(400, 'This booking can no longer be cancelled')
   if (b.status === 'CONFIRMED' && b.startAt <= new Date()) throw new AppError(400, 'This lesson has already started')
 
-  await prisma.$transaction(async (tx) => {
+  const queuedRefund = await prisma.$transaction(async (tx) => {
+    // Use the earnings lock before changing the lesson or its refund reservation.
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${b.tutorId} FOR UPDATE`
+    // Gateway settlement also locks the payment before changing the booking.
+    await tx.$queryRaw`SELECT id FROM Payment WHERE bookingId = ${b.id} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${b.id} FOR UPDATE`
+    const current = await tx.booking.findUnique({ where: { id: b.id }, include: { payment: true } })
+    if (!current || current.updatedAt.getTime() !== b.updatedAt.getTime() || (current.status === 'CONFIRMED' && current.startAt <= new Date()))
+      throw new AppError(409, 'This booking has changed. Please refresh before cancelling it.')
     await changeStatus(tx, b, { status: 'CANCELLED', cancelReason: reason || 'Cancelled by parent', cancelledById: req.user.id })
     // A paid lesson goes to Admin for a refund decision, unless a refund request for it is already open
-    if (b.status === 'CONFIRMED' && b.payment?.status === 'PAID' && !(await lockPaymentAndCountOpenRefunds(tx, b.payment.id))) {
-      await tx.refund.create({
-        data: { paymentId: b.payment.id, amount: b.payment.amount, type: 'ADMIN_REVIEW', reason: reason || 'Parent cancelled the booking' },
+    let refund = null
+    if (current.status === 'CONFIRMED' && current.payment?.status === 'PAID' && !(await lockPaymentAndCountOpenRefunds(tx, current.payment.id))) {
+      refund = await tx.refund.create({
+        data: { paymentId: current.payment.id, amount: current.payment.amount, type: 'ADMIN_REVIEW', reason: reason || 'Parent cancelled the booking' },
       })
     }
     // A checkout that was started but not finished can never be completed for a cancelled lesson
-    if (b.payment?.status === 'PENDING') await tx.payment.update({ where: { id: b.payment.id }, data: { status: 'FAILED' } })
+    if (current.payment?.status === 'PENDING') await tx.payment.update({ where: { id: current.payment.id }, data: { status: 'FAILED' } })
     await tx.rescheduleRequest.updateMany({ where: { bookingId: b.id, status: 'PENDING' }, data: { status: 'REJECTED' } })
+    return refund
   })
   const updated = await reload(b.id)
 
@@ -382,6 +406,19 @@ export async function cancelBooking(req, res) {
     message: `${req.user.fullName} cancelled the ${b.subject} lesson on ${formatLessonTime(b.startAt, b.endAt)}.${reason ? ` Reason: ${reason}` : ''}`,
     link: '/tutor/bookings?booking=' + publicReference(b),
   })
+  if (queuedRefund) {
+    const admins = await prisma.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } })
+    await Promise.all(admins.map(a => notify(a.id, {
+      type: 'REFUND_REQUEST', title: 'Cancelled lesson needs refund review',
+      message: `${req.user.fullName} cancelled the ${b.subject} lesson and requested a refund of RM ${Number(queuedRefund.amount).toFixed(2)}.`,
+      link: '/admin/finance',
+    })))
+    await notify(req.user.id, {
+      type: 'REFUND_REQUESTED', title: 'Cancellation refund request sent',
+      message: 'Your booking was cancelled and the refund request was sent for admin review. Our team will update you.',
+      link: '/parent/payments',
+    })
+  }
   res.json({ booking: toBookingDto(updated) })
 }
 

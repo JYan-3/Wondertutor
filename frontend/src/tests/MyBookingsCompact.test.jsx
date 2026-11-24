@@ -66,6 +66,34 @@ test('an empty Upcoming view points parents to their pending requests', async ()
   expect(screen.getByRole('link', { name: 'View pending requests' })).toHaveAttribute('href', '/parent/bookings?tab=pending')
 })
 
+test.each([
+  ['a rescheduled lesson', '2026-11-14T06:00:00Z'],
+  ['a legacy lesson', null],
+])('%s uses its current one-hour payment cutoff in the row and details', async (_label, payBy) => {
+  const unpaid = booking(1, { status: 'AWAITING_PAYMENT', startAt: '2026-11-13T08:00:00Z', endAt: '2026-11-13T09:00:00Z', payBy })
+  open([unpaid], '/parent/bookings?tab=pending')
+  expect(within(await screen.findByRole('article')).getByText('Pay by Fri, 13 Nov 2026, 3:00 PM')).toBeInTheDocument()
+  fireEvent.click(within(row(1)).getByRole('button', { name: 'View Details' }))
+  expect(within(screen.getByRole('dialog')).getByText('Pay by Fri, 13 Nov 2026, 3:00 PM (Malaysia time).')).toBeInTheDocument()
+  expect(within(screen.getByRole('dialog')).getByRole('link', { name: 'Pay Now' })).toBeInTheDocument()
+})
+
+test.each(['2026-11-14T06:00:00Z', null])('an unpaid lesson within one hour cannot offer payment even when its saved deadline is %s', async payBy => {
+  open([booking(1, { status: 'AWAITING_PAYMENT', startAt: '2026-11-13T06:30:00Z', endAt: '2026-11-13T07:30:00Z', payBy })], '/parent/bookings?tab=pending')
+  await screen.findByRole('article')
+  expect(screen.queryByRole('link', { name: 'Pay Now' })).not.toBeInTheDocument()
+  fireEvent.click(within(row(1)).getByRole('button', { name: 'View Details' }))
+  expect(within(screen.getByRole('dialog')).getByText(/The payment window has ended/)).toBeInTheDocument()
+  expect(within(screen.getByRole('dialog')).queryByRole('link', { name: 'Pay Now' })).not.toBeInTheDocument()
+  expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'Reschedule' })).not.toBeInTheDocument()
+})
+
+test('the saved acceptance deadline still wins when it is earlier than the lesson cutoff', async () => {
+  open([booking(1, { status: 'AWAITING_PAYMENT', startAt: '2026-11-14T08:00:00Z', endAt: '2026-11-14T09:00:00Z', payBy: '2026-11-13T07:00:00Z' })], '/parent/bookings?tab=pending')
+  await screen.findByRole('article')
+  expect(within(row(1)).getByText('Pay by Fri, 13 Nov 2026, 3:00 PM')).toBeInTheDocument()
+})
+
 test('physical venue and management actions remain in details, and cancellation replaces the details dialog', async () => {
   const exact = booking(1, { teachingMode: 'PHYSICAL', location: '12 Example Street, 50000 Kuala Lumpur', latitude: 3.1412, longitude: 101.6123, locationConfirmedAt: serverTime, locationCanBeEdited: false })
   open([exact])
@@ -92,7 +120,7 @@ test('counter-offer errors stay visible in details and a successful retry update
   fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept Counter Offer' }))
   await waitFor(() => expect(within(screen.getByRole('dialog')).getByRole('link', { name: 'Pay Now' })).toBeInTheDocument())
   expect(within(screen.getByRole('dialog')).queryByRole('button', { name: 'Accept Counter Offer' })).not.toBeInTheDocument()
-  expect(api.post.mock.calls[1][0]).toBe(`/parent/bookings/${counter.publicId}/accept-counter`)
+  expect(api.post.mock.calls[1]).toEqual([`/parent/bookings/${counter.publicId}/accept-counter`, { version: counter.updatedAt }])
 })
 
 test('a non-upcoming UUID deep link opens its details and leaves the correct group visible after closing', async () => {

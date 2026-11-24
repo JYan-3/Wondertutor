@@ -813,7 +813,7 @@ describe('one availability rule for parents: date change, then week, then usual 
     const { parent, child, token: parentToken } = await makeParent()
     const b = await makeBooking({ parent, child, tutor, date: monday(2), start: '16:00', status: 'COUNTER_OFFERED', extra: { counterPrice: 55, teachingMode: 'PHYSICAL' } })
     await putWeek(token, monday(2), [slot(1, '16:00', '18:00', 'ONLINE')])
-    const res = await api(parentToken).post(`/parent/bookings/${b.id}/accept-counter`)
+    const res = await api(parentToken).post(`/parent/bookings/${b.id}/accept-counter`, { version: b.updatedAt.toISOString() })
     expect(res.status).toBe(400)
     expect(res.message).toBe('This hour is for online lessons only')
   })

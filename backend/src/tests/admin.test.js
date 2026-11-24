@@ -1,5 +1,6 @@
 // Admin user management + complaints, and account security rules.
 import { prisma } from '../config/prisma.js'
+import { jest } from '@jest/globals'
 import { MONDAY, api, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 let admin, parent, tutor
@@ -78,6 +79,50 @@ describe('user management', () => {
     expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'REJECTED' })).status).toBe(400) // reason required
     await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'REJECTED', note: 'Document unreadable' })
     expect((await prisma.tutorProfile.findUnique({ where: { id: t.tutor.id } })).isVerified).toBe(false)
+  })
+
+  test('concurrent identity and qualification approvals leave the verified badge consistent', async () => {
+    const t = await makeTutor()
+    const second = await makeAdmin()
+    const documents = await Promise.all(['IDENTITY', 'QUALIFICATION'].map(kind => prisma.qualification.create({
+      data: { tutorId: t.tutor.id, kind, title: kind, documentUrl: 'seed://verification' },
+    })))
+    const replies = await Promise.all(documents.map((document, index) => api(index ? second.token : admin.token).post(`/admin/qualifications/${document.id}/review`, { status: 'APPROVED' })))
+    expect(replies.map(reply => reply.status)).toEqual([200, 200])
+    expect(await prisma.qualification.count({ where: { tutorId: t.tutor.id, status: 'APPROVED' } })).toBe(2)
+    expect((await prisma.tutorProfile.findUnique({ where: { id: t.tutor.id } })).isVerified).toBe(true)
+    expect(await prisma.tutorRateChange.count({ where: { tutorId: t.tutor.id, reason: 'Base commission assigned on verification' } })).toBe(1)
+  })
+
+  test('reviewing while the tutor removes an approved document keeps the badge consistent', async () => {
+    const t = await makeTutor()
+    await prisma.qualification.create({ data: { tutorId: t.tutor.id, kind: 'IDENTITY', title: 'Identity', documentUrl: 'seed://identity', status: 'APPROVED' } })
+    const oldDocument = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'Old qualification', documentUrl: 'seed://old-qualification', status: 'APPROVED' } })
+    const replacement = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'Replacement qualification', documentUrl: 'seed://replacement' } })
+    await prisma.tutorProfile.update({ where: { id: t.tutor.id }, data: { isVerified: true } })
+    const replies = await Promise.all([
+      api(t.token).del(`/tutor/documents/${oldDocument.id}`),
+      api(admin.token).post(`/admin/qualifications/${replacement.id}/review`, { status: 'APPROVED' }),
+    ])
+    expect(replies.map(reply => reply.status)).toEqual([200, 200])
+    expect(await prisma.qualification.count({ where: { id: oldDocument.id } })).toBe(0)
+    expect((await prisma.tutorProfile.findUnique({ where: { id: t.tutor.id } })).isVerified).toBe(true)
+  })
+
+  test('a document removed while the admin loads it returns not found without a review notification', async () => {
+    const t = await makeTutor()
+    const document = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'Removed qualification', documentUrl: 'seed://removed' } })
+    const findDocument = prisma.qualification.findUnique.bind(prisma.qualification)
+    const spy = jest.spyOn(prisma.qualification, 'findUnique').mockImplementationOnce(async args => {
+      const snapshot = await findDocument(args)
+      await prisma.qualification.delete({ where: { id: document.id } })
+      return snapshot
+    })
+    try {
+      const response = await api(admin.token).post(`/admin/qualifications/${document.id}/review`, { status: 'APPROVED' })
+      expect(response.status).toBe(404)
+      expect(await prisma.notification.count({ where: { userId: t.user.id, type: 'QUALIFICATION_REVIEWED' } })).toBe(0)
+    } finally { spy.mockRestore() }
   })
 
   test('tutors below the rating threshold are flagged (needs at least 3 reviews)', async () => {

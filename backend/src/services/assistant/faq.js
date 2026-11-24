@@ -3,7 +3,7 @@
 // Every entry was checked against the CODE that enforces it (source = file/function) on the review date. When the
 // project documents (CLAUDE.md, reports) say more than the code does, the answer sticks to what the code does and the
 // gap is recorded in OPEN_POLICY_QUESTIONS for the project owner. Bump FAQ_VERSION whenever an answer changes.
-export const FAQ_VERSION = '2026-11-14.1'
+export const FAQ_VERSION = '2026-11-24.1'
 const REVIEWED = '2026-11-09'
 
 export const FAQ = [
@@ -136,12 +136,20 @@ export const FAQ = [
     reviewed: REVIEWED,
   },
   {
+    id: 'faq.quizzes',
+    topic: 'Quizzes, results, tutor feedback and leaderboard nicknames',
+    keywords: ['quiz', 'quizzes', 'kuiz', 'leaderboard', 'nickname', 'awaiting tutor review', 'quiz feedback', 'quiz results', 'papan kedudukan', 'nama samaran', '测验', '測驗', '小测', '小測', '排行榜', '昵称', '暱稱'],
+    answer: 'Open Quizzes. Only published quizzes from active tutors are available for new attempts. Choose a child and nickname, answer every question, then review and confirm submission. Other question types are marked automatically; long answers wait for the publishing tutor. While awaiting review, scores are provisional; long-answer feedback and tutor advice stay hidden until the tutor completes the review. Use Refresh result to check an open pending result. An in-app notification opens completed tutor feedback. Open Your children’s attempts on Quizzes to revisit answers, scores and feedback; use Attempts for to select a child. Old attempts keep their published quiz version even after the tutor changes or archives the quiz or becomes inactive. The leaderboard shows each child\'s latest fully marked attempt for the current published version, ranked by score percentage, with tied scores sharing a rank. Other parents see the nickname and score, so choose a nickname that does not identify your child. The assistant can explain these steps, but cannot retrieve your quiz attempts or scores or submit quiz answers.',
+    source: 'frontend/src/pages/parent/Quizzes.jsx; frontend/src/pages/parent/MyChildren.jsx; frontend/src/pages/parent/ChildProgress.jsx; backend/src/services/quiz.service.js; backend/src/services/assistant/tools.js (read-only allowlist)',
+    reviewed: '2026-11-24',
+  },
+  {
     id: 'faq.assistant-scope',
     topic: 'What the AI assistant can do',
     keywords: ['what can you do', 'help', 'book for me', 'cancel for me', 'pay for me', 'assistant', 'bantu', '帮我'],
-    answer: 'This assistant can only look things up: your children\'s saved details, bookings, recorded lesson summaries and homework, payments and refunds, complaints, notifications, these policies, and tutor recommendations. It cannot book, cancel, pay, change profiles or file complaints; it can point you to the page where you do that yourself.',
+    answer: 'This assistant can only look things up: your children\'s saved details, bookings, recorded lesson summaries and homework, payments and refunds, complaints, notifications, these policies, and tutor recommendations. It can explain how to use Quizzes, but your quiz attempts, scores and tutor feedback must be opened on the Quizzes page. It cannot book, cancel, pay, change profiles, file complaints or submit quiz answers; it can point you to the page where you do that yourself.',
     source: 'backend/src/services/assistant/tools.js (read-only allowlist)',
-    reviewed: REVIEWED,
+    reviewed: '2026-11-24',
   },
 ]
 

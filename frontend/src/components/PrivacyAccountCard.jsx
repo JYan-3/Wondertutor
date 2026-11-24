@@ -73,7 +73,7 @@ export default function PrivacyAccountCard({ emailReminders, privacyAcceptedAt, 
 
       <div className="border-t border-slate-100 pt-4">
         <div className="font-semibold text-navy">Download my data</div>
-        <p className="text-sm text-slate-600">A file with everything we hold about you: your details, children, bookings, payments, reviews and complaints.</p>
+        <p className="text-sm text-slate-600">A file with your details, children, bookings, payments, reviews, complaints and quiz attempts.</p>
         <button type="button" onClick={download} disabled={downloadBusy} className="btn-outline mt-2 min-h-10 px-4 text-sm">
           <Icon name="file" className="h-4 w-4" /> {downloadBusy ? 'Preparing…' : 'Download my data'}
         </button>
@@ -81,7 +81,7 @@ export default function PrivacyAccountCard({ emailReminders, privacyAcceptedAt, 
 
       <div className="rounded-xl border border-red-100 bg-red-50/50 p-4">
         <div className="font-semibold text-red-800">Delete my account</div>
-        <p className="text-sm text-slate-700">Removes your account profile details. Lesson, payment and case records are retained as explained below. This cannot be undone.</p>
+        <p className="text-sm text-slate-700">Removes your profile details and your children’s quiz attempts and leaderboard nicknames. Lesson, payment and case records are retained as explained below. This cannot be undone.</p>
         <button type="button" onClick={() => setDeleting(true)} className="btn-danger mt-2 min-h-10 px-4 text-sm">Delete my account…</button>
       </div>
 
