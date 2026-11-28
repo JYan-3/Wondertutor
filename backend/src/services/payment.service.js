@@ -35,7 +35,7 @@ export async function settlePayment(paymentId, { paid, method = 'FPX', real = fa
   let late = false
   let closedAlternatives = []
   let notices = []
-  let emailId
+  const emailIds = []
   // Both changes are conditional, so a double click (or the scheduler expiring the booking at the same moment)
   // cannot confirm twice or confirm a booking that was released.
   await prisma.$transaction(async (tx) => {
@@ -71,8 +71,10 @@ export async function settlePayment(paymentId, { paid, method = 'FPX', real = fa
         { userId: b.tutor.userId, type: 'BOOKING_CONFIRMED', title: 'Booking confirmed', message: `${b.parent.user.fullName} paid for the ${b.subject} lesson on ${when}.`, link: '/tutor/bookings' },
       ]
       await tx.notification.createMany({ data: notices })
-      const delivery = await tx.paymentEmailDelivery.create({ data: { paymentId: payment.id, userId: notices[0].userId, title: notices[0].title, message: notices[0].message, link: notices[0].link } })
-      emailId = delivery.id
+      for (const notice of notices) {
+        const delivery = await tx.paymentEmailDelivery.create({ data: { paymentId: payment.id, userId: notice.userId, title: notice.title, message: notice.message, link: notice.link } })
+        emailIds.push(delivery.id)
+      }
       return
     }
     if (!real) throw new AppError(400, 'This booking is no longer waiting for payment. You have not been charged.')
@@ -87,6 +89,6 @@ export async function settlePayment(paymentId, { paid, method = 'FPX', real = fa
     await tx.notification.createMany({ data: notices })
   })
   await Promise.allSettled(notices.map(n => sendBookingPush(n.userId, { type: n.type, link: n.link })))
-  if (emailId) await deliverPaymentEmail(emailId).catch(() => {})
+  await Promise.allSettled(emailIds.map(id => deliverPaymentEmail(id)))
   return { result: late ? 'LATE' : 'SUCCESS', payment }
 }

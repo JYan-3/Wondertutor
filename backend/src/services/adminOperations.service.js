@@ -44,8 +44,8 @@ export async function setRate(tutorId, admin, input) {
     if (previous.eq(input.rate)) throw new AppError(400, 'Enter a different rate.')
     await tx.tutorProfile.update({ where: { id: tutorId }, data: { [field]: input.rate } })
     await tx.tutorRateChange.create({ data: { tutorId, ...input, previous, changedBy: admin.fullName, adminId: admin.id } })
-    const payload = { title: commission ? 'Commission rate changed' : 'Hourly salary rate changed',
-      message: (commission ? input.rate + '%' : 'RM ' + input.rate + ' per hour') + ' takes effect now. ' + input.reason,
+    const payload = { title: commission ? 'Commission rate changed' : 'Listed hourly rate changed',
+      message: (commission ? input.rate + '%' : 'RM ' + input.rate + ' per hour') + ' takes effect now. ' + (commission ? '' : 'Existing agreed booking prices do not change. ') + input.reason,
       link: commission ? '/tutor/earnings' : '/tutor/setup', type: 'RATE_UPDATED' }
     await tx.notification.create({ data: { userId: tutor.userId, ...payload } })
     return { user: tutor.user, payload }

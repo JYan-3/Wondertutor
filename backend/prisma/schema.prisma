@@ -513,12 +513,12 @@ model Payment {
   createdAt        DateTime      @default(now())
 
   refunds Refund[]
-  emailDelivery PaymentEmailDelivery?
+  emailDeliveries PaymentEmailDelivery[]
 }
 
 model PaymentEmailDelivery {
   id         Int      @id @default(autoincrement())
-  paymentId  Int      @unique
+  paymentId  Int
   payment    Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
   userId     Int
   title      String
@@ -528,6 +528,7 @@ model PaymentEmailDelivery {
   retryAt    DateTime @default(now())
   leaseUntil DateTime?
   attempts   Int      @default(0)
+  @@unique([paymentId, userId])
   @@index([sentAt, retryAt])
 }
 
@@ -607,6 +608,9 @@ model Complaint {
   againstUser   User?           @relation("ComplaintAgainst", fields: [againstUserId], references: [id])
   bookingId     Int?
   booking       Booking?        @relation(fields: [bookingId], references: [id])
+  sourceComplaintId Int?        @unique
+  sourceComplaint Complaint?    @relation("AttendanceSource", fields: [sourceComplaintId], references: [id], onDelete: SetNull)
+  linkedAttendanceReview Complaint? @relation("AttendanceSource")
   reviewId      Int?
   review        Review?         @relation(fields: [reviewId], references: [id], onDelete: SetNull)
   quizId        Int?

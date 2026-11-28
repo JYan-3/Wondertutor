@@ -7,9 +7,15 @@ import { useRecords, exportRows } from '../../lib/adminRecords'
 import { fmtDate, money } from '../../lib/format'
 import WithdrawalReviews from './WithdrawalReviews'
 
+const transactionStatus = x => {
+  if (x.type === 'Withdrawal') return x.settled ? 'Transfer recorded' : ({ PENDING: 'Requested — no transfer yet', APPROVED: 'Approved — awaiting transfer', REJECTED: 'Rejected — no transfer', ESCALATED: 'Review needed — no transfer yet' }[x.status] || x.status)
+  if (x.type === 'Refund') return x.settled ? 'Refund transfer recorded' : ({ PENDING: 'Awaiting refund review', APPROVED: 'Approved — awaiting refund transfer', REJECTED: 'Rejected — no refund', ESCALATED: 'Refund review needed' }[x.status] || x.status)
+  return x.status
+}
+const transactionAmount = x => ['Withdrawal', 'Refund'].includes(x.type) && !x.settled ? 'Requested: ' + money(Math.abs(Number(x.amount))) : money(x.amount)
 const transactionColumns = [['Date', x => fmtDate(x.date)], ['Transaction', x => x.type + ' #' + x.id], ['Booking', x => x.bookingId ?? '—'],
-  ['Tutor', x => x.tutor], ['Parent', x => x.parent || '—'], ['Status', x => x.status], ['Amount', x => money(x.amount)], ['Saved rate', x => x.rate == null ? '—' : Number(x.rate) + '%'],
-  ['Commission', x => money(x.commission)], ['Tutor share', x => money(x.tutorNet)]]
+  ['Tutor', x => x.tutor], ['Parent', x => x.parent || '—'], ['Status', transactionStatus], ['Amount', transactionAmount], ['Saved rate', x => x.rate == null ? '—' : Number(x.rate) + '%'],
+  ['Commission', x => money(x.commission)], ['Tutor share', x => x.type === 'Withdrawal' && !x.settled ? '—' : money(x.tutorNet)]]
 
 function Transactions() {
   const [period,setPeriod] = useState(''), [q,setQ] = useState('')
@@ -71,7 +77,8 @@ function Salary() {
   return <SectionCard title="Tutor salary summary"><div className="space-y-3 print:hidden"><Records source={list}>{({tutors}) => <label>Tutor<select className="input text-base" value={id} onChange={e => setId(e.target.value)}><option value="">Choose a tutor</option>{tutors.map(t => <option key={t.id} value={t.id}>{t.name} · #{t.id}</option>)}</select></label>}</Records>
     <Period value={period} onChange={setPeriod} /></div>
     {id && <Records source={summary}>{s => <div className="mt-4 space-y-3"><h2 className="text-xl font-bold">{s.tutor} · Earnings statement</h2>
-      <p>Payment period: {new URLSearchParams(period).get('from') || 'Beginning'} to {new URLSearchParams(period).get('to') || 'today'}</p>
+      <p>Payment period: {new URLSearchParams(period).get('from') || 'Beginning'} to {new URLSearchParams(period).get('to') || 'no end date'}.</p>
+      <p className="text-sm text-slate-600">Lessons are grouped by the parent’s payment date and use their current refund and lesson status. Withdrawals are grouped by transfer date.</p>
       <Rows rows={s.sessions} columns={[['Paid on',x => fmtDate(x.date)],['Booking',x=>x.bookingId],['Subject',x=>x.subject],['Gross',x=>money(x.fee)],['Refunds',x=>money(x.refunded)],['Commission',x=>money(x.commission)],['Net',x=>money(x.net)]]} />
       <dl>{[['Gross lesson fees',s.gross],['Refunds',s.refunded],['Commission deducted',s.commission],['Net earnings',s.net],['Attendance penalties assessed',s.penalties ?? 0],['Net after penalties',s.netAfterPenalties ?? s.net],['Withdrawals paid in period',s.approved],['Currently available',s.available]].map(([k,v]) => <div key={k} className="flex justify-between gap-2 border-b py-1"><dt>{k}</dt><dd>{money(v)}</dd></div>)}</dl>
       <button className="btn-outline min-h-11 print:hidden" onClick={() => window.print()}>Print or save PDF</button></div>}</Records>}

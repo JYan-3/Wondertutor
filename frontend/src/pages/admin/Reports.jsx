@@ -19,7 +19,7 @@ export default function Reports() {
   const source = useRecords('/admin/reports?' + period)
   const dates = new URLSearchParams(period)
   return <div className="space-y-4"><PageTitle title="Platform reports" /><Period value={period} onChange={setPeriod} />
-    <p>{dates.get('from') || 'Beginning of records'} – {dates.get('to') || 'Today'}</p>
+    <p>{dates.get('from') || 'Beginning of records'} – {dates.get('to') || 'No end date (includes future bookings)'}</p>
     <Records source={source}>{r => <><SectionCard title="Platform activity"><dl className="grid grid-cols-2 gap-4 md:grid-cols-3">{[['Payments received',money(r.gross)],['Refunds issued',money(r.refunded)],['Net collected',money(r.netCollected)],['Platform commission',money(r.commission)],['Attendance penalties assessed',money(r.penaltiesAssessed ?? 0)],['Transactions',r.transactionCount],['Bookings',r.bookings]].map(([label,value]) => <div key={label}><dt>{label}</dt><dd className="font-semibold">{value}</dd></div>)}</dl><p className="mt-3 text-sm text-slate-600">Attendance penalties are assessed amounts; they are not added to payments received or net collected.</p></SectionCard>
       <SectionCard title="Monthly revenue"><RevenueTrend months={r.months} /><Rows columns={monthly} rows={r.months} /><button className="btn-outline min-h-11 print:hidden" onClick={() => exportRows('monthly-revenue',monthly,r.months)}>Export revenue CSV</button></SectionCard>
       <SectionCard title="Booking status"><Rows columns={ [['Status', x => x[0].replaceAll('_',' ')], ['Bookings',x => x[1]]] } rows={Object.entries(r.statuses)} /></SectionCard>

@@ -11,6 +11,8 @@ test('a commission decision sends the displayed rate and the admin reason', asyn
   api.get.mockResolvedValue({ data: { base: 12, tutors: [{ id: 8, name: 'Tutor A', hourly: 50, commission: 12, history: [] }] } })
   api.patch.mockResolvedValue({})
   render(<TutorRates />)
+  expect(await screen.findByText('Listed hourly rate')).toBeInTheDocument()
+  expect(screen.getByText(/existing agreed booking prices do not change/i)).toBeInTheDocument()
   const rate = await screen.findByLabelText('New commission (%)')
   fireEvent.change(rate, { target: { value: '10' } })
   fireEvent.change(screen.getAllByLabelText('Reason')[0], { target: { value: 'Annual review' } })
@@ -23,10 +25,29 @@ test('the report date controls request the selected period', async () => {
   api.get.mockResolvedValue({ data: { gross: 100, refunded: 0, netCollected: 100, commission: 12, bookings: 2, transactionCount: 1, months: [], statuses: {}, performance: [] } })
   render(<Reports />)
   expect(await screen.findByText('Net collected')).toBeInTheDocument()
+  expect(screen.getByText(/No end date \(includes future bookings\)/)).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-11-01' } })
   fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-11-30' } })
   fireEvent.click(screen.getByText('Apply dates'))
   await waitFor(() => expect(api.get).toHaveBeenCalledWith('/admin/reports?from=2026-11-01&to=2026-11-30', expect.anything()))
+  expect(screen.getByText(/2026-11-01 – 2026-11-30/)).toBeInTheDocument()
+})
+
+test('withdrawals distinguish a request, approval and recorded transfer', async () => {
+  const { default: Finance } = await import('../pages/admin/Finance')
+  const common = { type: 'Withdrawal', tutor: 'Tutor A', date: '2026-11-01', amount: -50, commission: 0, tutorNet: -50 }
+  api.get.mockResolvedValue({ data: { rows: [
+    { ...common, id: 1, status: 'PENDING', settled: false },
+    { ...common, id: 2, status: 'APPROVED', settled: false },
+    { ...common, id: 3, status: 'APPROVED', settled: true },
+    { ...common, id: 4, type: 'Refund', status: 'APPROVED', settled: false },
+  ] } })
+  render(<Finance />)
+  expect(await screen.findAllByText('Requested — no transfer yet')).not.toHaveLength(0)
+  expect(screen.getAllByText('Approved — awaiting transfer')).not.toHaveLength(0)
+  expect(screen.getAllByText('Transfer recorded')).not.toHaveLength(0)
+  expect(screen.getAllByText('Approved — awaiting refund transfer')).not.toHaveLength(0)
+  expect(screen.getAllByText(/Requested: RM\s?50\.00/).length).toBeGreaterThanOrEqual(2)
 })
 
 test('finance shows the attendance finding alongside an existing refund reason', async () => {

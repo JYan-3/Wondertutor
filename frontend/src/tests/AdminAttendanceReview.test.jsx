@@ -42,6 +42,19 @@ test('admin opens an attendance review from a no-show complaint', async () => {
   api.post.mockResolvedValue({ data: { id: 4 } })
   render(<MemoryRouter><AdminComplaints /></MemoryRouter>)
   fireEvent.click(await screen.findByRole('button', { name: 'Review' }))
-  fireEvent.click(screen.getByRole('button', { name: 'Open attendance review' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Open attendance review' }))
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/admin/complaints/3/attendance-review'))
+})
+
+test('linked attendance and original complaint are shown separately', async () => {
+  const complaint = { id: 3, category: 'No-show or lateness', description: 'Tutor did not arrive', status: 'OPEN', filedBy: { name: 'Parent' }, booking: { id: 5, subject: 'Maths', startAt: '2026-11-01' }, createdAt: '2026-11-01' }
+  const review = { id: 4, category: 'Missed check-in', description: 'Attendance review', status: 'RESOLVED', filedBy: { name: 'Tutor' }, createdAt: '2026-11-01' }
+  api.get.mockImplementation(async path => ({ data: path === '/admin/complaints' ? { complaints: [complaint], counts: { OPEN: 1 } } : path === '/admin/complaints/3' ? { complaint, investigation: { linkedAttendanceReview: { id: 4, status: 'RESOLVED', final: true }, otherComplaints: [], warnings: [] } } : { complaint: review, investigation: { sourceComplaint: { id: 3, status: 'OPEN' }, attendanceReview: {}, otherComplaints: [], warnings: [] } } }))
+  render(<MemoryRouter><AdminComplaints /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Review' }))
+  expect(await screen.findByText(/final decision/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'View attendance review' }))
+  expect(await screen.findByText(/does not close it automatically/)).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Open original complaint' }))
+  expect(await screen.findByText(/final decision/)).toBeInTheDocument()
 })

@@ -166,7 +166,7 @@ export async function startAttendanceReview(req, res) {
     const open = await openAttendanceRefund(tx, b.id)
     if (open.length > 1) throw new AppError(409, 'Resolve the existing refund requests before opening an attendance review.')
     const due = attendanceResponseDeadline()
-    const result = await tx.complaint.create({ data: { bookingId: b.id, filedById: b.tutor.userId, category: MISSED_CHECK_IN, description: 'Attendance review opened from the parent’s no-show complaint.', attendanceOutcome: 'MORE_INFO', adminResponse: 'The parent reported that the lesson did not take place. Please explain what happened and provide any evidence.', tutorReplyPending: true, tutorResponseDueAt: due, parentResponseDueAt: due, attendanceRefundId: open[0]?.id, status: 'IN_PROGRESS', handledById: req.user.id } })
+    const result = await tx.complaint.create({ data: { bookingId: b.id, sourceComplaintId: source.id, filedById: b.tutor.userId, category: MISSED_CHECK_IN, description: 'Attendance review opened from the parent’s no-show complaint.', attendanceOutcome: 'MORE_INFO', adminResponse: 'The parent reported that the lesson did not take place. Please explain what happened and provide any evidence.', tutorReplyPending: true, tutorResponseDueAt: due, parentResponseDueAt: due, attendanceRefundId: open[0]?.id, status: 'IN_PROGRESS', handledById: req.user.id } })
     await tx.attendanceReviewEntry.create({ data: { complaintId: result.id, action: 'PARENT_COMPLAINT', message: source.description } })
     await tx.notification.createMany({ data: [
       { userId: b.tutor.userId, type: 'ATTENDANCE_REVIEW', title: 'Attendance review opened', message: 'Admin opened an attendance review. Please respond within 48 hours and provide any evidence.', link: '/tutor/bookings/' + publicReference(b) + '/session' },
@@ -267,6 +267,8 @@ export async function getComplaint(req, res) {
     where: { id: Number(req.params.id) },
     include: {
       ...complaintInclude,
+      sourceComplaint: { select: { id: true, publicId: true, status: true } },
+      linkedAttendanceReview: { select: { id: true, publicId: true, status: true, attendanceOutcome: true, appealUntil: true, appealUsed: true } },
       quiz: { include: { versions: { orderBy: { number: 'desc' }, take: 1 } } },
       reviewHistory: { orderBy: { id: 'asc' } },
       booking: { include: { child: { select: { name: true } }, payment: { include: { refunds: true } }, attendance: true, summary: true } },
@@ -291,6 +293,9 @@ export async function getComplaint(req, res) {
   res.json({
     complaint: toComplaintDto(c),
     investigation: {
+      sourceComplaint: c.sourceComplaint,
+      linkedAttendanceReview: c.linkedAttendanceReview && { ...c.linkedAttendanceReview,
+        final: c.linkedAttendanceReview.status === 'RESOLVED' || (c.linkedAttendanceReview.status === 'DISMISSED' && (c.linkedAttendanceReview.appealUsed || Boolean(c.linkedAttendanceReview.appealUntil && c.linkedAttendanceReview.appealUntil <= new Date()))) },
       quiz: c.quiz ? { id: c.quiz.id, title: c.quiz.title, isHidden: c.quiz.isHidden, moderationReason: c.quiz.moderationReason, questions: (c.quiz.versions[0]?.content.questions || []).map(q => ({ text: q.text, type: q.type, imageUrl: q.imageUrl || null, options: q.options || [] })) } : null,
       attendanceReview: c.category === MISSED_CHECK_IN ? {
         attendanceRefundState: attendanceRefundState(c, linkedRefund && { ...linkedRefund, payment: b.payment }),

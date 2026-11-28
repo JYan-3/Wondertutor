@@ -83,12 +83,12 @@ export default function AdminComplaints() {
         <Pagination {...data.pagination} onChange={value => setFilter('page', value)} label="Complaint pages" />
       </div>}
 
-      <ReviewModal complaint={sel} onClose={() => setSel(null)} onReviewChanged={load} onDone={() => { setSel(null); load(); setReportVersion((v) => v + 1) }} />
+      <ReviewModal complaint={sel} onSelect={setSel} onClose={() => setSel(null)} onReviewChanged={load} onDone={() => { setSel(null); load(); setReportVersion((v) => v + 1) }} />
     </div>
   )
 }
 
-function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
+function ReviewModal({ complaint: c, onSelect, onClose, onDone, onReviewChanged }) {
   const [response, setResponse] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -120,8 +120,9 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
     if (status !== 'IN_PROGRESS' && response.trim().length < 3) return setError('Write a response to the parent before resolving or dismissing.')
     setBusy(true)
     try {
-      await api.patch(`/admin/complaints/${recordRef(c)}`, { status, ...(outcome && { outcome }), adminResponse: response || undefined, ...(attendance && evidence && { reviewedAt: evidence.reviewedAt }) })
-      onDone()
+      const result = await api.patch(`/admin/complaints/${recordRef(c)}`, { status, ...(outcome && { outcome }), adminResponse: response || undefined, ...(attendance && evidence && { reviewedAt: evidence.reviewedAt }) })
+      if (attendance && inv?.sourceComplaint && status !== 'IN_PROGRESS') { onReviewChanged(); onSelect(result.data.complaint) }
+      else onDone()
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -136,10 +137,28 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
     finally { setBusy(false) }
   }
 
+  async function openLinkedComplaint(link) {
+    setBusy(true); setError('')
+    try { const { data } = await api.get(`/admin/complaints/${recordRef(link)}`); onSelect(data.complaint) }
+    catch (err) { setError(errorMessage(err)) }
+    finally { setBusy(false) }
+  }
+
   return (
     <Modal open onClose={onClose} title={c.category} width="max-w-2xl">
       <div className="space-y-3">
         <ComplaintPill status={c.status} />
+        {inv?.sourceComplaint && <section className="rounded-xl border border-brand-100 p-3 text-sm">
+          <h3 className="font-bold text-navy">Original parent complaint</h3>
+          <p>Its status is {inv.sourceComplaint.status.toLowerCase().replaceAll('_', ' ')}. The attendance review does not close it automatically. Review the parent’s other concerns before responding and closing it.</p>
+          <button disabled={busy} className="min-h-11 font-semibold text-brand-600 underline" onClick={() => openLinkedComplaint(inv.sourceComplaint)}>Open original complaint</button>
+        </section>}
+        {inv?.linkedAttendanceReview && <section className="rounded-xl border border-brand-100 p-3 text-sm">
+          <h3 className="font-bold text-navy">Linked attendance review</h3>
+          <p>Status: {inv.linkedAttendanceReview.status.toLowerCase().replaceAll('_', ' ')}{inv.linkedAttendanceReview.final ? ' · final decision' : ' · not yet final'}.</p>
+          <p>Review this complaint separately, including any other concerns. {!closed && 'It remains open until an admin closes it.'}</p>
+          <button disabled={busy} className="min-h-11 font-semibold text-brand-600 underline" onClick={() => openLinkedComplaint(inv.linkedAttendanceReview)}>View attendance review</button>
+        </section>}
         <div className="rounded-xl bg-brand-25 p-3 text-sm">
           <div className="mb-1 text-xs text-slate-500">From {c.filedBy.name} · {fmtShortDate(c.createdAt)}{c.against && ` · Against ${c.against.name}`}</div>
           <p className="text-slate-700">{c.description}</p>
@@ -172,7 +191,7 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
         {!closed && (
           <div className="flex flex-wrap justify-end gap-2">
             {c.status === 'OPEN' && <button disabled={busy} onClick={() => act('IN_PROGRESS')} className="btn-outline">Mark In Progress</button>}
-            {c.category === 'No-show or lateness' && c.booking && <button disabled={busy} onClick={openAttendanceReview} className="btn-outline">Open attendance review</button>}
+            {c.category === 'No-show or lateness' && c.booking && inv && !inv.linkedAttendanceReview && <button disabled={busy} onClick={openAttendanceReview} className="btn-outline">Open attendance review</button>}
             {attendance && <>
               <button disabled={busy || !evidence} onClick={() => act('IN_PROGRESS', 'MORE_INFO')} className="btn-outline">Ask for more information</button>
               <button disabled={busy || !evidence || (evidence.waiting ? evidence.waiting.parent || evidence.waiting.tutor : !evidence.parentAnswer || evidence.tutorReplyPending)} onClick={() => act('DISMISSED', 'NOT_HELD')} className="btn-danger">Mark lesson as not held</button>

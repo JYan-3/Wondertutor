@@ -43,6 +43,9 @@ test('admin can open one review from a parent no-show complaint and both sides h
   expect(opened.status).toBe(201)
   expect((await api(x.admin.token).post(path)).status).toBe(409)
   const review = await prisma.complaint.findUniqueOrThrow({ where: { id: opened.id } })
+  expect(review.sourceComplaintId).toBe(complaint.complaint.id)
+  expect((await api(x.admin.token).get(`/admin/complaints/${opened.id}`)).investigation.sourceComplaint.id).toBe(complaint.complaint.id)
+  expect((await api(x.admin.token).get(`/admin/complaints/${complaint.complaint.id}`)).investigation.linkedAttendanceReview).toMatchObject({ id: opened.id, final: false })
   expect((await api(x.tutor.token).get(x.session)).review.reviewHistory.some(entry => entry.action === 'PARENT_COMPLAINT')).toBe(false)
   expect((await api(x.admin.token).get(`/admin/complaints/${opened.id}`)).investigation.attendanceReview.history.some(entry => entry.action === 'PARENT_COMPLAINT')).toBe(true)
   expect(review.parentResponseDueAt.getTime() - review.createdAt.getTime()).toBeGreaterThan(47 * 3_600_000)
@@ -54,6 +57,10 @@ test('admin can open one review from a parent no-show complaint and both sides h
   expect((await api(x.tutor.token).post(x.session, { action: 'review-reply', reason: 'Here is my account of the lesson.' })).status).toBe(200)
   expect((await decision(x, review.id, 'RESOLVED', null)).status).toBe(200)
   expect((await prisma.complaint.findUniqueOrThrow({ where: { id: review.id } })).attendanceApproved).toBe(true)
+  const original = await api(x.admin.token).get(`/admin/complaints/${complaint.complaint.id}`)
+  expect(original.complaint.status).toBe('OPEN')
+  expect(original.investigation.linkedAttendanceReview).toMatchObject({ id: opened.id, status: 'RESOLVED', final: true })
+  expect((await api(x.parent.token).get(`/admin/complaints/${opened.id}`)).status).toBe(403)
 })
 
 test('both response deadlines must expire before admin may decide without replies', async () => {
