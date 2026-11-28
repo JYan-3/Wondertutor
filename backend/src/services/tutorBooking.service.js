@@ -7,6 +7,7 @@ import { newPayBy, assertCanAccept, paymentDeadline } from './paymentWindow.js'
 import { notifyWithEmail } from './notification.service.js'
 import { formatLessonTime } from '../utils/time.js'
 import { lessonLocationFields } from './lessonLocation.service.js'
+import { CANCELLATION_CHOICE_HOURS, cancellationResponseDeadline } from './cancellationChoice.service.js'
 
 const include = {
   payment: { select: { status: true, refunds: tutorRefunds } },
@@ -34,8 +35,8 @@ export function tutorBooking(b) {
     proposedPrice: Number(b.proposedPrice), counterPrice: b.counterPrice, agreedPrice: b.agreedPrice,
     messageToTutor: b.messageToTutor, location: b.location, meetingLink: b.meetingLink,
     ...lessonLocationFields(b),
-    rejectionReason: b.rejectionReason, cancelReason: b.cancelReason, payBy: b.status === 'AWAITING_PAYMENT' ? paymentDeadline(b) : b.payBy, updatedAt: b.updatedAt,
-    reschedule: r && { id: r.id, status: r.status, startAt: r.newStartAt, reason: r.reason, mine: r.requestedById === b.tutor.userId },
+    rejectionReason: b.rejectionReason, cancelReason: b.cancelReason, cancellationChoice: b.cancellationChoiceStatus && { status: b.cancellationChoiceStatus, until: b.cancellationChoiceUntil }, payBy: b.status === 'AWAITING_PAYMENT' ? paymentDeadline(b) : b.payBy, updatedAt: b.updatedAt,
+    reschedule: r && { id: r.id, status: r.status, startAt: r.newStartAt, reason: r.reason, mine: r.requestedById === b.tutor.userId, responseBy: b.status === 'CANCELLED' && b.cancellationChoiceStatus === 'RESCHEDULING' && r.status === 'PENDING' ? cancellationResponseDeadline(r) : null },
   }
 }
 
@@ -105,17 +106,20 @@ export async function tutorAction(tutorId, id, input) {
       message = 'Your class link is available in the confirmed lesson details.'
     } else {
       if (!['AWAITING_PAYMENT', 'CONFIRMED'].includes(b.status) || b.startAt <= new Date()) throw new AppError(409, 'This lesson can no longer be cancelled.')
+      if (b.payment?.status === 'PARTIALLY_REFUNDED' || b.payment?.refunds.some(r => ['PENDING', 'APPROVED', 'ESCALATED'].includes(r.status))) throw new AppError(409, 'A refund already exists for this payment. Ask admin to review the cancellation.')
       data = { status: 'CANCELLED', cancelReason: reason, cancelledById: b.tutor.userId }
+      if (b.payment?.status === 'PAID') {
+        data.cancellationChoiceStatus = 'OPEN'
+        data.cancellationChoiceUntil = new Date(Date.now() + CANCELLATION_CHOICE_HOURS * 3_600_000)
+      }
       title = 'Tutor cancelled your lesson'
-      message = reason
+      message = b.payment?.status === 'PAID' ? `${reason} Choose a new time or request a refund within ${CANCELLATION_CHOICE_HOURS} hours. If you do not choose, the refund goes to admin review.` : reason
     }
     const changed = await tx.booking.updateMany({ where: { id, tutorId, updatedAt: b.updatedAt, status: b.status }, data })
     if (!changed.count) throw new AppError(409, 'This booking changed. Refresh before responding.')
     if (action === 'cancel') {
       await tx.payment.updateMany({ where: { bookingId: id, status: 'PENDING' }, data: { status: 'FAILED' } })
-      const paid = await tx.payment.findFirst({ where: { bookingId: id, status: 'PAID' } })
-      if (paid) await tx.refund.create({ data: { paymentId: paid.id, amount: paid.amount, type: 'AUTO', reason } })
-      await tx.rescheduleRequest.updateMany({ where: { bookingId: id, status: 'PENDING' }, data: { status: 'REJECTED' } })
+      await tx.rescheduleRequest.updateMany({ where: { bookingId: id, status: { in: ['PENDING', 'ESCALATED'] } }, data: { status: 'REJECTED' } })
     }
     return { b, title, message }
   })

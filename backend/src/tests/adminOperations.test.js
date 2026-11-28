@@ -38,6 +38,18 @@ test('only admins can override rates and the saved payment keeps its commission'
   expect(Number((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).commissionRate)).toBe(12)
 })
 
+test('booking oversight pages and exports the filtered set on the server', async () => {
+  const path = '/admin/bookings?view=all&page=1&pageSize=1'
+  const first = await admin.get(path)
+  expect(first.rows).toHaveLength(1)
+  expect(first.pagination.total).toBeGreaterThan(1)
+  const second = await admin.get('/admin/bookings?view=all&page=2&pageSize=1')
+  expect(second.rows[0].id).not.toBe(first.rows[0].id)
+  const filtered = await admin.get(`/admin/bookings?view=all&q=${booking.id}&export=1`)
+  expect(filtered.rows.map(row => row.id)).toEqual([booking.id])
+  expect((await api(tutor.token).get(path)).status).toBe(403)
+})
+
 test('approving and issuing a partial refund are distinct and cannot be repeated', async () => {
   const refund = await prisma.refund.create({ data: { paymentId: payment.id, type: 'ADMIN_REVIEW', amount: 100, reason: 'Lesson adjustment' } })
   const path = '/admin/refunds/' + refund.id + '/decision'
@@ -52,6 +64,63 @@ test('approving and issuing a partial refund are distinct and cannot be repeated
   const salary = await admin.get('/admin/salary/' + tutor.tutor.id)
   expect(Number(salary.net)).toBe(58.67)
   expect((await admin.get('/admin/bookings')).rows.some(b => b.id === booking.id)).toBe(true)
+})
+
+test('refund review pages return every queued request once', async () => {
+  const ids = []
+  for (let i = 0; i < 12; i++) {
+    const refund = await prisma.refund.create({ data: { paymentId: payment.id, type: 'ADMIN_REVIEW', amount: 1, reason: 'Pagination check' } })
+    ids.push(refund.id)
+  }
+  const all = []
+  let page = 1, totalPages = 1
+  do {
+    const result = await admin.get(`/admin/refunds?page=${page}&pageSize=5`)
+    expect(result.status).toBe(200)
+    expect(result.rows.length).toBeLessThanOrEqual(5)
+    all.push(...result.rows.map(r => r.id))
+    totalPages = result.pagination.totalPages
+    page++
+  } while (page <= totalPages)
+  expect(new Set(all).size).toBe(all.length)
+  expect(all).toEqual(expect.arrayContaining(ids))
+  await prisma.refund.deleteMany({ where: { id: { in: ids } } })
+})
+
+test('transaction pages and export match the complete ledger and search', async () => {
+  const refund = await prisma.refund.create({ data: { paymentId: payment.id, type: 'ADMIN_REVIEW', amount: 1, reason: 'Transaction pagination' } })
+  const all = (await admin.get('/admin/transactions')).rows
+  const collected = []
+  let page = 1, pages = 1
+  do {
+    const result = await admin.get(`/admin/transactions?page=${page}&pageSize=2`)
+    expect(result.status).toBe(200)
+    expect(result.rows.length).toBeLessThanOrEqual(2)
+    collected.push(...result.rows)
+    pages = result.pagination.totalPages
+    page++
+  } while (page <= pages)
+  expect(collected).toEqual(all)
+  const filtered = await admin.get('/admin/transactions?page=1&pageSize=2&q=refund&export=1')
+  expect(filtered.rows).toEqual(all.filter(r => [r.type, r.id, r.bookingId, r.tutor, r.parent, r.status].join(' ').toLowerCase().includes('refund')))
+  expect(filtered.rows.some(r => r.id === refund.id)).toBe(true)
+  expect((await admin.get('/admin/transactions?page=1&q=%25')).pagination.total).toBe(0)
+  expect((await api(tutor.token).get('/admin/transactions?page=1')).status).toBe(403)
+  await prisma.refund.delete({ where: { id: refund.id } })
+})
+
+test('transaction pages keep cumulative refund rounding across Malaysia date boundaries', async () => {
+  const b = await makeBooking({ tutor: tutor.tutor, parent: parent.parent, child: parent.child, date: nextDate(MONDAY), status: 'COMPLETED' })
+  const paid = await prisma.payment.create({ data: { bookingId: b.id, amount: 100, commissionAmount: 12, commissionRate: 12, paidAt: new Date('2026-11-01T00:00:00Z'), status: 'PARTIALLY_REFUNDED' } })
+  await prisma.refund.create({ data: { paymentId: paid.id, type: 'ADMIN_REVIEW', amount: 20, reason: 'First refund', status: 'APPROVED', issuedAt: new Date('2026-11-01T15:59:00Z') } })
+  const second = await prisma.refund.create({ data: { paymentId: paid.id, type: 'ADMIN_REVIEW', amount: 10, reason: 'Second refund', status: 'APPROVED', issuedAt: new Date('2026-11-01T16:00:00Z') } })
+  const query = 'from=2026-11-02&to=2026-11-02'
+  const all = (await admin.get('/admin/transactions?' + query)).rows
+  const page = await admin.get('/admin/transactions?' + query + '&page=1&pageSize=10&export=1')
+  expect(page.rows).toEqual(all)
+  const row = page.rows.find(r => r.type === 'Refund' && r.id === second.id)
+  expect(Number(row.commission)).toBe(-1.2)
+  expect(Number(row.tutorNet)).toBe(-8.8)
 })
 
 test.each(['APPROVED', 'ESCALATED'])('cancelling a paid lesson accounts for a previous %s refund and closes its schedule dispute', async status => {

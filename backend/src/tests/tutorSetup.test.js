@@ -5,7 +5,12 @@ import bcrypt from 'bcrypt'
 import { PDFDocument } from 'pdf-lib'
 import { prisma } from '../config/prisma.js'
 import { env } from '../config/env.js'
-import { api, makeAdmin, makeParent, resetDb, startServer, stopServer } from './helpers.js'
+import { api, makeAdmin, makeParent, recordDocumentPreview, resetDb, startServer, stopServer } from './helpers.js'
+
+async function approveDocument(admin, id) {
+  await recordDocumentPreview(admin.user, id)
+  return api(admin.token).post(`/admin/qualifications/${id}/review`, { status: 'APPROVED', confirmedReadable: true })
+}
 
 const savedCloudinary = { ...env.cloudinary }
 const originalFetch = globalThis.fetch
@@ -182,10 +187,10 @@ describe('verification', () => {
     const idDoc = tutor.qualifications.find((d) => d.kind === 'IDENTITY')
     const degree = tutor.qualifications.find((d) => d.kind === 'QUALIFICATION')
 
-    await api(admin.token).post(`/admin/qualifications/${degree.id}/review`, { status: 'APPROVED' })
+    await approveDocument(admin, degree.id)
     expect((await prisma.tutorProfile.findUnique({ where: { id: tutor.id } })).isVerified).toBe(false)
 
-    await api(admin.token).post(`/admin/qualifications/${idDoc.id}/review`, { status: 'APPROVED' })
+    await approveDocument(admin, idDoc.id)
     expect((await prisma.tutorProfile.findUnique({ where: { id: tutor.id } })).isVerified).toBe(true)
     expect((await api(token).get('/auth/me')).user.tutorStatus).toBe('VERIFIED')
   })
@@ -224,7 +229,7 @@ describe('verification', () => {
     await api(token).post('/tutor/submit-for-verification')
     const admin = await makeAdmin()
     const docs = await prisma.qualification.findMany({ where: { tutor: { userId: user.id } } })
-    for (const d of docs) await api(admin.token).post(`/admin/qualifications/${d.id}/review`, { status: 'APPROVED' })
+    for (const d of docs) await approveDocument(admin, d.id)
     expect((await api(token).get('/auth/me')).user.tutorStatus).toBe('VERIFIED')
 
     // An extra pending certificate can come and go without touching the badge
@@ -243,7 +248,7 @@ describe('verification', () => {
     await api(token).post('/tutor/documents', { kind: 'IDENTITY', title: 'NRIC', documentUrl: docUrl(token) })
     expect((await api(token).get('/auth/me')).user.tutorStatus).toBe('UNDER_REVIEW')
     const replacement = await prisma.qualification.findFirst({ where: { tutor: { userId: user.id }, kind: 'IDENTITY' } })
-    await api(admin.token).post(`/admin/qualifications/${replacement.id}/review`, { status: 'APPROVED' })
+    await approveDocument(admin, replacement.id)
     expect((await api(token).get('/auth/me')).user.tutorStatus).toBe('VERIFIED')
   })
 
@@ -277,7 +282,7 @@ describe('verification', () => {
     await completeSetup(token)
     const admin = await makeAdmin()
     const doc = await prisma.qualification.findFirst({ where: { tutor: { userId: user.id } } })
-    await api(admin.token).post(`/admin/qualifications/${doc.id}/review`, { status: 'APPROVED' })
+    await approveDocument(admin, doc.id)
     const note = await prisma.notification.findFirst({ where: { userId: user.id, type: 'QUALIFICATION_REVIEWED' } })
     expect(note.link).toBe('/tutor/setup')
   })

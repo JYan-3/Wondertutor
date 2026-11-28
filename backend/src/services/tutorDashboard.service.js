@@ -1,7 +1,7 @@
 import { prisma } from '../config/prisma.js'
 import { addDays, mytParts, mytToDate } from '../utils/time.js'
 import { publicReference } from '../utils/publicIds.js'
-import { MISSED_CHECK_IN } from './lessonSession.service.js'
+import { CHECK_IN_LATE_MS, MISSED_CHECK_IN } from './lessonSession.service.js'
 
 const select = {
   id: true, publicId: true, startAt: true, endAt: true, subject: true, status: true, child: { select: { name: true } },
@@ -19,6 +19,11 @@ function lessonRow(b, now) {
     action = 'Review booking request'
     to = booking
   } else if (b.status === 'COMPLETED') action = 'View lesson report'
+  else if (!b.attendance?.checkInAt && now.getTime() >= Math.min(b.startAt.getTime() + CHECK_IN_LATE_MS, b.endAt.getTime())) {
+    if (b.complaints[0]?.attendanceApproved && now >= b.endAt) action = 'Finish lesson report'
+    else if (b.complaints[0]?.tutorReplyPending) action = 'Reply to admin'
+    else action = b.complaints.length ? 'View attendance review' : 'Review missed check-in'
+  }
   else if (now >= b.endAt) {
     if (b.attendance?.checkOutAt || b.complaints[0]?.attendanceApproved) action = 'Finish lesson report'
     else if (b.attendance?.checkInAt) action = 'Check out'
@@ -43,9 +48,10 @@ export async function teachingDay(tutorId, now = new Date()) {
     prisma.booking.findMany({ where: { tutorId, status: { in: ['CONFIRMED', 'COMPLETED'] },
       startAt: { gte: mytToDate(today, '00:00'), lt: mytToDate(addDays(today, 1), '00:00') } }, select, orderBy }),
     prisma.booking.findFirst({ where: { ...pending, startAt: { gt: now } }, select, orderBy }),
-    prisma.booking.findFirst({ where: { ...confirmed, endAt: { lte: now }, summary: null, OR: [
-      { attendance: { checkInAt: { not: null } } }, { complaints: { none: { category: MISSED_CHECK_IN } } },
-      { complaints: { some: { category: MISSED_CHECK_IN, OR: [{ attendanceApproved: true }, { tutorReplyPending: true }] } } },
+    prisma.booking.findFirst({ where: { ...confirmed, summary: null, OR: [
+      { endAt: { lte: now }, OR: [{ attendance: { checkInAt: { not: null } } }, { complaints: { none: { category: MISSED_CHECK_IN } } }, { complaints: { some: { category: MISSED_CHECK_IN, OR: [{ attendanceApproved: true }, { tutorReplyPending: true }] } } }] },
+      { startAt: { lte: new Date(now.getTime() - CHECK_IN_LATE_MS) }, OR: [{ attendance: { is: null } }, { attendance: { is: { checkInAt: null } } }], complaints: { none: { category: MISSED_CHECK_IN } } },
+      { startAt: { lte: new Date(now.getTime() - CHECK_IN_LATE_MS) }, complaints: { some: { category: MISSED_CHECK_IN, tutorReplyPending: true } } },
     ] }, select, orderBy: [{ endAt: 'desc' }, { id: 'desc' }] }),
   ])
   return { newRequests, upcomingSessions, nextLesson: lessonRow(next, now), todaySessions: sessions.map(b => lessonRow(b, now)),

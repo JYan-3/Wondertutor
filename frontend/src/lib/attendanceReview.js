@@ -1,5 +1,6 @@
 export const refundHoldLabels = {
   ON_HOLD: 'Refund on hold while admin reviews the attendance evidence.',
+  AWAITING_APPEAL: 'Refund transfer waits until the tutor’s 14-day reconsideration period ends.',
   TRANSFERRED: 'Refund already transferred. Admin must follow up on the payment manually.',
 }
 

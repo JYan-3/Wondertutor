@@ -27,6 +27,18 @@ test('each setting saves independently and invalid values leave the saved value 
   expect((await admin.patch(path, { key: 'BASE_COMMISSION_RATE', value: 101 })).status).toBe(400)
 })
 
+test('setting history records the old and new value and is restricted to admins', async () => {
+  const tutor = api((await makeTutor()).token)
+  expect((await tutor.get(`${path}/history`)).status).toBe(403)
+  const before = await prisma.systemSetting.findUniqueOrThrow({ where: { key: 'GPS_RADIUS_METRES' } })
+  expect((await admin.patch(path, { key: 'GPS_RADIUS_METRES', value: 175 })).status).toBe(200)
+  expect((await admin.patch(path, { key: 'GPS_RADIUS_METRES', value: 175 })).status).toBe(200)
+  const result = await admin.get(`${path}/history`)
+  const changes = result.history.filter(row => row.key === 'GPS_RADIUS_METRES' && row.newValue === '175')
+  expect(changes).toHaveLength(1)
+  expect(changes[0]).toMatchObject({ oldValue: before.value, newValue: '175', adminName: expect.any(String), adminId: expect.any(Number) })
+})
+
 test('existing verified tutors retain their rate and newly verified tutors receive the saved base', async () => {
   const { tutor: existing } = await makeTutor()
   await prisma.tutorProfile.update({ where: { id: existing.id }, data: { isVerified: true } })

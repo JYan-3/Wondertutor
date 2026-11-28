@@ -19,6 +19,7 @@ export const complaintInclude = {
   filedBy: { select: { id: true, fullName: true, email: true } },
   againstUser: { select: { id: true, fullName: true } },
   booking: { select: { id: true, publicId: true, subject: true, startAt: true } },
+  quiz: { select: { id: true, title: true, isHidden: true, moderationReason: true } },
 }
 
 export const toComplaintDto = (c) => ({
@@ -34,6 +35,7 @@ export const toComplaintDto = (c) => ({
   filedBy: c.filedBy && { id: c.filedBy.id, name: c.filedBy.fullName, email: c.filedBy.email },
   against: c.againstUser && { id: c.againstUser.id, name: c.againstUser.fullName },
   booking: c.booking && { id: c.booking.id, publicId: c.booking.publicId, subject: c.booking.subject, startAt: c.booking.startAt },
+  quiz: c.quiz && { id: c.quiz.id, title: c.quiz.title, isHidden: c.quiz.isHidden, moderationReason: c.quiz.moderationReason },
 })
 
 // POST /parent/complaints

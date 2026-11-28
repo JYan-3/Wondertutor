@@ -2,7 +2,9 @@ import { z } from 'zod'
 import { pendingReviews, reviewWithdrawal, withdrawalDestination, recordWithdrawalTransfer, startWithdrawalTransfer, releaseWithdrawalTransfer, recheckWithdrawal, rejectHeldWithdrawal } from '../../services/earnings.service.js'
 
 export async function list(req, res) {
-  res.set('Cache-Control', 'no-store').json({ requests: await pendingReviews(req.user.id) })
+  if (!Object.keys(req.query).length) return res.set('Cache-Control', 'no-store').json({ requests: await pendingReviews(req.user.id) })
+  const params = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(20) }).strict().parse(req.query)
+  res.set('Cache-Control', 'no-store').json(await pendingReviews(req.user.id, params))
 }
 
 export async function review(req, res) {

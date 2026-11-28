@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import api, { errorMessage } from '../../api/client'
 import { ErrorBox, LoadError, PageTitle, Spinner } from '../../components/ui/Common'
 import { uploadImage, uploadError } from '../../components/PhotoPicker'
@@ -74,6 +74,8 @@ function Request({ w, refresh, notify }) {
     <p>{fmtDate(w.date)} · {w.bank.bankName} ••{w.bank.lastFour} · {w.bank.accountName}</p>
     {w.status === 'ESCALATED' && <p className="text-sm font-semibold">Bank details changed after this request. Verify the original account with the tutor before approving.</p>}
     <p className="font-semibold">{({ AWAITING_TRANSFER: 'Awaiting transfer', ON_HOLD: 'On hold — earnings changed', TRANSFER_IN_PROGRESS: 'Transfer in progress', TRANSFER_REVIEW: 'Transfer in progress — earnings changed', PAID: 'Paid', LEGACY_PAID: 'Previously approved (legacy record)', PENDING: 'Pending review', ESCALATED: 'Bank change under review', REJECTED: 'Rejected' })[w.payoutStatus || w.status]}</p>
+    {Number(w.penaltyTotal) > 0 && <p className="text-sm">Final attendance penalties: {money(w.penaltyTotal)}.</p>}
+    {Number(w.amountOwed) > 0 && <p className="text-sm">Amount to recover from future earnings: {money(w.amountOwed)}.</p>}
     {(onHold || reviewingTransfer) && <div role="alert" className="rounded-lg bg-amber-50 p-3 text-sm"><p>Earnings changed or no longer cover reserved withdrawals. Check the lesson and refund history before transferring.</p><p>Earned: {money(w.earned)} · Reserved: {money(w.held)} · Transferred: {money(w.paidOut)} · Remaining: {money(w.balance)}</p><a className="inline-flex min-h-11 items-center underline" href="/admin/finance" target="_blank" rel="noreferrer">Review finance history</a></div>}
     {onHold && !action && <div className="flex flex-wrap gap-2"><button type="button" className="btn-outline min-h-11" disabled={busy || Number(w.balance) < 0} onClick={() => { if (window.confirm('Have you reviewed the current earnings and refunds?')) step('recheck', { confirmedReview: true }, 'Earnings reviewed. The withdrawal is awaiting transfer.') }}>Confirm earnings review</button><button type="button" className="btn-outline min-h-11" onClick={() => setAction('REJECT_HELD')}>Reject held request</button></div>}
     {awaiting && <div className="space-y-3"><p>Check the bank history first. Only one admin can handle this transfer at a time.</p><button type="button" className="btn-primary min-h-11" disabled={busy} onClick={() => step('start-transfer', {}, 'Transfer started. Check the bank before sending.')}>Start transfer</button></div>}
@@ -111,18 +113,25 @@ export default function WithdrawalReviews() {
   const [notice, setNotice] = useState('')
   const [rows, setRows] = useState(null)
   const [error, setError] = useState('')
-  const load = useCallback(() => api.get('/admin/withdrawals')
-    .then(({ data }) => { setRows(data.requests); setError('') })
-    .catch(err => setError(errorMessage(err))), [])
+  const [page, setPage] = useState(1)
+  const [pagination, setPagination] = useState(null)
+  const requestId = useRef(0)
+  const load = useCallback(() => {
+    const id = ++requestId.current
+    return api.get('/admin/withdrawals', { params: { page, pageSize: 20 } })
+      .then(({ data }) => { if (id === requestId.current) { setRows(data.requests); setPagination(data.pagination || null); setError(''); if (data.pagination && page > data.pagination.totalPages) setPage(data.pagination.totalPages) } })
+      .catch(err => { if (id === requestId.current) setError(errorMessage(err)) })
+  }, [page])
   useEffect(() => {
     load()
     const timer = setInterval(load, 30000)
     window.addEventListener('focus', load)
-    return () => { clearInterval(timer); window.removeEventListener('focus', load) }
+    return () => { requestId.current++; clearInterval(timer); window.removeEventListener('focus', load) }
   }, [load])
   return <div className="min-w-0 space-y-3"><PageTitle title="Withdrawal requests" subtitle="Review tutors’ requests to withdraw their earnings." sparkle={false} />
     <p className="card p-4 text-sm text-slate-600">Approve the request, complete the bank transfer, then record its reference and private receipt. The tutor receives an update at each decision.</p>
     {notice && <p role="status">{notice}</p>}
     {error ? <LoadError message={error} onRetry={load} /> : !rows ? <Spinner /> : rows.length ? rows.map(w => <Request key={w.id} w={w} refresh={load} notify={setNotice} />) : <p className="card p-5">No withdrawal requests are waiting for review.</p>}
+    {pagination?.totalPages > 1 && <nav aria-label="Withdrawal pages" className="flex flex-wrap items-center gap-2"><button className="btn-outline min-h-11" disabled={pagination.page <= 1} onClick={() => setPage(pagination.page - 1)}>Previous</button><span>Page {pagination.page} of {pagination.totalPages}</span><button className="btn-outline min-h-11" disabled={pagination.page >= pagination.totalPages} onClick={() => setPage(pagination.page + 1)}>Next</button></nav>}
   </div>
 }

@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt'
 import { z } from 'zod'
 import { AppError } from '../../utils/AppError.js'
 import { issueOtp, checkOtp } from '../../services/otp.service.js'
-import { earnings, changeBank, requestWithdrawal } from '../../services/earnings.service.js'
+import { earnings, earningsHistory, changeBank, requestWithdrawal } from '../../services/earnings.service.js'
 
 const details = z.object({
   bankName: z.string().trim().min(1, 'Enter the bank name').max(100),
@@ -11,7 +11,13 @@ const details = z.object({
 }).strict()
 
 export async function dashboard(req, res) {
-  res.set('Cache-Control', 'no-store').json({ ...await earnings(req.tutor.id), bankAuth: req.user.passwordHash ? 'password' : 'code' })
+  const { compact } = z.object({ compact: z.literal('1').optional() }).strict().parse(req.query)
+  res.set('Cache-Control', 'no-store').json({ ...await earnings(req.tutor.id, { compact: compact === '1' }), bankAuth: req.user.passwordHash ? 'password' : 'code' })
+}
+
+export async function history(req, res) {
+  const input = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1), pageSize: z.coerce.number().int().min(1).max(50).default(10), period: z.enum(['all', 'month']).default('all'), state: z.enum(['all', 'Earned', 'Report due', 'Under review', 'Refunded', 'Cancelled', 'Cancellation fee earned']).default('all'), export: z.literal('1').optional() }).strict().parse(req.query)
+  res.set('Cache-Control', 'no-store').json(await earningsHistory(req.tutor.id, { ...input, all: input.export === '1' }))
 }
 
 export async function bankCode(req, res) {

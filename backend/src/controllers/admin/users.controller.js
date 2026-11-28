@@ -1,4 +1,5 @@
 import { verificationLink } from '../../services/privateMedia.js'
+import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { AppError } from '../../utils/AppError.js'
@@ -121,16 +122,17 @@ export async function getUser(req, res) {
   const upcomingLessons = who
     ? await prisma.booking.count({ where: { ...who, status: { in: ['PENDING', 'COUNTER_OFFERED', 'AWAITING_PAYMENT', 'CONFIRMED'] }, startAt: { gt: new Date() } } })
     : 0
-  const [signals, warnings] = await Promise.all([
+  const [signals, warnings, documentReviews] = await Promise.all([
     signalsFor([user.id]),
     prisma.accountWarning.findMany({ where: { userId: user.id }, include: { issuedBy: { select: { fullName: true } } }, orderBy: { createdAt: 'desc' } }),
+    user.tutor ? prisma.qualificationReview.findMany({ where: { tutorId: user.tutor.id }, orderBy: { id: 'desc' } }) : [],
   ])
   res.json({
     user: {
       ...dto(user, threshold, { ...signals.get(user.id), threshold }),
       warningHistory: warnings.map((w) => ({ id: w.id, reason: w.reason, issuedBy: w.issuedBy.fullName, createdAt: w.createdAt, complaintId: w.complaintId })),
       upcomingLessons,
-      qualifications: (user.tutor?.qualifications ?? []).map(q => ({ ...q, documentUrl: verificationLink(q.documentUrl, 'wondertutor/qualifications/' + user.id, 'admin', q.id) })),
+      qualifications: (user.tutor?.qualifications ?? []).map(q => ({ ...q, reviewHistory: documentReviews.filter(r => r.qualificationId === q.id), documentUrl: verificationLink(q.documentUrl, 'wondertutor/qualifications/' + user.id, 'admin', q.id) })),
       subjects: user.tutor?.subjects ?? [],
       children: user.parent?.children.map((c) => ({ id: c.id, publicId: c.publicId, name: c.name, educationLevel: c.educationLevel, grade: c.grade })) ?? [],
     },
@@ -158,14 +160,25 @@ export async function setStatus(req, res) {
 // POST /admin/qualifications/:id/review { status, note }: grants the "verified" badge
 export async function reviewQualification(req, res) {
   const { status, note } = z
-    .object({ status: z.enum(['APPROVED', 'REJECTED']), note: z.string().trim().max(300).optional() })
+    .object({ status: z.enum(['APPROVED', 'REJECTED']), note: z.string().trim().max(300).optional(), confirmedReadable: z.boolean().optional() }).strict()
     .refine((d) => d.status === 'APPROVED' || d.note, { message: 'Please give a reason for rejecting', path: ['note'] })
+    .refine((d) => d.status !== 'APPROVED' || d.confirmedReadable === true, { message: 'Open the document and confirm it is readable before approval.', path: ['confirmedReadable'] })
     .parse(req.body)
 
   const q = await prisma.qualification.findUnique({ where: { id: Number(req.params.id) }, include: { tutor: true } })
   if (!q) throw new AppError(404, 'Qualification not found')
 
   const verified = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${q.tutorId} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM Qualification WHERE id = ${q.id} FOR UPDATE`
+    const current = await tx.qualification.findUnique({ where: { id: q.id } })
+    if (!current) throw new AppError(404, 'Qualification not found')
+    if (status === 'APPROVED') {
+      const preview = await tx.qualificationPreview.findUnique({ where: { qualificationId_adminId: { qualificationId: q.id, adminId: req.user.id } } })
+      const hash = createHash('sha256').update(current.documentUrl).digest('hex')
+      if (!preview || preview.documentHash !== hash) throw new AppError(409, 'Open the current watermarked document before approving it.')
+    }
+    await tx.qualificationReview.create({ data: { qualificationId: q.id, tutorId: q.tutorId, documentTitle: current.title, previousStatus: current.status, status, note: note || null, adminId: req.user.id, adminName: req.user.fullName } })
     await tx.qualification.update({ where: { id: q.id }, data: { status, reviewNote: note || null } })
     // A tutor is "verified" while an identity document AND at least one qualification are approved
     return recomputeVerified(tx, q.tutorId)
@@ -184,6 +197,22 @@ export async function reviewQualification(req, res) {
 // GET /admin/dashboard: counts for the Admin home page (user management + complaints)
 export async function dashboard(req, res) {
   const threshold = await getThreshold()
+  const ageOf = async (model, where) => {
+    const result = await model.aggregate({ where, _count: { _all: true }, _min: { createdAt: true } })
+    return { count: result._count._all, oldest: result._min.createdAt }
+  }
+  const [documents, scheduleChanges, bookingDisputes, attendance, refundReview, refundTransfer, withdrawalReview, withdrawalTransfer, quizReports, jobs] = await Promise.all([
+    ageOf(prisma.qualification, { status: 'PENDING' }),
+    ageOf(prisma.rescheduleRequest, { status: 'ESCALATED' }),
+    ageOf(prisma.complaint, { category: { in: ['Fee negotiation', 'Booking cancellation'] }, status: { in: ['OPEN', 'IN_PROGRESS'] } }),
+    ageOf(prisma.complaint, { category: 'Missed check-in', status: { in: ['OPEN', 'IN_PROGRESS'] } }),
+    ageOf(prisma.refund, { status: { in: ['PENDING', 'ESCALATED'] } }),
+    ageOf(prisma.refund, { status: 'APPROVED', issuedAt: null }),
+    ageOf(prisma.withdrawal, { status: { in: ['PENDING', 'ESCALATED'] } }),
+    ageOf(prisma.withdrawal, { status: 'APPROVED', paidAt: null, legacyPaid: false }),
+    ageOf(prisma.complaint, { category: 'Quiz content', status: { in: ['OPEN', 'IN_PROGRESS'] } }),
+    prisma.housekeepingStatus.findMany({ orderBy: { name: 'asc' } }),
+  ])
   const [parents, tutors, deactivated, openComplaints, pendingQuals, tutorRows] = await Promise.all([
     prisma.user.count({ where: { role: 'PARENT' } }),
     prisma.user.count({ where: { role: 'TUTOR' } }),
@@ -203,7 +232,8 @@ export async function dashboard(req, res) {
   ])
   const lowRated = await prisma.tutorProfile.findMany({ where: { ratingCount: { gte: 3 }, ratingAvg: { lt: threshold } }, select: { userId: true } })
   lowRated.forEach((t) => flaggedIds.add(t.userId))
-  res.json({ parents, tutors, deactivated, openComplaints, pendingQuals, flagged: tutorRows.filter((t) => t.ratingAvg < threshold).length, needsReview: flaggedIds.size })
+  res.json({ parents, tutors, deactivated, openComplaints, pendingQuals, flagged: tutorRows.filter((t) => t.ratingAvg < threshold).length, needsReview: flaggedIds.size,
+    queues: { documents, scheduleChanges, bookingDisputes, attendance, refundReview, refundTransfer, withdrawalReview, withdrawalTransfer, quizReports }, jobs })
 }
 
 // POST /admin/users/:id/warn { reason, complaintId? }: a formal warning (FR 8.2), usually the step before a deactivation.

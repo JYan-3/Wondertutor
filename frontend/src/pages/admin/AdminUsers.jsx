@@ -126,6 +126,7 @@ function UserModal({ id, onClose, onChanged }) {
   const [error, setError] = useState('')
   const [rejecting, setRejecting] = useState(null) // qualification being rejected
   const [note, setNote] = useState('')
+  const [readable, setReadable] = useState({})
   const [confirm, setConfirm] = useState(false)
   // One action at a time: a double click on Approve or Deactivate must not send it twice
   const [busy, setBusy] = useState(false)
@@ -144,7 +145,7 @@ function UserModal({ id, onClose, onChanged }) {
   const review = (qid, status, n) => {
     // The tutor is told this reason, so a rejection always explains itself
     if (status === 'REJECTED' && !n?.trim()) return setError('Please give a reason for rejecting this qualification.')
-    run(() => api.post(`/admin/qualifications/${qid}/review`, { status, note: n }).then(() => { setRejecting(null); setNote('') }))
+    run(() => api.post(`/admin/qualifications/${qid}/review`, { status, note: n, ...(status === 'APPROVED' && { confirmedReadable: Boolean(readable[qid]) }) }).then(() => { setRejecting(null); setNote(''); setReadable(current => ({ ...current, [qid]: false })) }))
   }
   const setStatus = (action) => run(() => api.post(`/admin/users/${id}/${action}`).then(() => setConfirm(false)))
 
@@ -192,13 +193,14 @@ function UserModal({ id, onClose, onChanged }) {
                       <span className={`pill ${q.status === 'APPROVED' ? 'bg-ok-50 text-ok' : q.status === 'REJECTED' ? 'bg-red-50 text-red-600' : 'bg-accent-100 text-amber-700'}`}>{q.status.charAt(0) + q.status.slice(1).toLowerCase()}</span>
                     </div>
                     {q.reviewNote && <div className="mt-1 text-xs text-slate-500">Note: {q.reviewNote}</div>}
+                    {q.reviewHistory?.length > 0 && <details className="mt-2 text-xs"><summary className="min-h-11 cursor-pointer py-3 font-semibold">Review history</summary><ul>{q.reviewHistory.map(item => <li key={item.id} className="py-1">{item.status} · {item.adminName} · {fmtShortDate(item.createdAt)}{item.note ? ` · ${item.note}` : ''}</li>)}</ul></details>}
                     {q.status === 'PENDING' && (rejecting === q.id ? (
                       <div className="mt-2 space-y-2">
                         <textarea rows={2} maxLength={300} className="input resize-none" placeholder="Reason for rejecting (required)" value={note} onChange={(e) => setNote(e.target.value)} />
                         <div className="flex gap-2"><button disabled={busy} className="btn bg-red-600 px-4 py-1.5 text-white hover:bg-red-700" onClick={() => review(q.id, 'REJECTED', note)}>Confirm reject</button><button className="btn-outline px-4 py-1.5" onClick={() => setRejecting(null)}>Cancel</button></div>
                       </div>
                     ) : (
-                      <div className="mt-2 flex gap-2"><button disabled={busy} className="btn-primary px-4 py-1.5" onClick={() => review(q.id, 'APPROVED')}>Approve</button><button disabled={busy} className="btn-danger px-4 py-1.5" onClick={() => { setRejecting(q.id); setNote(''); setError('') }}>Reject</button></div>
+                      <div className="mt-2 space-y-2"><label className="flex min-h-11 items-center gap-2"><input type="checkbox" checked={Boolean(readable[q.id])} onChange={e => setReadable(current => ({ ...current, [q.id]: e.target.checked }))} />I opened and could read this document.</label><div className="flex gap-2"><button disabled={busy || !readable[q.id] || !verificationDocumentUrl(q.documentUrl)} className="btn-primary px-4 py-1.5" onClick={() => review(q.id, 'APPROVED')}>Approve</button><button disabled={busy} className="btn-danger px-4 py-1.5" onClick={() => { setRejecting(q.id); setNote(''); setError('') }}>Reject</button></div></div>
                     ))}
                   </li>))}
               </ul>

@@ -306,6 +306,17 @@ model Qualification {
   status      VerificationStatus @default(PENDING)
   reviewNote  String?
   createdAt   DateTime           @default(now())
+  previews    QualificationPreview[]
+}
+
+model QualificationPreview {
+  qualificationId Int
+  qualification Qualification @relation(fields: [qualificationId], references: [id], onDelete: Cascade)
+  adminId Int
+  documentHash String @db.Char(64)
+  viewedAt DateTime @default(now())
+
+  @@id([qualificationId, adminId])
 }
 
 model VerificationCleanup {
@@ -319,6 +330,22 @@ model VerificationCleanup {
   nextAttemptAt DateTime     @default(now())
 
   @@index([nextAttemptAt])
+}
+
+model QualificationReview {
+  id              Int      @id @default(autoincrement())
+  qualificationId Int
+  tutorId         Int
+  documentTitle   String   @db.VarChar(191)
+  previousStatus  String   @db.VarChar(32)
+  status          String   @db.VarChar(32)
+  note            String?  @db.VarChar(300)
+  adminId         Int
+  adminName       String   @db.VarChar(191)
+  createdAt       DateTime @default(now())
+
+  @@index([qualificationId, createdAt])
+  @@index([tutorId, createdAt])
 }
 
 model PortfolioItem {
@@ -427,6 +454,8 @@ model Booking {
   rejectionReason String?
   cancelReason    String?
   cancelledById   Int?
+  cancellationChoiceStatus String? @db.VarChar(24)
+  cancellationChoiceUntil DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -439,6 +468,7 @@ model Booking {
 
   @@index([tutorId, startAt])
   @@index([childId, startAt])
+  @@index([cancellationChoiceStatus, cancellationChoiceUntil])
 }
 
 model RescheduleRequest {
@@ -493,6 +523,7 @@ model Refund {
   amount       Decimal       @db.Decimal(10, 2)
   type         RefundType
   reason       String
+  policy       String?       @db.VarChar(32)
   status       RequestStatus @default(PENDING)
   reviewedById Int?
   createdAt    DateTime      @default(now())
@@ -562,6 +593,8 @@ model Complaint {
   booking       Booking?        @relation(fields: [bookingId], references: [id])
   reviewId      Int?
   review        Review?         @relation(fields: [reviewId], references: [id], onDelete: SetNull)
+  quizId        Int?
+  quiz          Quiz?           @relation(fields: [quizId], references: [id], onDelete: SetNull)
   category      String
   description   String          @db.Text
   evidenceUrl   String?
@@ -570,6 +603,10 @@ model Complaint {
   attendanceRefundId Int?
   attendanceRefund Refund? @relation(fields: [attendanceRefundId], references: [id], onDelete: SetNull)
   attendanceOutcome String?
+  appealUntil   DateTime?
+  appealUsed    Boolean         @default(false)
+  penaltyAmount Decimal?        @db.Decimal(10, 2)
+  penaltyEffectiveAt DateTime?
   tutorReplyPending Boolean    @default(false)
   reviewHistory AttendanceReviewEntry[]
   attendanceApproved Boolean    @default(false)
@@ -632,6 +669,25 @@ model SystemSetting {
   updatedAt DateTime @updatedAt
 }
 
+model SystemSettingHistory {
+  id        Int      @id @default(autoincrement())
+  key       String   @db.VarChar(191)
+  oldValue  String   @db.VarChar(191)
+  newValue  String   @db.VarChar(191)
+  adminId   Int
+  adminName String   @db.VarChar(191)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+model HousekeepingStatus {
+  name          String   @id @db.VarChar(100)
+  lastAttemptAt DateTime
+  lastSuccessAt DateTime?
+  lastFailureAt DateTime?
+}
+
 // A date override replaces weekly hours. Empty ranges means unavailable all day.
 model AvailabilityException {
   id Int @id @default(autoincrement())
@@ -653,13 +709,30 @@ model Quiz {
   grade       Int
   description String         @db.Text
   status      String         @default("DRAFT")
+  isHidden    Boolean        @default(false)
+  moderationReason String?   @db.VarChar(500)
+  moderatedAt DateTime?
+  moderatedById Int?
   draft       Json
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   versions    QuizVersion[]
+  reports     Complaint[]
 
   @@index([tutorId, status])
   @@index([status, subject, level])
+}
+
+model QuizModerationEntry {
+  id        Int      @id @default(autoincrement())
+  quizId    Int
+  adminId   Int
+  adminName String   @db.VarChar(191)
+  isHidden  Boolean
+  reason    String   @db.VarChar(500)
+  createdAt DateTime @default(now())
+
+  @@index([quizId, createdAt])
 }
 
 model QuizVersion {
@@ -682,6 +755,7 @@ model QuizAttempt {
   childId    Int
   child      Child       @relation(fields: [childId], references: [id], onDelete: Cascade)
   nickname   String      @db.VarChar(30)
+  showOnLeaderboard Boolean @default(true)
   status     String
   answers    Json
   score      Int

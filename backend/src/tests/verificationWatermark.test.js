@@ -146,7 +146,7 @@ test.each(['jpg', 'png', 'pdf'])('tutor can save a readable %s and both tutor an
     expect(response.status).toBe(200)
     expect(response.headers.get('cache-control')).toMatch(/no-store/)
   }
-  expect((await api(admin.token).post(`/admin/qualifications/${saved.id}/review`, { status: 'APPROVED' })).status).toBe(200)
+  expect((await api(admin.token).post(`/admin/qualifications/${saved.id}/review`, { status: 'APPROVED', confirmedReadable: true })).status).toBe(200)
   expect((await api(owner.token).get('/tutor/profile')).documents.find(doc => doc.id === saved.id).status).toBe('APPROVED')
 })
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api, { errorMessage } from '../../api/client'
-import { ErrorBox, PageTitle, SectionCard, Spinner } from '../../components/ui/Common'
+import { ErrorBox, Modal, PageTitle, SectionCard, Spinner } from '../../components/ui/Common'
 import Icon from '../../components/ui/Icon'
 import './Quizzes.css'
 import { useUnsavedWarning } from '../../lib/useUnsavedWarning'
@@ -21,6 +21,9 @@ export default function ParentQuizzes() {
   const [quizzes, setQuizzes] = useState([]), [children, setChildren] = useState([]), [history, setHistory] = useState([])
   const [quiz, setQuiz] = useState(null), [result, setResult] = useState(null), [board, setBoard] = useState(null)
   const [child, setChild] = useState(''), [nickname, setNickname] = useState(''), [answers, setAnswers] = useState([])
+  const [showOnLeaderboard, setShowOnLeaderboard] = useState(true)
+  const [report, setReport] = useState(null)
+  const [reportNotice, setReportNotice] = useState('')
   const [search, setSearch] = useState(''), [subject, setSubject] = useState(''), [level, setLevel] = useState(''), [reviewing, setReviewing] = useState(false), [step, setStep] = useState(0)
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [loading, setLoading] = useState(true)
   const dirty = Boolean(quiz && answers.some(a => a.trim()))
@@ -31,13 +34,15 @@ export default function ParentQuizzes() {
   const run = async fn => { setBusy(true); setError(''); try { await fn() } catch (e) { setError(errorMessage(e)) } finally { setBusy(false) } }
   const open = q => { requestId.current = newRequestId(); setReviewing(false); setStep(0); setQuiz(q); setAnswers(q.questions.map(() => '')); setResult(null); setBoard(null) }
   const showResult = id => run(async () => { setResult((await api.get(`/parent/quiz-attempts/${id}`)).data); setQuiz(null); setBoard(null) })
-  const submit = e => { e.preventDefault(); if (!reviewing) return; run(async () => { const r = await api.post(`/parent/quizzes/${quiz.id}/attempts`, { requestId: requestId.current, childId: Number(child), versionId: quiz.versionId, nickname, answers }); setResult((await api.get(`/parent/quiz-attempts/${r.data.id}`)).data); setQuiz(null); await load() }) }
+  const submit = e => { e.preventDefault(); if (!reviewing) return; run(async () => { const r = await api.post(`/parent/quizzes/${quiz.id}/attempts`, { requestId: requestId.current, childId: Number(child), versionId: quiz.versionId, nickname: showOnLeaderboard ? nickname : '', showOnLeaderboard, answers }); setResult((await api.get(`/parent/quiz-attempts/${r.data.id}`)).data); setQuiz(null); await load() }) }
   const showBoard = q => run(async () => { setBoard({ quiz: q, entries: (await api.get(`/parent/quizzes/${q.id}/leaderboard?version=${q.versionId}`)).data.leaderboard }); setQuiz(null); setResult(null) })
   const back = () => { if (quiz && answers.some(a => a.trim()) && !window.confirm('Discard your answers?')) return; setQuiz(null); setResult(null); setBoard(null) }
   const visible = quizzes.filter(q => `${q.title} ${q.subject} ${q.tutor}`.toLowerCase().includes(search.toLowerCase()) && (!subject || q.subject === subject) && (!level || q.level === level))
   const answered = quiz ? quiz.questions.filter((q, i) => validAnswer(q, answers[i])).length : 0
   return <div className="parent-quiz min-w-0 space-y-4">
     <div className="parent-quiz-page-header"><PageTitle title="Quizzes" subtitle="Find a quiz, practise and see your progress." /><img src="/img/art/student-workbook.png" alt="" aria-hidden="true" /></div>
+    {report && <ReportQuiz quiz={report} onClose={() => setReport(null)} onSent={() => { setReport(null); setReportNotice('Your report was sent to admin for review.') }} />}
+    {reportNotice && <p role="status" className="rounded-lg bg-brand-50 p-3 text-sm">{reportNotice}</p>}
     {!quiz && <ErrorBox>{error}</ErrorBox>}
     {error && !quiz && !result && !board && <button type="button" className="btn-outline min-h-11" onClick={() => { setError(''); load().catch(e => setError(errorMessage(e))) }}>Try again</button>}
     {(quiz || result || board) && <button type="button" className="btn-outline min-h-11" onClick={back}><Icon name="arrow-left" className="h-4 w-4" /> Back to quizzes</button>}
@@ -55,8 +60,10 @@ export default function ParentQuizzes() {
         <p className="mt-3 text-sm text-slate-600">{quiz.questions.some(q => q.type === 'LONG') ? 'Long answers will be marked by the tutor.' : 'Answers are marked automatically.'}</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label className="min-w-0 text-sm font-semibold text-navy">Choose your child<select required className="input mt-1 min-h-11 text-base font-normal" value={child} onChange={e => setChild(e.target.value)}><option value="">Choose child</option>{children.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-          <label className="min-w-0 text-sm font-semibold text-navy">Leaderboard nickname<input required minLength={2} maxLength={30} className="input mt-1 min-h-11 text-base font-normal" value={nickname} onChange={e => setNickname(e.target.value)} /><span className="mt-1 block text-xs font-normal text-slate-600">Other parents can see this nickname. Do not use your child’s full name. Use letters, numbers, spaces, hyphens or underscores.</span></label>
+          {showOnLeaderboard && <label className="min-w-0 text-sm font-semibold text-navy">Leaderboard nickname<input required minLength={2} maxLength={30} className="input mt-1 min-h-11 text-base font-normal" value={nickname} onChange={e => setNickname(e.target.value)} /><span className="mt-1 block text-xs font-normal text-slate-600">Other parents can see this nickname. Do not use your child’s full name. Use letters, numbers, spaces, hyphens or underscores.</span></label>}
         </div>
+        <label className="mt-3 flex min-h-11 items-center gap-2 text-sm"><input type="checkbox" className="h-5 w-5" checked={showOnLeaderboard} onChange={e => setShowOnLeaderboard(e.target.checked)} /> Show this child’s result on the leaderboard</label>
+        {!showOnLeaderboard && <p className="text-sm text-slate-600">This child’s score will be hidden from the leaderboard for this quiz, including while it awaits marking.</p>}
       </section>
       {reviewing ? <SectionCard title="Review your answers">
         <p>Check your answers before submitting.</p>
@@ -75,7 +82,7 @@ export default function ParentQuizzes() {
             <AnswerInput q={quiz.questions[step]} index={step} value={answers[step]} onChange={value => setAnswers(a => a.map((x, j) => j === step ? value : x))} playful />
           </div>
         </section>
-        <ErrorBox>{error}</ErrorBox><div className="flex flex-wrap justify-between gap-2"><button type="button" className="btn-outline min-h-11 flex-1 sm:flex-none" disabled={step === 0} onClick={() => setStep(step - 1)}>Previous</button>{step < quiz.questions.length - 1 ? <button type="button" className="btn-primary min-h-11 flex-1 sm:flex-none" onClick={() => setStep(step + 1)}>Next <Icon name="arrow-right" className="h-4 w-4" /></button> : <button type="button" className="btn-primary min-h-11 flex-1 sm:flex-none" onClick={() => { const missing = answers.findIndex((a, i) => !validAnswer(quiz.questions[i], a)); if (!child || !nickname.trim()) { setError('Choose a child and enter a nickname.'); return } if (missing >= 0) { setError(`Question ${missing + 1} needs an answer.`); setStep(missing); return } setError(''); setReviewing(true) }}>Review answers</button>}</div>
+        <ErrorBox>{error}</ErrorBox><div className="flex flex-wrap justify-between gap-2"><button type="button" className="btn-outline min-h-11 flex-1 sm:flex-none" disabled={step === 0} onClick={() => setStep(step - 1)}>Previous</button>{step < quiz.questions.length - 1 ? <button type="button" className="btn-primary min-h-11 flex-1 sm:flex-none" onClick={() => setStep(step + 1)}>Next <Icon name="arrow-right" className="h-4 w-4" /></button> : <button type="button" className="btn-primary min-h-11 flex-1 sm:flex-none" onClick={() => { const missing = answers.findIndex((a, i) => !validAnswer(quiz.questions[i], a)); if (!child || (showOnLeaderboard && !nickname.trim())) { setError('Choose a child and enter a nickname if showing the result.'); return } if (missing >= 0) { setError(`Question ${missing + 1} needs an answer.`); setStep(missing); return } setError(''); setReviewing(true) }}>Review answers</button>}</div>
       </div><QuizLeaderboard key={`${quiz.id}-${quiz.versionId}`} quiz={quiz} /></div>}
     </form>
     : result ? <>
@@ -89,12 +96,23 @@ export default function ParentQuizzes() {
       <SectionCard title="Find a quiz"><div className="grid gap-3 sm:grid-cols-3"><label>Search<input className="input min-h-11 text-base" value={search} onChange={e => setSearch(e.target.value)} /></label><label>Subject<select className="input min-h-11 text-base" value={subject} onChange={e => setSubject(e.target.value)}><option value="">All subjects</option>{[...new Set(quizzes.map(q => q.subject))].map(s => <option key={s}>{s}</option>)}</select></label><label>Level<select className="input min-h-11 text-base" value={level} onChange={e => setLevel(e.target.value)}><option value="">All levels</option><option value="KINDERGARTEN">Kindergarten</option><option value="PRIMARY">Primary</option><option value="SECONDARY">Secondary</option></select></label></div></SectionCard>
       {loading ? <Spinner label="Loading quizzes…" /> : <>
         {visible.length > 0 && <div className="flex items-center justify-between gap-2"><h2 className="font-display text-xl font-bold text-navy">Quizzes to explore</h2><span className="text-sm text-slate-600">{visible.length} {visible.length === 1 ? 'quiz' : 'quizzes'}</span></div>}
-        <div className="grid gap-4 md:grid-cols-2">{visible.map(q => <article key={q.id} className="parent-quiz-card card min-w-0 p-4 sm:p-5"><div className="flex items-start gap-3"><div className="parent-quiz-icon" aria-hidden="true"><Icon name="book" className="h-6 w-6" /></div><div className="min-w-0 flex-1"><span className="parent-quiz-badge">{q.subject}</span><h3 className="mt-2 break-words font-display text-xl font-bold text-navy">{q.title}</h3><p className="mt-1 break-words text-sm text-slate-600">{q.description}</p></div></div><p className="mt-4 break-words text-sm text-slate-600">{gradeLabel(q.level, q.grade)} · {q.questions.length} {q.questions.length === 1 ? 'question' : 'questions'} · {q.tutor}</p><div className="mt-4 flex flex-wrap gap-2"><button className="btn-primary min-h-11 flex-1 sm:flex-none" disabled={busy} onClick={() => open(q)}>Start quiz <Icon name="arrow-right" className="h-4 w-4" /></button><button className="btn-outline min-h-11 flex-1 sm:flex-none" disabled={busy} onClick={() => showBoard(q)}><Icon name="trophy" className="h-4 w-4" /> Leaderboard</button></div></article>)}</div>
+        <div className="grid gap-4 md:grid-cols-2">{visible.map(q => <article key={q.id} className="parent-quiz-card card min-w-0 p-4 sm:p-5"><div className="flex items-start gap-3"><div className="parent-quiz-icon" aria-hidden="true"><Icon name="book" className="h-6 w-6" /></div><div className="min-w-0 flex-1"><span className="parent-quiz-badge">{q.subject}</span><h3 className="mt-2 break-words font-display text-xl font-bold text-navy">{q.title}</h3><p className="mt-1 break-words text-sm text-slate-600">{q.description}</p></div></div><p className="mt-4 break-words text-sm text-slate-600">{gradeLabel(q.level, q.grade)} · {q.questions.length} {q.questions.length === 1 ? 'question' : 'questions'} · {q.tutor}</p><div className="mt-4 flex flex-wrap gap-2"><button className="btn-primary min-h-11 flex-1 sm:flex-none" disabled={busy} onClick={() => open(q)}>Start quiz <Icon name="arrow-right" className="h-4 w-4" /></button><button className="btn-outline min-h-11 flex-1 sm:flex-none" disabled={busy} onClick={() => showBoard(q)}><Icon name="trophy" className="h-4 w-4" /> Leaderboard</button><button type="button" className="min-h-11 px-2 text-sm font-semibold text-brand-700 underline" onClick={() => { setReportNotice(''); setReport(q) }}>Report quiz</button></div></article>)}</div>
         {!visible.length && !error && <div className="parent-quiz-empty card p-5 text-center"><Icon name="search" className="mx-auto h-7 w-7 text-brand-500" /><p className="mt-2 font-semibold text-navy">No quizzes found.</p><p className="mt-1 text-sm text-slate-600">Try another search or filter, or check back later.</p></div>}
       </>}
-      <SectionCard title="Your children’s attempts">{history.length ? history.map(a => <button className="flex min-h-11 w-full flex-wrap items-center justify-between gap-2 border-b border-brand-100 py-3 text-left" key={a.id} onClick={() => showResult(a.id)}><span className="min-w-0 break-words">{a.child.name} · {a.version.quiz.title}</span><span className="font-semibold text-brand-700">{a.status === 'PENDING' ? 'Awaiting tutor review' : `${a.score} / ${a.maxScore}`} →</span></button>) : <p>No attempts yet.</p>}</SectionCard>
+      <SectionCard title="Your children’s attempts">{history.length ? history.map(a => <div className="border-b border-brand-100 py-2" key={a.id}><button className="flex min-h-11 w-full flex-wrap items-center justify-between gap-2 text-left" onClick={() => showResult(a.id)}><span className="min-w-0 break-words">{a.child.name} · {a.version.quiz.title}</span><span className="font-semibold text-brand-700">{a.status === 'PENDING' ? 'Awaiting tutor review' : `${a.score} / ${a.maxScore}`} →</span></button>{a.showOnLeaderboard && <button type="button" className="min-h-11 text-sm font-semibold text-brand-700 underline" onClick={() => run(async () => { await api.patch(`/parent/quiz-attempts/${a.id}/hide-leaderboard`); await load() })}>Hide {a.child.name} from this quiz leaderboard</button>}</div>) : <p>No attempts yet.</p>}</SectionCard>
     </>}
   </div>
+}
+
+function ReportQuiz({ quiz, onClose, onSent }) {
+  const [reason, setReason] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  async function submit(event) {
+    event.preventDefault()
+    setBusy(true); setError('')
+    try { await api.post(`/parent/quizzes/${quiz.id}/report`, { reason: reason.trim() }); onSent() }
+    catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+  return <Modal open onClose={onClose} title="Report quiz" width="max-w-lg"><form onSubmit={submit} className="space-y-3"><p>Tell admin what concerns you about {quiz.title}. Do not include your child’s private information.</p><label className="block font-semibold">Reason<textarea required minLength={10} maxLength={1000} className="input mt-1 min-h-24 text-base" value={reason} onChange={e => setReason(e.target.value)} /></label><ErrorBox>{error}</ErrorBox><button className="btn-primary min-h-11 w-full" disabled={busy}>{busy ? 'Sending…' : 'Send report'}</button></form></Modal>
 }
 
 function QuizLeaderboard({ quiz }) {

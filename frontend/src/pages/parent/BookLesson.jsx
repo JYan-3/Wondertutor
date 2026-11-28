@@ -137,6 +137,7 @@ export default function BookLesson() {
                 <input type="date" aria-label="Jump to week" min={todayYmd()} value={week} onChange={e => { if (e.target.value) setWeek(mondayOfYmd(e.target.value)) }} className="input min-h-11 w-auto max-w-full" />
               </label>
             </div>
+            <p className="mb-2 text-sm font-semibold text-navy">Book by 11:59 pm Malaysia time on the day before the lesson. Same-day bookings are not available.</p>
             <p className="mb-3 text-xs text-slate-500">Malaysia time (MYT) · Blue: available · Dark: selected · Grey: unavailable</p>
             {calendarError ? <LoadError message={calendarError} onRetry={() => setCalendarVersion(v => v + 1)} /> : !grid ? <Spinner /> : (
               <div className="overflow-x-auto" role="region" aria-label="Weekly lesson calendar" tabIndex={0}>

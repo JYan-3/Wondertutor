@@ -41,14 +41,15 @@ export default function RescheduleModal({ booking, onClose, onSubmit }) {
       width="max-w-2xl"
       title="Request a new lesson time"
       footer={<>
-        <button onClick={onClose} className="btn-outline">Keep current time</button>
+        <button onClick={onClose} className="btn-outline">{booking.status === 'CANCELLED' ? 'Close' : 'Keep current time'}</button>
         <button disabled={busy || !pick} onClick={submit} className="btn-primary">{busy ? 'Sending…' : 'Send Request'}</button>
       </>}
     >
       <p className="text-sm text-slate-700">
-        Now: <b className="text-navy">{fmtDateLong(booking.startAt)}, {fmtTimeRange(booking.startAt, booking.endAt)}</b> with {booking.tutor.name}.
-        The lesson only moves if the tutor agrees. If not, our admin team decides.
+        {booking.status === 'CANCELLED' ? 'Cancelled time: ' : 'Now: '}<b className="text-navy">{fmtDateLong(booking.startAt)}, {fmtTimeRange(booking.startAt, booking.endAt)}</b> with {booking.tutor.name}.
+        {booking.status === 'CANCELLED' ? ' The lesson stays cancelled until a new time is accepted.' : ' The lesson only moves if the tutor agrees.'} If not, our admin team decides.
       </p>
+      <p className="mt-2 text-sm text-slate-600">The new time must be requested and accepted by the previous day, Malaysia time.</p>
 
       <div className="mt-4 flex items-center justify-between">
         <button type="button" className="btn-outline min-h-10 px-3" disabled={week <= thisWeek} onClick={() => setWeek(addDaysYmd(week, -7))} aria-label="Previous week"><Icon name="left" className="h-4 w-4" /></button>

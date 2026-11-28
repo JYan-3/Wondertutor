@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js'
 import { requestReschedule, respondReschedule } from '../services/reschedule.service.js'
 import { bookingInclude } from '../services/booking.dto.js'
 import { MONDAY, api, makeAdmin, makeBooking, makeChild, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { todayMyt } from '../utils/time.js'
 
 let parent, tutor, admin, date
 beforeAll(async () => {
@@ -23,6 +24,14 @@ const answer = (b, rid, action) => api(parent.token).post(`/parent/bookings/${b.
 const hhmm = (d) => new Date(d).toLocaleTimeString('en-GB', { timeZone: 'Asia/Kuala_Lumpur', hour: '2-digit', minute: '2-digit' })
 
 describe('parent asks to reschedule', () => {
+  test('a replacement lesson cannot be requested for the current Malaysia calendar day', async () => {
+    const t = await makeTutor(), p = await makeParent()
+    const b = await makeBooking({ parent: p.parent, child: p.child, tutor: t.tutor, date, start: '16:00', status: 'CONFIRMED' })
+    const result = await api(p.token).post(`/parent/bookings/${b.id}/reschedule`, { date: todayMyt(), startTime: '23:00' })
+    expect(result.status).toBe(400)
+    expect(result.message).toMatch(/day before/i)
+    expect(await prisma.rescheduleRequest.count({ where: { bookingId: b.id } })).toBe(0)
+  })
   test('an unanswered request cannot move a lesson after it has started', async () => {
     const t = await makeTutor()
     const p = await makeParent()

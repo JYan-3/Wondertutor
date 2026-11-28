@@ -49,6 +49,17 @@ test('a parent can explore the leaderboard and return to the quizzes', async () 
   expect(screen.getByRole('heading', { name: 'Fractions' })).toBeVisible()
 })
 
+test('a parent can report a quiz without leaving the page', async () => {
+  setupApi()
+  api.post.mockResolvedValue({ data: { id: 1 } })
+  render(<MemoryRouter><ParentQuizzes /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Report quiz' }))
+  fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Please review this question.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send report' }))
+  expect(await screen.findByText('Your report was sent to admin for review.')).toBeVisible()
+  expect(api.post).toHaveBeenCalledWith('/parent/quizzes/1/report', { reason: 'Please review this question.' })
+})
+
 test('the quiz shows the current leaderboard while answers stay in place', async () => {
   setupApi()
   render(<MemoryRouter><ParentQuizzes /></MemoryRouter>)

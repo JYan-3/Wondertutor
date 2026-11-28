@@ -8,6 +8,7 @@ import { moderateReview } from '../controllers/admin/reviews.controller.js'
 import * as settings from '../controllers/admin/settings.controller.js'
 import * as ops from '../controllers/admin/operations.controller.js'
 import * as withdrawals from '../controllers/admin/withdrawals.controller.js'
+import * as quizzes from '../controllers/admin/quiz.controller.js'
 import { viewVerificationDocument } from '../controllers/verificationDocument.controller.js'
 import { rateLimit } from '../middleware/rateLimit.js'
 
@@ -34,6 +35,7 @@ router.get('/complaints/export', complaints.exportComplaints)
 router.get('/complaints/:id', complaints.getComplaint)
 router.patch('/complaints/:id', complaints.updateComplaint)
 router.patch('/reviews/:id/moderation', moderateReview)
+router.patch('/quizzes/:id/moderation', quizzes.moderate)
 
 router.get('/rates', ops.rates)
 router.patch('/rates/:id', ops.rate)
@@ -53,6 +55,7 @@ router.post('/withdrawals/:id/release-transfer', withdrawals.releaseTransfer)
 router.get('/withdrawals/:id/destination', withdrawals.destination)
 router.post('/withdrawals/:id/transfer', withdrawals.transfer)
 router.get('/settings', settings.list)
+router.get('/settings/history', settings.history)
 router.patch('/settings', settings.update)
 
 export default router

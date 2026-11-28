@@ -2,7 +2,7 @@
 import { prisma } from '../config/prisma.js'
 import { env } from '../config/env.js'
 import { signatureFor, signatureIsValid } from '../services/billplz.service.js'
-import { MONDAY, api, apiBase, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { MONDAY, api, apiBase, makeBooking, makeChild, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 const realFetch = global.fetch
 const BASE = 'https://billplz.test/api'
@@ -45,7 +45,8 @@ afterAll(async () => {
 // A booking waiting for payment, with a Billplz bill already created for it
 async function startPayment({ price = 60, start = '17:00' } = {}) {
   const t = await makeTutor()
-  const b = await makeBooking({ parent: parent.parent, child: parent.child, tutor: t.tutor, date: monday, start, status: 'AWAITING_PAYMENT', price })
+  const child = await makeChild(parent.parent.id)
+  const b = await makeBooking({ parent: parent.parent, child, tutor: t.tutor, date: monday, start, status: 'AWAITING_PAYMENT', price })
   const res = await api(parent.token).post('/parent/payments/checkout', { bookingId: b.id })
   return { booking: b, checkout: res }
 }

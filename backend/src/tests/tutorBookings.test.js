@@ -34,7 +34,8 @@ test('parent and tutor negotiate, accept and share the online link after payment
   expect(result.status).toBe(200)
   expect((await get()).meetingLink).toBe(url)
   expect((await act('cancel', { reason: 'Illness' })).booking.status).toBe('CANCELLED')
-  expect(await prisma.refund.count({ where: { paymentId: checkout.paymentId, type: 'AUTO' } })).toBe(1)
+  expect((await get()).cancellationChoice.status).toBe('OPEN')
+  expect(await prisma.refund.count({ where: { paymentId: checkout.paymentId, type: 'AUTO' } })).toBe(0)
 })
 
 test('scopes actions to the owner, validates reasons and honours removed availability', async () => {

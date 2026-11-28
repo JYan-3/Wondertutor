@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { prisma } from '../../config/prisma.js'
 import { AppError } from '../../utils/AppError.js'
+import { assertRequestLessonDate } from '../../services/bookingCutoff.js'
 import { assertChildFree, assertSlotBookable } from '../../services/booking.service.js'
 import { bookingInclude, toBookingDto } from '../../services/booking.dto.js'
 import { notify, notifyWithEmail, sendNotificationEmail } from '../../services/notification.service.js'
@@ -15,6 +16,7 @@ import { publicReference, recordReference, referenceWhere } from '../../utils/pu
 import { assertCanAccept, newPayBy } from '../../services/paymentWindow.js'
 import { escalateBooking } from '../../services/tutorBooking.service.js'
 import { canEditLessonLocation, hasConfirmedLessonLocation, lessonLocationSchema } from '../../services/lessonLocation.service.js'
+import { queueCancellationRefund } from '../../services/cancellationChoice.service.js'
 
 export async function confirmAttendance(req, res) {
   const { answer, note, reviewedAt } = z.object({
@@ -145,10 +147,13 @@ export async function createBooking(req, res) {
 
     const created = []
     for (const slot of slots) {
+      assertRequestLessonDate(slot.date)
       const startAt = mytToDate(slot.date, slot.startTime)
       const endAt = new Date(startAt.getTime() + 3600000)
       await assertSlotBookable({ tutorId: tutor.id, startAt, endAt, teachingMode: data.teachingMode }, tx)
       await assertChildFree({ childId: child.id, startAt, endAt }, tx)
+      const duplicate = await tx.booking.findFirst({ where: { tutorId: tutor.id, childId: child.id, status: { in: ['PENDING', 'COUNTER_OFFERED', 'AWAITING_PAYMENT'] }, startAt: { lt: endAt }, endAt: { gt: startAt } } })
+      if (duplicate) throw new AppError(409, 'This child already has a lesson request for this tutor at that time.')
       created.push(await tx.booking.create({
         data: {
           parentId: req.parent.id,
@@ -363,16 +368,22 @@ export async function cancelBooking(req, res) {
   if (b.status === 'CONFIRMED' && b.startAt <= new Date()) throw new AppError(400, 'This lesson has already started')
 
   await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${b.tutorId} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${b.id} FOR UPDATE`
+    const current = await tx.booking.findUnique({ where: { id: b.id } })
+    if (!current || current.updatedAt.getTime() !== b.updatedAt.getTime() || current.status !== b.status || current.startAt <= new Date()) throw new AppError(409, 'This booking has just been updated. Please refresh the page and try again.')
     await changeStatus(tx, b, { status: 'CANCELLED', cancelReason: reason || 'Cancelled by parent', cancelledById: req.user.id })
     // A paid lesson goes to Admin for a refund decision, unless a refund request for it is already open
     if (b.status === 'CONFIRMED' && b.payment?.status === 'PAID' && !(await lockPaymentAndCountOpenRefunds(tx, b.payment.id))) {
+      const late = current.startAt.getTime() - Date.now() < 24 * 3_600_000
+      const amount = late ? b.payment.amount.mul('0.9').toDecimalPlaces(2) : b.payment.amount
       await tx.refund.create({
-        data: { paymentId: b.payment.id, amount: b.payment.amount, type: 'ADMIN_REVIEW', reason: reason || 'Parent cancelled the booking' },
+        data: { paymentId: b.payment.id, amount, policy: late ? 'PARENT_LATE' : 'PARENT_EARLY', type: 'ADMIN_REVIEW', reason: reason || 'Parent cancelled the booking' },
       })
     }
     // A checkout that was started but not finished can never be completed for a cancelled lesson
     if (b.payment?.status === 'PENDING') await tx.payment.update({ where: { id: b.payment.id }, data: { status: 'FAILED' } })
-    await tx.rescheduleRequest.updateMany({ where: { bookingId: b.id, status: 'PENDING' }, data: { status: 'REJECTED' } })
+    await tx.rescheduleRequest.updateMany({ where: { bookingId: b.id, status: { in: ['PENDING', 'ESCALATED'] } }, data: { status: 'REJECTED' } })
   })
   const updated = await reload(b.id)
 
@@ -386,6 +397,12 @@ export async function cancelBooking(req, res) {
 }
 
 // ───────────── Reschedule (mutual agreement, otherwise Admin decides) ─────────────
+export async function cancellationRefund(req, res) {
+  const booking = await ownBooking(req)
+  await queueCancellationRefund(booking.id, { parentId: req.parent.id })
+  res.json({ booking: toBookingDto(await reload(booking.id)) })
+}
+
 // bookingInclude carries both user ids (parent.userId, tutor.userId), which the service needs to notify the right person
 const withParties = ownBooking
 

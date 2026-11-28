@@ -45,6 +45,8 @@ test('the withdraw button stays off until an amount is typed', async () => {
   const button = screen.getByRole('button', { name: 'Confirm withdrawal' })
   expect(button).toBeDisabled()
   fireEvent.change(screen.getByLabelText('Amount (RM)'), { target: { value: '5' } })
+  expect(button).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Amount (RM)'), { target: { value: '10' } })
   expect(button).toBeEnabled()
   expect(screen.getByLabelText('Amount (RM)')).toHaveAttribute('max', '45')
 })
@@ -53,7 +55,7 @@ test('a refused withdrawal shows the reason and reloads the balance', async () =
   show()
   api.post.mockRejectedValue(new Error('Your balance changed. Refresh and check your withdrawal history.'))
   fireEvent.click(await screen.findByRole('button', { name: 'Request withdrawal' }))
-  fireEvent.change(await screen.findByLabelText('Amount (RM)'), { target: { value: '5' } })
+  fireEvent.change(await screen.findByLabelText('Amount (RM)'), { target: { value: '10' } })
   fireEvent.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
   expect(await screen.findByText(/Your balance changed/)).toBeInTheDocument()
   expect(api.get).toHaveBeenCalledTimes(2)
@@ -76,6 +78,81 @@ test('a lesson without a refund hides the refund lines', async () => {
   expect(within(item).getByText('Saved commission (12%)')).toBeInTheDocument()
 })
 
+test('lesson summaries expand and filter without changing the earned amounts', async () => {
+  show({ ...view, transactions: [row(1, new Date().toISOString()), row(2, new Date().toISOString(), { student: 'Ben', state: 'Report due', net: '30.00' })] })
+  const item = (await screen.findByText('Mathematics · Sarah')).closest('li')
+  expect(within(item).getByText('RM 88.00', { selector: 'strong' })).toBeVisible()
+  expect(item.querySelector('details')).not.toHaveAttribute('open')
+  fireEvent.click(within(item).getByText('Mathematics · Sarah'))
+  expect(item.querySelector('details')).toHaveAttribute('open')
+  expect(within(item).getByText('Commission (12%)')).toBeVisible()
+  fireEvent.change(screen.getByLabelText('Lesson status'), { target: { value: 'Report due' } })
+  expect(screen.queryByText('Mathematics · Sarah')).not.toBeInTheDocument()
+  expect(screen.getByText('Mathematics · Ben')).toBeVisible()
+})
+
+test('paginates ten lessons and returns to the first page when a filter changes', async () => {
+  show({ ...view, transactions: Array.from({ length: 12 }, (_, i) => row(i + 1, new Date().toISOString(), { student: `Student ${i + 1}`, state: i === 11 ? 'Report due' : 'Earned' })) })
+  expect(await screen.findByText(/Showing 1–10 of 12 lessons/)).toBeVisible()
+  expect(screen.queryByText('Mathematics · Student 11')).not.toBeInTheDocument()
+  const pages = within(screen.getByRole('navigation', { name: 'Lesson history pages' }))
+  expect(pages.getByRole('button', { name: 'Previous' })).toBeDisabled()
+  fireEvent.click(pages.getByRole('button', { name: 'Next' }))
+  expect(screen.getByText('Mathematics · Student 11')).toBeVisible()
+  expect(screen.getByText(/Showing 11–12 of 12 lessons/)).toBeVisible()
+  expect(pages.getByRole('button', { name: 'Next' })).toBeDisabled()
+  fireEvent.change(screen.getByLabelText('Lesson status'), { target: { value: 'Earned' } })
+  expect(screen.getByText(/Showing 1–10 of 11 lessons/)).toBeVisible()
+  expect(screen.getByText('Page 1 of 2')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  fireEvent.change(screen.getByLabelText('Transaction period'), { target: { value: 'month' } })
+  expect(screen.getByText('Page 1 of 2')).toBeVisible()
+})
+
+test('loads filtered history pages and exports all matching lessons from the server', async () => {
+  const transactions = Array.from({ length: 12 }, (_, i) => row(i + 1, new Date().toISOString(), { student: `Student ${i + 1}` }))
+  const { transactions: ignored, ...compact } = view
+  expect(ignored).toEqual([])
+  api.get.mockImplementation(async (path, options) => {
+    if (path !== '/tutor/earnings/history') return { data: compact }
+    const params = options.params
+    return { data: { rows: params.export ? transactions : transactions.slice((params.page - 1) * 10, params.page * 10), states: ['Earned'], pagination: { page: params.page, totalPages: 2, total: 12 } } }
+  })
+  const create = vi.fn(() => 'blob:x')
+  Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() })
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  render(<MemoryRouter><Earnings /></MemoryRouter>)
+  expect(await screen.findByText('Mathematics · Student 1')).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  expect(await screen.findByText('Mathematics · Student 11')).toBeVisible()
+  fireEvent.change(screen.getByLabelText('Lesson status'), { target: { value: 'Earned' } })
+  await waitFor(() => expect(api.get).toHaveBeenCalledWith('/tutor/earnings/history', expect.objectContaining({ params: expect.objectContaining({ page: 1, state: 'Earned' }) })))
+  expect(await screen.findByText('Mathematics · Student 1')).toBeVisible()
+  fireEvent.click(await screen.findByRole('button', { name: 'Export CSV' }))
+  await waitFor(() => expect(create).toHaveBeenCalled())
+  expect(await create.mock.calls[0][0].text()).toContain('Student 12')
+})
+
+test('saves a selected bank or a bank entered through Other bank', async () => {
+  show({ ...view, bank: null })
+  api.put.mockResolvedValue({ data: {} })
+  fireEvent.click(await screen.findByRole('button', { name: 'Add bank account' }))
+  fireEvent.change(screen.getByLabelText('Bank', { exact: true }), { target: { value: 'Maybank' } })
+  fireEvent.change(screen.getByLabelText('Account holder'), { target: { value: 'Tutor Name' } })
+  fireEvent.change(screen.getByLabelText('Account number'), { target: { value: '1234567890' } })
+  fireEvent.change(screen.getByLabelText('Confirm your password'), { target: { value: 'password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save account' }))
+  await waitFor(() => expect(api.put).toHaveBeenCalledWith('/tutor/earnings/bank', expect.objectContaining({ details: { bankName: 'Maybank', accountName: 'Tutor Name', accountNumber: '1234567890' } })))
+  fireEvent.click(await screen.findByRole('button', { name: 'Add bank account' }))
+  fireEvent.change(screen.getByLabelText('Bank', { exact: true }), { target: { value: '__other__' } })
+  fireEvent.change(screen.getByLabelText('Other bank name'), { target: { value: 'Another Bank' } })
+  fireEvent.change(screen.getByLabelText('Account holder'), { target: { value: 'Tutor Name' } })
+  fireEvent.change(screen.getByLabelText('Account number'), { target: { value: '1234567890' } })
+  fireEvent.change(screen.getByLabelText('Confirm your password'), { target: { value: 'password' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Save account' }))
+  await waitFor(() => expect(api.put).toHaveBeenLastCalledWith('/tutor/earnings/bank', expect.objectContaining({ details: { bankName: 'Another Bank', accountName: 'Tutor Name', accountNumber: '1234567890' } })))
+})
+
 test('This month hides payments from earlier months', async () => {
   show({ ...view, transactions: [row(1, new Date().toISOString(), { student: 'Now' }), row(2, '2020-01-15T04:00:00.000Z', { student: 'Old' })] })
   await screen.findByText('Mathematics · Old')
@@ -84,16 +161,19 @@ test('This month hides payments from earlier months', async () => {
   expect(screen.queryByText('Mathematics · Old')).toBeNull()
 })
 
-test('Export CSV downloads the shown payments', async () => {
+test('Export CSV downloads all filtered payments across pages', async () => {
   const create = vi.fn(() => 'blob:x')
   Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() })
   const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-  show({ ...view, transactions: [row(1, new Date().toISOString())] })
+  show({ ...view, transactions: [...Array.from({ length: 12 }, (_, i) => row(i + 1, new Date().toISOString(), { student: `Student ${i + 1}` })), row(13, new Date().toISOString(), { student: 'Excluded', state: 'Report due' })] })
+  await screen.findByText('Mathematics · Student 1')
+  fireEvent.change(screen.getByLabelText('Lesson status'), { target: { value: 'Earned' } })
   fireEvent.click(await screen.findByRole('button', { name: 'Export CSV' }))
   expect(click).toHaveBeenCalled()
   const text = await create.mock.calls[0][0].text()
   expect(text).toContain('"Date","Booking","Student"')
-  expect(text).toContain('"Sarah","Mathematics","100.00"')
+  expect(text).toContain('"Student 12","Mathematics","100.00"')
+  expect(text).not.toContain('Excluded')
 })
 
 test('withdrawal history shows each status and the rejection reason', async () => {

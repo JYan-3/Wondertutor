@@ -1,6 +1,6 @@
 // Admin user management + complaints, and account security rules.
 import { prisma } from '../config/prisma.js'
-import { MONDAY, api, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { MONDAY, api, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, recordDocumentPreview, resetDb, startServer, stopServer } from './helpers.js'
 
 let admin, parent, tutor
 
@@ -72,7 +72,11 @@ describe('user management', () => {
     await prisma.qualification.create({ data: { tutorId: t.tutor.id, kind: 'IDENTITY', title: 'NRIC', documentUrl: 'x', status: 'APPROVED' } })
     const q = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'BSc Maths', documentUrl: 'x' } })
 
-    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED' })).status).toBe(200)
+    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED' })).status).toBe(400)
+    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED', confirmedReadable: true })).status).toBe(409)
+    await recordDocumentPreview(admin.user, q.id)
+    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED', confirmedReadable: true })).status).toBe(200)
+    expect(await prisma.qualificationReview.count({ where: { qualificationId: q.id, status: 'APPROVED', adminId: admin.user.id } })).toBe(1)
     expect((await prisma.tutorProfile.findUnique({ where: { id: t.tutor.id } })).isVerified).toBe(true)
 
     expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'REJECTED' })).status).toBe(400) // reason required

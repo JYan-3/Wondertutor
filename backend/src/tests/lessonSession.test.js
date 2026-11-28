@@ -117,8 +117,16 @@ test('missing coordinates, unconfirmed bookings and future lessons cannot check 
   expect((await physical.send({ action: 'check-in', coords: { lat: 0, lng: 0 }, photo: proof(physical.b.id) })).status).toBe(409)
   const unpaid = await lesson({ status: 'AWAITING_PAYMENT' })
   expect((await unpaid.send({ action: 'check-in' })).status).toBe(409)
-  const future = await lesson({ startAt: new Date(Date.now() + 30000) })
+  const future = await lesson({ startAt: new Date(Date.now() + 11 * 60_000), endAt: new Date(Date.now() + 71 * 60_000) })
   expect((await future.send({ action: 'check-in' })).status).toBe(409)
+})
+
+test('check-in opens 10 minutes early and review is available after the first 15 minutes', async () => {
+  const early = await lesson({ teachingMode: 'ONLINE', startAt: new Date(Date.now() + 9 * 60_000), endAt: new Date(Date.now() + 69 * 60_000) })
+  expect((await early.send({ action: 'check-in' })).status).toBe(200)
+  const late = await lesson({ teachingMode: 'ONLINE', startAt: new Date(Date.now() - 16 * 60_000), endAt: new Date(Date.now() + 44 * 60_000) })
+  expect((await late.send({ action: 'check-in' })).status).toBe(409)
+  expect((await late.send({ action: 'request-review', reason: 'My phone was unavailable.' })).status).toBe(200)
 })
 
 test('a missed check-in reaches admin and both sides receive the review outcome', async () => {
@@ -141,7 +149,8 @@ test('a missed check-in reaches admin and both sides receive the review outcome'
   const report = { action: 'report', content: 'Fractions', progressNote: 'Can simplify fractions.' }
   expect((await send(report)).status).toBe(409)
   expect((await send({ action: 'attach-proof', photo: proof(b.id + 1) })).status).toBe(400)
-  expect((await send({ action: 'attach-proof', photo: proof(b.id) })).review.evidenceUrl).toContain('signature=')
+  expect((await send({ action: 'attach-proof', photo: proof(b.id) })).review).toMatchObject({ hasEvidence: true })
+  expect((await api(t.token).get(path)).review.evidenceUrl).toBeUndefined()
   const before = (await api(admin.token).get(adminPath)).investigation.attendanceReview
   expect(before.proof).toContain('signature=')
   expect((await api(admin.token).patch(adminPath, { ...decision, reviewedAt: before.reviewedAt })).status).toBe(409)
@@ -162,6 +171,20 @@ test('a missed check-in reaches admin and both sides receive the review outcome'
   expect((await send(report)).report.content).toBe('Fractions')
   expect((await send(report)).status).toBe(409)
   expect((await api(p.token).get('/parent/bookings/' + b.id)).booking).toMatchObject({ status: 'COMPLETED', attendance: null, attendanceReview: { attendanceApproved: true } })
+})
+
+test('a tutor may submit a private PDF for admin review without exposing it to the parent', async () => {
+  const { b, path, send } = await lesson({ endAt: new Date(Date.now() - 1) })
+  const document = { ...proof(b.id), url: proof(b.id).url.replace(/\.jpg$/, '.pdf') }
+  const result = await send({ action: 'request-review', reason: 'Please review the lesson record.', photo: document })
+  expect(result.status).toBe(200)
+  expect(result.review.hasEvidence).toBe(true)
+  expect(result.review.evidenceUrl).toBeUndefined()
+  const parent = await api(p.token).get('/parent/bookings/' + b.publicId)
+  expect(parent.booking.attendanceReview.evidenceUrl).toBeUndefined()
+  const adminReview = (await api(admin.token).get('/admin/complaints')).complaints.find(c => c.booking?.id === b.id)
+  expect((await api(admin.token).get('/admin/complaints/' + adminReview.id)).investigation.attendanceReview.proof).toContain('signature=')
+  expect((await api(p.token).get(path)).status).toBe(403)
 })
 
 test.each(['NO', 'UNSURE'])('admin can decline after parent replies %s and report stays locked', async answer => {
@@ -235,9 +258,9 @@ test.each(['admin first', 'parent first', 'simultaneous'])('one finance review f
   expect(booking.payment.refunds[0]).toMatchObject({ id, status: 'PENDING', amount: 80 })
   expect((await api(t.token).get(path)).review.attendanceRefund.status).toBe('PENDING')
   expect((await api(admin.token).get('/admin/refunds')).rows.filter(r => r.bookingId === b.id)).toMatchObject([{ id, attendanceOutcome: 'NOT_HELD', status: 'PENDING' }])
-  expect((await api(admin.token).post('/admin/refunds/' + id + '/decision', { action: 'reject', reason: 'Finance reviewed the payment.' })).status).toBe(204)
+  expect((await api(admin.token).post('/admin/refunds/' + id + '/decision', { action: 'reject', reason: 'Finance reviewed the payment.' })).status).toBe(409)
   expect((await request()).status).toBe(409)
-  expect((await api(t.token).get(path)).review.attendanceRefund.status).toBe('REJECTED')
+  expect((await api(t.token).get(path)).review.attendanceRefund.status).toBe('PENDING')
 })
 
 test.each([
@@ -262,7 +285,12 @@ test.each([
   const approve = { action: 'approve', amount: 80, basis: 'Refund policy condition', reason: 'Reviewed the evidence.' }
   const transfer = { action: 'issued', reference: 'hold-test-' + refund.id }
   if (initial !== 'PENDING') expect((await finance(approve)).status).toBe(204)
-  if (initial === 'ISSUED') expect((await finance(transfer)).status).toBe(204)
+  if (initial === 'ISSUED') {
+    expect((await finance(transfer)).status).toBe(409)
+    // A legacy transfer recorded before the appeal policy still needs manual follow-up.
+    await prisma.refund.update({ where: { id: refund.id }, data: { issuedAt: new Date(), transferRef: transfer.reference } })
+    await prisma.payment.update({ where: { bookingId: b.id }, data: { status: 'REFUNDED' } })
+  }
   expect((await send({ action: 'reconsider', reason: 'Recovered the video attendance log.' })).status).toBe(200)
   const expected = initial === 'ISSUED' ? 'TRANSFERRED' : 'ON_HOLD'
   expect((await parentRefund()).attendanceRefundState).toBe(expected)
