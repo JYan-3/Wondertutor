@@ -6,7 +6,7 @@ import { PAYMENT_DEADLINE_MINUTES } from '../services/lifecycle.service.js'
 import { paymentDeadline } from '../services/paymentWindow.js'
 import { addDays, mytParts, mytToDate } from '../utils/time.js'
 import { currentWeekStart, weekStartOf } from '../utils/week.js'
-import { MONDAY, api, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { MONDAY, api, apiBase, authHeaders, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 beforeAll(async () => {
   await resetDb()
@@ -122,6 +122,26 @@ describe('booked hours', () => {
   test('a booking is listed only for its own week', async () => {
     const { token } = await withBooking('CONFIRMED')
     expect((await view(token, addDays(nextDate(MONDAY), 7))).booked).toEqual([])
+  })
+
+  test('week view lists exact lesson times and only this tutor’s confirmed and held bookings', async () => {
+    const { tutor, token } = await makeTutor()
+    const other = await makeTutor()
+    const { parent, child } = await makeParent()
+    const date = week(1)
+    const lesson = await makeBooking({ parent, child, tutor, date, start: '14:30', status: 'CONFIRMED' })
+    const hold = await makeBooking({ parent, child, tutor, date, start: '17:00', status: 'AWAITING_PAYMENT', extra: { teachingMode: 'PHYSICAL' } })
+    await makeBooking({ parent, child, tutor, date, start: '18:00', status: 'PENDING' })
+    await makeBooking({ parent, child, tutor: other.tutor, date, start: '19:00', status: 'CONFIRMED' })
+    const res = await view(token, date)
+    expect(res.lessons).toEqual([
+      { id: lesson.id, date, endDate: date, startTime: '14:30', endTime: '15:30', subject: 'Mathematics', student: child.name, state: 'BOOKED', teachingMode: 'ONLINE' },
+      { id: hold.id, date, endDate: date, startTime: '17:00', endTime: '18:00', subject: 'Mathematics', student: child.name, state: 'PENDING_PAYMENT', teachingMode: 'PHYSICAL' },
+    ])
+    expect((await view(token, week(2))).lessons).toEqual([])
+    expect((await view(other.token, date)).lessons).toHaveLength(1)
+    const response = await fetch(`${apiBase()}/tutor/availability?week=${date}`, { headers: authHeaders(token) })
+    expect(response.headers.get('cache-control')).toBe('no-store')
   })
 
   test('dropping a booked hour from the usual hours returns 409, names the date, and changes nothing', async () => {

@@ -28,7 +28,7 @@ vi.mock('@fullcalendar/react', async () => {
     default: function FullCalendarStub({ ref, ...props }) {
       calendar = props
       useImperativeHandle(ref, () => ({
-        getApi: () => ({ next: () => shift(7), prev: () => shift(-7), today: () => announce(calendar.validRange.start), gotoDate: announce }),
+        getApi: () => ({ next: () => shift(7), prev: () => shift(-7), today: () => announce(calendar.validRange.start), gotoDate: date => announce(weekStartOf(date)) }),
       }))
       useEffect(() => { announce(props.initialDate) }, []) // eslint-disable-line react-hooks/exhaustive-deps
       return (
@@ -60,6 +60,7 @@ const weekView = (over = {}) => ({
   override: null,
   effective: USUAL,
   booked: [{ date: WEEK, startTime: '15:00' }],
+  lessons: [],
   changedWeeks: [],
   limits: { first: FIRST, last: LAST },
   bounds,
@@ -101,6 +102,72 @@ beforeEach(() => {
   shownDate = null
 })
 afterEach(() => vi.useRealTimers())
+
+describe('month view', () => {
+  const dateName = date => new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
+
+  test('shows saved parent-bookable hours, booked and held hours, and date-specific changes', async () => {
+    const date = addDays(WEEK, 1)
+    const data = weekView({ parentDays: [{ date, source: 'date', slots: [{ start: '09:00' }, { start: '10:00' }] }], booked: [{ date, startTime: '11:00', state: 'BOOKED' }, { date, startTime: '12:00', state: 'PENDING_PAYMENT', holdUntil: `${date}T03:00:00.000Z` }], lessons: [{ id: 1, date, endDate: date, startTime: '11:30', endTime: '12:30', subject: 'Mathematics', student: 'Alya', state: 'BOOKED', teachingMode: 'ONLINE' }, { id: 2, date, endDate: date, startTime: '13:00', endTime: '14:00', subject: 'Science', student: 'Ben', state: 'PENDING_PAYMENT', teachingMode: 'PHYSICAL' }, { id: 3, date, endDate: date, startTime: '15:00', endTime: '16:00', subject: 'English', student: 'Iris', state: 'BOOKED', teachingMode: 'ONLINE' }] })
+    await setup(data, { [WEEK]: data })
+    api.get.mockImplementation((_, config) => Promise.resolve({ data: config?.params?.week === WEEK ? data : { ...data, weekStart: config?.params?.week, parentDays: [], booked: [], lessons: [] } }))
+    await userEvent.click(button('Month view'))
+    if (date.slice(0, 7) !== WEEK.slice(0, 7)) await userEvent.click(button('Next month'))
+    const day = await screen.findByRole('button', { name: `${dateName(date)}, 2 bookable, 2 booked, 1 pending payment, date-specific hours` })
+    expect(within(day).getByText('11:30')).toBeVisible()
+    expect(within(day).getByText('+1 more')).toBeVisible()
+    await userEvent.click(day)
+    const details = within(screen.getByRole('region', { name: 'Selected day details' }))
+    expect(details.getByText('11:30–12:30')).toBeVisible()
+    expect(details.getByText('Mathematics · Alya')).toBeVisible()
+    expect(details.getByText('13:00–14:00')).toBeVisible()
+    expect(details.getByText('Pending payment')).toBeVisible()
+    expect(details.getByText('15:00–16:00')).toBeVisible()
+  })
+
+  test('returning to the same week keeps unsaved changes; another week asks before discarding', async () => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    await setup()
+    select(2, '10:00', '12:00')
+    await userEvent.click(button('Month view'))
+    expect(screen.getByText(/You have unsaved weekly changes/)).toBeVisible()
+    await userEvent.click(await screen.findByRole('button', { name: new RegExp(`^${dateName(WEEK)},`) }))
+    await userEvent.click(button('Edit this week'))
+    expect(confirm).not.toHaveBeenCalled()
+    expect(screen.getByText('10:00–12:00')).toBeVisible()
+    await userEvent.click(button('Month view'))
+    const nextWeek = addDays(WEEK, 7)
+    if (nextWeek.slice(0, 7) !== WEEK.slice(0, 7)) await userEvent.click(button('Next month'))
+    await userEvent.click(await screen.findByRole('button', { name: new RegExp(`^${dateName(nextWeek)},`) }))
+    await userEvent.click(button('Edit this week'))
+    expect(confirm).toHaveBeenCalledWith('Discard your unsaved changes?')
+    expect(screen.getByRole('region', { name: 'Monthly availability' })).toBeVisible()
+    confirm.mockReturnValue(true)
+    await userEvent.click(button('Edit this week'))
+    await waitFor(() => expect(requestedWeeks()).toContain(nextWeek))
+    await waitFor(() => expect(screen.queryByText('10:00–12:00')).not.toBeInTheDocument())
+    confirm.mockRestore()
+  })
+
+  test('a month load error offers a retry without treating days as unavailable', async () => {
+    await setup()
+    api.get.mockRejectedValueOnce(new Error('Unable to load month'))
+    await userEvent.click(button('Month view'))
+    expect(await screen.findByText('Unable to load month')).toBeVisible()
+    await userEvent.click(button('Try again'))
+    await waitFor(() => expect(screen.queryByText('Unable to load month')).not.toBeInTheDocument())
+    expect(screen.getByRole('region', { name: 'Monthly availability' })).toBeVisible()
+  })
+
+  test('the last editable Sunday remains selectable when it falls in the following month', async () => {
+    const lastDate = addDays(LAST, 6)
+    await setup(weekView({ weekStart: LAST, booked: [] }))
+    await userEvent.click(button('Month view'))
+    if (lastDate.slice(0, 7) !== LAST.slice(0, 7)) await userEvent.click(button('Next month'))
+    expect(await screen.findByRole('button', { name: new RegExp(`^${dateName(lastDate)},`) })).toBeEnabled()
+    expect(button('Next month')).toBeDisabled()
+  })
+})
 
 describe('the week on screen', () => {
   test('the week loads and the title shows its dates', async () => {

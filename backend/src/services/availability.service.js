@@ -178,8 +178,22 @@ async function changedWeeks(tutorId, db = prisma) {
   return rows.map((r) => fromDbDate(r.weekStart))
 }
 
+async function weekLessons(tutorId, weekStart) {
+  const bookings = await prisma.booking.findMany({
+    where: { tutorId, status: { in: SLOT_BLOCKING }, startAt: { gte: mytToDate(weekStart, '00:00'), lt: mytToDate(addDays(weekStart, 7), '00:00') }, endAt: { gt: new Date() } },
+    select: { id: true, subject: true, startAt: true, endAt: true, status: true, teachingMode: true, child: { select: { name: true } } },
+    orderBy: [{ startAt: 'asc' }, { id: 'asc' }],
+  })
+  return bookings.map(booking => {
+    const start = mytParts(booking.startAt)
+    const end = mytParts(booking.endAt)
+    return { id: booking.id, date: start.date, startTime: start.time, endDate: end.date, endTime: end.time, subject: booking.subject, student: booking.child.name,
+      state: booking.status === 'CONFIRMED' ? 'BOOKED' : 'PENDING_PAYMENT', teachingMode: booking.teachingMode }
+  })
+}
+
 export async function getWeekView(tutorId, weekStart) {
-  const [usual, row, booked, changed, tutor, parentDays, dated] = await Promise.all([
+  const [usual, row, booked, changed, tutor, parentDays, dated, lessons] = await Promise.all([
     usualSlots(tutorId),
     weekOverride(tutorId, weekStart),
     bookedHours(tutorId, { week: weekStart }),
@@ -187,6 +201,7 @@ export async function getWeekView(tutorId, weekStart) {
     prisma.tutorProfile.findUnique({ where: { id: tutorId }, select: { offersOnline: true, offersPhysical: true, quickAdd: true } }),
     getTutorSlots(tutorId, weekStart),
     prisma.availabilityException.findMany({ where: { tutorId, date: { gte: weekStart, lte: addDays(weekStart, 6) } }, select: { date: true } }),
+    weekLessons(tutorId, weekStart),
   ])
   const override = row ? normaliseSlots(row.slots) : null
   const datedDays = new Set(dated.map(d => d.date))
@@ -203,6 +218,7 @@ export async function getWeekView(tutorId, weekStart) {
       ...(datedDays.has(h.date) && { affectsWeek: false }),
       ...((row || datedDays.has(h.date)) && { affectsUsual: false }),
     })), // scope flags stop date/week overrides from locking unrelated usual hours
+    lessons,
     changedWeeks: changed,
     offers: { online: tutor.offersOnline, physical: tutor.offersPhysical }, // the profile limits which modes can be chosen
     quickAdd: tutor.quickAdd,

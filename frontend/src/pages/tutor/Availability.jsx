@@ -10,7 +10,7 @@ import { ErrorBox, LoadError, Modal, Spinner } from '../../components/ui/Common'
 import {
   DAYS, DAY_END, DAY_START, HOURS, MAX_QUICK_ADD, MODE_LABELS, PRESETS, addDays, addHours, applyLockChanges, cellKey, cellsToRanges, clearHours, dateOfDay, dayOfDate,
   eventToRange, hourEnd, keepPast, keepsLocked, malaysiaLabel, modeChoices, modeOf, momentIsPast, moveRange, nowInMalaysia, pastCells, rangeToEvent,
-  quickAddDetails, rangesToCells, rangesToModes, removeRange, sameCells, sameModes, setCellModes, shortDate, shownMode, weekLabel,
+  quickAddDetails, rangesToCells, rangesToModes, removeRange, sameCells, sameModes, setCellModes, shortDate, shownMode, weekLabel, weekStartOf,
 } from '../../lib/availability'
 import { useUnsavedWarning } from '../../lib/useUnsavedWarning'
 
@@ -59,6 +59,7 @@ export default function Availability() {
   const [copyResult, setCopyResult] = useState(null)
   const [copyOpen, setCopyOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [calendarView, setCalendarView] = useState('week')
 
   const clearMessages = useCallback(() => {
     setNotice('')
@@ -94,6 +95,12 @@ export default function Availability() {
     }
   }, [showView])
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    if (calendarView !== 'week') return undefined
+    const frame = requestAnimationFrame(() => calendar.current?.getApi()?.updateSize?.())
+    return () => cancelAnimationFrame(frame)
+  }, [calendarView, view])
 
   const dirty = saved !== null && (!sameCells(cells, saved) || !sameModes(cells, modes, savedModes))
   useUnsavedWarning(dirty)
@@ -179,10 +186,17 @@ export default function Availability() {
 
   // Previous, Today, Next and the chips move the calendar; datesSet then loads the week it landed on
   function moveCalendar(move) {
-    if (mutating.current) return
-    if (!confirmDiscard()) return
+    if (mutating.current) return false
+    if (!confirmDiscard()) return false
     clearMessages()
     move(calendar.current.getApi())
+    return true
+  }
+
+  function openMonthDate(date) {
+    const week = weekStartOf(date)
+    if (week !== weekStart && !moveCalendar((c) => c.gotoDate(date))) return
+    setCalendarView('week')
   }
 
   function onDatesSet(arg) {
@@ -336,6 +350,13 @@ export default function Availability() {
         right={<Link to="/tutor/availability/dates" className="btn-outline min-h-11"><Icon name="edit" className="h-4 w-4" />Set different hours for one date</Link>}
       />
 
+      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Calendar view">
+        <button type="button" className={calendarView === 'week' ? 'btn-primary min-h-11' : 'btn-outline min-h-11'} aria-pressed={calendarView === 'week'} onClick={() => setCalendarView('week')}>Week view</button>
+        <button type="button" className={calendarView === 'month' ? 'btn-primary min-h-11' : 'btn-outline min-h-11'} aria-pressed={calendarView === 'month'} onClick={() => setCalendarView('month')}>Month view</button>
+      </div>
+      {calendarView === 'month' && <MonthCalendar weekStart={weekStart} limits={view.limits} today={now.date} dirty={dirty} onSelect={openMonthDate} />}
+
+      <div hidden={calendarView !== 'week'}>
       <fieldset disabled={busy} aria-busy={busy} className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <section className="card min-w-0 p-4 md:p-5" aria-label="Weekly hours">
           <div className="mb-4 flex items-center gap-2 border-b border-brand-100 pb-4">
@@ -468,10 +489,113 @@ export default function Availability() {
           }}
         />
       </fieldset>
+      </div>
 
       {copyOpen && <CopyDialog weeks={nextWeeks} changed={view.changedWeeks} busy={busy} onClose={() => setCopyOpen(false)} onCopy={copyTo} />}
     </div>
   )
+}
+
+function shiftMonth(month, count) {
+  const date = new Date(`${month}-01T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + count)
+  return date.toISOString().slice(0, 7)
+}
+
+function MonthCalendar({ weekStart, limits, today, dirty, onSelect }) {
+  const initialDate = today >= weekStart && today <= addDays(weekStart, 6) ? today : weekStart
+  const [month, setMonth] = useState(() => initialDate.slice(0, 7))
+  const [selectedDate, setSelectedDate] = useState(initialDate)
+  const [weeks, setWeeks] = useState(null)
+  const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
+  const monthFirst = `${month}-01`
+  const gridFirst = weekStartOf(monthFirst)
+  const dates = Array.from({ length: 42 }, (_, i) => addDays(gridFirst, i))
+  const monthLast = addDays(`${shiftMonth(month, 1)}-01`, -1)
+  const lastDate = addDays(limits.last, 6)
+
+  useEffect(() => {
+    let active = true
+    let latest = 0
+    const first = weekStartOf(`${month}-01`)
+    const last = weekStartOf(addDays(`${shiftMonth(month, 1)}-01`, -1))
+    const requested = []
+    for (let week = first; week <= last; week = addDays(week, 7)) {
+      if (week >= limits.first && week <= limits.last) requested.push(week)
+    }
+    async function refresh() {
+      const request = ++latest
+      try {
+        const results = await Promise.all(requested.map(week => api.get('/tutor/availability', { params: { week } })))
+        if (active && request === latest) { setWeeks(results.map(result => result.data)); setError('') }
+      } catch (err) {
+        if (active && request === latest) { setWeeks(null); setError(errorMessage(err)) }
+      }
+    }
+    refresh()
+    const timer = setInterval(refresh, REFRESH_MS)
+    window.addEventListener('focus', refresh)
+    return () => { active = false; clearInterval(timer); window.removeEventListener('focus', refresh) }
+  }, [month, limits.first, limits.last, reload])
+
+  function moveMonth(amount) {
+    setWeeks(null)
+    setError('')
+    setSelectedDate('')
+    setMonth(current => shiftMonth(current, amount))
+  }
+
+  const byDate = new Map()
+  for (const week of weeks || []) {
+    for (const day of week.parentDays || []) byDate.set(day.date, { ...day, lessons: [] })
+    for (const lesson of week.lessons || []) {
+      const day = byDate.get(lesson.date)
+      if (day) day.lessons.push(lesson)
+    }
+  }
+  const lessonDetailsReady = (weeks || []).every(week => Array.isArray(week.lessons))
+  const selectedDay = byDate.get(selectedDate)
+  const title = new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${monthFirst}T00:00:00Z`))
+  const fullDate = date => new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`))
+
+  return <section className="card min-w-0 p-3 sm:p-5" aria-label="Monthly availability">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h2 className="font-display text-xl font-bold text-navy">{title}</h2>
+      <div className="flex gap-2"><button type="button" className="btn-outline min-h-11 px-3" disabled={month <= limits.first.slice(0, 7)} onClick={() => moveMonth(-1)}>Previous month</button><button type="button" className="btn-outline min-h-11 px-3" disabled={month >= lastDate.slice(0, 7)} onClick={() => moveMonth(1)}>Next month</button></div>
+    </div>
+    <p className="mt-3 text-sm text-slate-600">Saved hours and current or upcoming lessons in Malaysia time. Select a date to see its details.</p>
+    {dirty && <p className="mt-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">You have unsaved weekly changes. This month shows saved hours; return to the week to save them.</p>}
+    {error ? <div className="mt-3"><ErrorBox>{error}</ErrorBox><button type="button" className="btn-outline mt-2 min-h-11" onClick={() => { setError(''); setReload(n => n + 1) }}>Try again</button></div> : !weeks ? <p role="status" className="mt-4">Loading month…</p> : <>
+      <div className="mt-4 overflow-x-auto overscroll-x-contain"><div className="min-w-[332px]">
+      <div className="grid grid-cols-7 gap-1" aria-hidden="true">{DAYS.map(day => <div key={day.value} className="min-w-0 text-center text-xs font-bold text-navy">{day.short}</div>)}</div>
+      <div className="mt-1 grid grid-cols-7 gap-1">
+        {dates.map(date => {
+          if (date < monthFirst || date > monthLast) return <span key={date} aria-hidden="true" />
+          const enabled = date >= limits.first && date <= lastDate
+          const day = byDate.get(date)
+          const booked = day?.lessons.filter(lesson => lesson.state === 'BOOKED').length || 0
+          const held = day?.lessons.filter(lesson => lesson.state === 'PENDING_PAYMENT').length || 0
+          const summary = day ? `${day.slots.length} bookable${booked ? `, ${booked} booked` : ''}${held ? `, ${held} pending payment` : ''}${day.source === 'date' ? ', date-specific hours' : ''}${!lessonDetailsReady ? ', lesson details unavailable' : ''}` : 'Availability unavailable'
+          return <button key={date} type="button" disabled={!enabled} onClick={() => setSelectedDate(date)} aria-pressed={date === selectedDate} aria-current={date === today ? 'date' : undefined} aria-label={`${fullDate(date)}, ${enabled ? summary : 'outside editable weeks'}`} className={`min-h-14 min-w-0 rounded-lg border p-1 text-left text-navy sm:min-h-24 sm:p-2 ${date === selectedDate ? 'border-brand-500 bg-brand-50 ring-1 ring-brand-500' : date === today ? 'border-brand-500 bg-brand-25' : 'border-brand-100 bg-white'} disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400`}>
+            <span className="block text-sm font-bold">{Number(date.slice(8))}{date === today && <span className="ml-1 hidden text-xs font-normal sm:inline">Today</span>}</span>
+            {enabled && day && <span className="block break-words text-[10px] leading-tight sm:mt-1 sm:text-xs"><span className="block">{day.slots.length} open</span>{day.lessons.slice(0, 2).map(lesson => <span key={lesson.id} className="mt-1 block rounded bg-brand-100 text-[9px] tracking-tight text-brand-900 sm:px-1 sm:text-xs"><span className="block whitespace-nowrap font-bold">{lesson.startTime}</span><span className="block whitespace-nowrap">{isHeld(lesson) ? 'Held' : 'Booked'}</span></span>)}{day.lessons.length > 2 && <span className="block">+{day.lessons.length - 2} more</span>}{day.source === 'date' && <span className="block text-brand-700">Date hours</span>}</span>}
+          </button>
+        })}
+      </div>
+      </div></div>
+      <p className="mt-2 text-xs text-slate-600 sm:hidden">Swipe the calendar sideways to see all seven days.</p>
+      <p className="mt-3 text-xs text-slate-600">Open = hours parents can currently book. Pending = awaiting payment. Date hours replace that day’s usual or weekly hours.</p>
+      {selectedDate ? <section className="mt-4 rounded-xl border border-brand-100 bg-brand-25 p-3 sm:p-4" aria-label="Selected day details">
+        <h3 className="font-display text-lg font-bold text-navy">{fullDate(selectedDate)}</h3>
+        {!selectedDay ? <p className="mt-2 text-sm">Availability details are unavailable for this date.</p> : <>
+          <p className="mt-1 text-sm text-slate-600">{selectedDay.slots.length} {selectedDay.slots.length === 1 ? 'hour' : 'hours'} open for parents to book{selectedDay.source === 'date' ? ' · Date-specific hours' : ''}.</p>
+          {!lessonDetailsReady ? <p className="mt-2 text-sm">Lesson details are unavailable. Please try again later.</p> : selectedDay.lessons.length ? <ul className="mt-3 space-y-2">{selectedDay.lessons.map(lesson => <li key={lesson.id} className="rounded-lg border border-brand-100 bg-white p-3 text-sm"><strong className="text-navy">{lesson.startTime}–{lesson.endTime}{lesson.endDate !== lesson.date ? ` ${shortDate(lesson.endDate)}` : ''}</strong><span className="ml-2 rounded-full bg-brand-50 px-2 py-1 text-xs font-semibold">{isHeld(lesson) ? 'Pending payment' : 'Booked'}</span><p className="mt-1 break-words">{lesson.subject} · {lesson.student}</p><p className="text-slate-600">{MODE_LABELS[lesson.teachingMode] || lesson.teachingMode}</p></li>)}</ul> : <p className="mt-2 text-sm text-slate-600">No current or upcoming booked lessons or payment holds on this date.</p>}
+        </>}
+        <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-primary min-h-11" onClick={() => onSelect(selectedDate)}>Edit this week</button>{selectedDate >= today && <Link className="btn-outline min-h-11" to={'/tutor/availability/dates?date=' + selectedDate}>Edit this date</Link>}</div>
+      </section> : <p className="mt-4 text-sm text-slate-600">Select a date to see its lessons.</p>}
+    </>}
+  </section>
 }
 
 function ParentHours({ days, offers, today }) {

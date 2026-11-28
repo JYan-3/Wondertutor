@@ -67,24 +67,24 @@ const viewedWeek = (req) => {
 
 // GET /tutor/availability?week=YYYY-MM-DD: usual hours, that week's override and effective hours, booked hours, changed weeks
 export async function getSchedule(req, res) {
-  res.json(await getWeekView(req.tutor.id, viewedWeek(req)))
+  res.set('Cache-Control', 'no-store').json(await getWeekView(req.tutor.id, viewedWeek(req)))
 }
 
 // PUT /tutor/availability?week=YYYY-MM-DD { slots }: replaces the usual hours and returns the week view
 export async function updateSchedule(req, res) {
   const { slots } = scheduleSchema.parse(req.body)
-  res.json(await saveUsual(req.tutor.id, slots, viewedWeek(req)))
+  res.set('Cache-Control', 'no-store').json(await saveUsual(req.tutor.id, slots, viewedWeek(req)))
 }
 
 // PUT /tutor/availability/weeks/:weekStart { slots }: creates or replaces that week's override and returns the week view
 export async function updateWeek(req, res) {
   const { slots } = scheduleSchema.parse(req.body)
-  res.json(await saveWeek(req.tutor.id, weekParam.parse(req.params.weekStart), slots))
+  res.set('Cache-Control', 'no-store').json(await saveWeek(req.tutor.id, weekParam.parse(req.params.weekStart), slots))
 }
 
 // DELETE /tutor/availability/weeks/:weekStart: puts that week back on the usual hours and returns the week view
 export async function deleteWeek(req, res) {
-  res.json(await resetWeek(req.tutor.id, weekParam.parse(req.params.weekStart)))
+  res.set('Cache-Control', 'no-store').json(await resetWeek(req.tutor.id, weekParam.parse(req.params.weekStart)))
 }
 
 // PUT /tutor/availability/quick-add { presets }: replaces the tutor's Quick add buttons, returns { quickAdd }
