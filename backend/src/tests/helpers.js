@@ -1,6 +1,7 @@
 // Shared helpers for the integration tests: boot the real Express app against the TEST database,
 // create users/tutors/children quickly, and make authenticated requests.
 import http from 'node:http'
+import { createHash } from 'node:crypto'
 import bcrypt from 'bcrypt'
 import { prisma } from '../config/prisma.js'
 import { createSession, csrfForSession, sessionCookieName } from '../services/session.service.js'
@@ -28,6 +29,12 @@ export async function stopServer() {
 // cookie credential backed by AuthSession, never a browser JWT/Bearer token.
 export const authHeaders = (token) => token ? { Cookie: `${sessionCookieName()}=${token}`, 'X-CSRF-Token': csrfForSession(token) } : {}
 export const testSession = async (user) => (await createSession(user)).raw
+
+export async function recordDocumentPreview(admin, qualificationId) {
+  const document = await prisma.qualification.findUniqueOrThrow({ where: { id: qualificationId } })
+  const documentHash = createHash('sha256').update(document.documentUrl).digest('hex')
+  await prisma.qualificationPreview.upsert({ where: { qualificationId_adminId: { qualificationId, adminId: admin.id } }, create: { qualificationId, adminId: admin.id, documentHash }, update: { documentHash } })
+}
 
 // A small cookie jar exercises the same CSRF bootstrap/rotation as the browser.
 // api(token).post('/parent/bookings', body) -> { ...json, status: <HTTP status code> }
@@ -67,7 +74,7 @@ export function api(token) {
 // Empty every table (children first) so each test file starts from a known state
 export async function resetDb() {
   for (const model of [
-    'authSession',
+    'authSession', 'systemSettingHistory', 'housekeepingStatus', 'quizModerationEntry', 'qualificationReview', 'qualificationPreview',
     'accountWarning', 'refund', 'payment', 'review', 'attendance', 'sessionSummary', 'rescheduleRequest', 'complaint', 'booking',
     'notification', 'matchingRequest', 'favouriteTutor', 'withdrawal', 'bankAccount', 'availabilitySlot', 'verificationCleanup',
     'availabilityException', 'portfolioItem', 'qualification', 'tutorSubject', 'child', 'tutorProfile', 'parentProfile', 'emailOtp', 'user', 'systemSetting',

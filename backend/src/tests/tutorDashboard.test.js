@@ -111,3 +111,12 @@ test('teaching day uses Malaysia dates and links to the next lesson and unfinish
   const live = await teachingDay(t.tutor.id, next.startAt)
   expect(live.nextLesson).toMatchObject({ action: 'Open session', to: '/tutor/bookings/' + next.publicId + '/session' })
 })
+
+test('an ongoing lesson with a missed check-in is actionable after 15 minutes', async () => {
+  const { teachingDay } = await import('../services/tutorDashboard.service.js')
+  const t = await makeTutor(), p = await makeParent()
+  const lesson = await makeBooking({ parent: p.parent, child: p.child, tutor: t.tutor, date: '2027-01-04', start: '14:00', status: 'CONFIRMED' })
+  const view = await teachingDay(t.tutor.id, new Date(lesson.startAt.getTime() + 16 * 60_000))
+  expect(view.nextLesson.action).toBe('Review missed check-in')
+  expect(view.actions).toEqual(expect.arrayContaining([expect.objectContaining({ ref: lesson.publicId, action: 'Review missed check-in' })]))
+})

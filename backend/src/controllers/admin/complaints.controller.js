@@ -1,4 +1,5 @@
-import { attendanceRefundState } from '../../services/attendanceRefund.js'
+import { ATTENDANCE_APPEAL_DAYS, attendanceRefundState } from '../../services/attendanceRefund.js'
+import { Prisma } from '@prisma/client'
 import { MISSED_CHECK_IN } from '../../services/lessonSession.service.js'
 import { publicReference } from '../../utils/publicIds.js'
 import { mediaLink } from '../../services/privateMedia.js'
@@ -43,13 +44,23 @@ const updateSchema = z
 
 // Take the same payment lock as parent refund requests before reading the refund queue.
 async function attendanceRefund(tx, complaint) {
-  if (complaint.attendanceRefundId) return tx.refund.findUniqueOrThrow({ where: { id: complaint.attendanceRefundId } })
   await tx.$queryRaw`SELECT id FROM Payment WHERE bookingId = ${complaint.bookingId} FOR UPDATE`
   const payment = await tx.payment.findUnique({ where: { bookingId: complaint.bookingId }, include: { refunds: { orderBy: { id: 'desc' } } } })
-  if (!payment || payment.status !== 'PAID') return null
-  const existing = payment.refunds.find(r => ['PENDING', 'APPROVED', 'ESCALATED'].includes(r.status))
-  const refund = existing ?? await tx.refund.create({ data: {
-    paymentId: payment.id, amount: payment.amount, type: 'ADMIN_REVIEW', reason: 'Admin confirmed the paid lesson did not take place.',
+  if (!payment || !['PAID', 'PARTIALLY_REFUNDED'].includes(payment.status)) return null
+  const transferred = r => r.issuedAt || (r.status === 'APPROVED' && !r.reviewNote && payment.status === 'PARTIALLY_REFUNDED')
+  const paidBack = payment.refunds.filter(transferred).reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0))
+  const remaining = payment.amount.minus(paidBack)
+  if (remaining.lte(0)) return null
+  const open = payment.refunds.filter(r => !transferred(r) && ['PENDING', 'APPROVED', 'ESCALATED'].includes(r.status))
+  if (open.length > 1) throw new AppError(409, 'Resolve the existing refund requests before deciding this attendance review.')
+  const existing = open[0]
+  let refund
+  if (existing) {
+    const changed = !existing.amount.eq(remaining) || existing.policy !== 'ATTENDANCE_NOT_HELD'
+    if (changed && existing.status === 'APPROVED') await tx.attendanceReviewEntry.create({ data: { complaintId: complaint.id, action: 'REFUND_REVIEW', message: 'Fresh finance decision required. Previous approval: RM ' + existing.amount.toFixed(2) + '. ' + (existing.reviewNote || '') } })
+    refund = changed ? await tx.refund.update({ where: { id: existing.id }, data: { amount: remaining, policy: 'ATTENDANCE_NOT_HELD', status: 'PENDING', reviewedById: null, reviewedAt: null, reviewNote: null } }) : existing
+  } else refund = await tx.refund.create({ data: {
+    paymentId: payment.id, amount: remaining, policy: 'ATTENDANCE_NOT_HELD', type: 'ADMIN_REVIEW', reason: 'Admin confirmed the paid lesson did not take place.',
   } })
   await tx.complaint.update({ where: { id: complaint.id }, data: { attendanceRefundId: refund.id } })
   return refund
@@ -72,13 +83,20 @@ export async function updateComplaint(req, res) {
   const outcome = data.outcome ?? (data.status === 'DISMISSED' ? 'UNVERIFIED' : data.status === 'RESOLVED' ? 'CONFIRMED' : null)
   const { updated, notices } = await prisma.$transaction(async (tx) => {
     let notices = []
+    const decidedAt = new Date()
+    const appealUntil = data.status === 'DISMISSED' && !existing.appealUsed ? new Date(decidedAt.getTime() + ATTENDANCE_APPEAL_DAYS * 86_400_000) : null
     if (existing.category === MISSED_CHECK_IN && existing.bookingId) {
       await tx.$queryRaw`SELECT t.id FROM TutorProfile t JOIN Booking b ON b.tutorId = t.id WHERE b.id = ${existing.bookingId} FOR UPDATE`
       await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${existing.bookingId} FOR UPDATE`
+      if (outcome === 'NOT_HELD') {
+        const lesson = await tx.booking.findUniqueOrThrow({ where: { id: existing.bookingId }, select: { endAt: true } })
+        if (lesson.endAt > decidedAt) throw new AppError(409, 'Wait until the scheduled lesson ends before deciding it did not take place.')
+      }
     }
     const { count } = await tx.complaint.updateMany({
       where: { id: existing.id, status: existing.status, updatedAt: existing.updatedAt },
       data: { ...((asking || decidingAttendance) && { attendanceOutcome: outcome }),
+        ...(decidingAttendance && { appealUntil }),
         ...(asking && { tutorReplyPending: true, parentAnswer: null, parentNote: null }), ...(decidingAttendance && { attendanceApproved: data.status === 'RESOLVED' }), status: data.status, adminResponse: data.adminResponse ?? existing.adminResponse, handledById: req.user.id },
     })
     if (!count) throw new AppError(409, 'This complaint has just been updated. Please refresh and try again.')
@@ -86,11 +104,16 @@ export async function updateComplaint(req, res) {
       if (decidingAttendance && existing.attendanceRefundId && outcome !== 'NOT_HELD') {
         const prior = await tx.refund.findUniqueOrThrow({ where: { id: existing.attendanceRefundId }, include: { payment: { select: { status: true } } } })
         if (prior.status === 'APPROVED' && attendanceRefundState(existing, prior) === 'ON_HOLD') {
-          await tx.refund.update({ where: { id: prior.id }, data: { status: 'PENDING', reviewedById: null, reviewedAt: null, reviewNote: null } })
+          await tx.refund.update({ where: { id: prior.id }, data: { status: 'PENDING', reviewedById: null, reviewedAt: null, reviewNote: null, ...(prior.policy === 'ATTENDANCE_NOT_HELD' && { policy: null }) } })
           await tx.attendanceReviewEntry.create({ data: { complaintId: existing.id, action: 'REFUND_REVIEW', message: 'Fresh finance decision required. Previous approval: RM ' + prior.amount.toFixed(2) + '. ' + (prior.reviewNote || '') } })
-        }
+        } else if (prior.policy === 'ATTENDANCE_NOT_HELD' && ['PENDING', 'ESCALATED'].includes(prior.status)) await tx.refund.update({ where: { id: prior.id }, data: { policy: null } })
       }
       const refund = outcome === 'NOT_HELD' ? await attendanceRefund(tx, existing) : null
+      if (decidingAttendance) {
+        const paid = outcome === 'NOT_HELD' ? await tx.payment.findUnique({ where: { bookingId: existing.bookingId } }) : null
+        const penaltyAmount = paid && ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'].includes(paid.status) ? paid.amount.mul('0.15').toDecimalPlaces(2) : null
+        await tx.complaint.update({ where: { id: existing.id }, data: { penaltyAmount, penaltyEffectiveAt: penaltyAmount ? appealUntil || decidedAt : null } })
+      }
       if (asking || decidingAttendance) {
         await tx.attendanceReviewEntry.create({ data: { complaintId: existing.id, action: outcome,
           message: data.adminResponse, evidenceUrl: existing.evidenceUrl } })
@@ -215,6 +238,7 @@ export async function getComplaint(req, res) {
     where: { id: Number(req.params.id) },
     include: {
       ...complaintInclude,
+      quiz: { include: { versions: { orderBy: { number: 'desc' }, take: 1 } } },
       reviewHistory: { orderBy: { id: 'asc' } },
       booking: { include: { child: { select: { name: true } }, payment: { include: { refunds: true } }, attendance: true, summary: true } },
     },
@@ -238,9 +262,10 @@ export async function getComplaint(req, res) {
   res.json({
     complaint: toComplaintDto(c),
     investigation: {
+      quiz: c.quiz ? { id: c.quiz.id, title: c.quiz.title, isHidden: c.quiz.isHidden, moderationReason: c.quiz.moderationReason, questions: (c.quiz.versions[0]?.content.questions || []).map(q => ({ text: q.text, type: q.type, imageUrl: q.imageUrl || null, options: q.options || [] })) } : null,
       attendanceReview: c.category === MISSED_CHECK_IN ? {
         attendanceRefundState: attendanceRefundState(c, linkedRefund && { ...linkedRefund, payment: b.payment }),
-        outcome: c.attendanceOutcome, tutorReplyPending: c.tutorReplyPending,
+        outcome: c.attendanceOutcome, tutorReplyPending: c.tutorReplyPending, appealUntil: c.appealUntil, appealUsed: c.appealUsed, penaltyAmount: c.penaltyAmount, penaltyEffectiveAt: c.penaltyEffectiveAt,
         history: c.reviewHistory.map(entry => ({ ...entry, evidenceUrl: mediaLink(entry.evidenceUrl, 'wondertutor/attendance/' + c.bookingId) })),
         proof: mediaLink(c.evidenceUrl, 'wondertutor/attendance/' + c.bookingId),
         parentAnswer: c.parentAnswer, parentNote: c.parentNote, approved: c.attendanceApproved, reviewedAt: c.updatedAt,

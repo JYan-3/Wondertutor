@@ -1,0 +1,1 @@
+ALTER TABLE `Refund` ADD COLUMN `policy` VARCHAR(32) NULL;

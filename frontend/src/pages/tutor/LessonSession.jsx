@@ -5,7 +5,7 @@ import api, { errorMessage } from '../../api/client'
 import { uploadImage, uploadError } from '../../components/PhotoPicker'
 import TutorPageHeader from '../../components/TutorPageHeader'
 import { ErrorBox, LoadError, SectionCard, Spinner } from '../../components/ui/Common'
-import { fmtDate, fmtTime, fmtTimeRange } from '../../lib/format'
+import { fmtDate, fmtTime, fmtTimeRange, money } from '../../lib/format'
 import { matchesRecordRef, recordRef } from '../../lib/recordRef'
 import { hasConfirmedLessonLocation } from '../../lib/lessonLocation'
 
@@ -55,14 +55,16 @@ function SessionForm({ session: s, setSession }) {
   const locationReady = !physical || hasConfirmedLessonLocation(s)
   const active = s.status === 'CONFIRMED' && !needsRefresh
   const ended = now >= Date.parse(s.endAt)
-  const started = now >= Date.parse(s.startAt)
+  const checkInOpens = Date.parse(s.startAt) - 10 * 60_000
+  const checkInCloses = Math.min(Date.parse(s.startAt) + 15 * 60_000, Date.parse(s.endAt))
+  const checkInOpen = now >= checkInOpens && now < checkInCloses
   const attendance = s.attendance
   const awaitingVenue = physical && !locationReady && s.status === 'CONFIRMED' && !ended && !attendance?.checkInAt
   const distance = locationReady ? distanceFrom(point, s) : null
   const within = distance != null && distance <= s.radius
-  const entry = active && locationReady && started && !ended && !attendance?.checkInAt
+  const entry = active && locationReady && checkInOpen && !attendance?.checkInAt
   const exit = active && ended && attendance?.checkInAt && !attendance.checkOutAt
-  const reportReady = active && (attendance?.checkOutAt || s.review?.attendanceApproved) && !s.report
+  const reportReady = active && ended && (attendance?.checkOutAt || s.review?.attendanceApproved) && !s.report
   const path = '/tutor/bookings/' + recordRef(s) + '/session'
 
   function updateSession(data) {
@@ -108,17 +110,17 @@ function SessionForm({ session: s, setSession }) {
     if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Choose a JPG or PNG photo up to 5 MB.')
     try { setPhoto(await uploadImage(file, 'attendance', s.id)) } catch (e) { throw new Error(uploadError(e)) }
   }
-  const reconsider = active && s.review?.status === 'DISMISSED'
+  const reconsider = active && s.review?.status === 'DISMISSED' && !s.review?.appealUsed && (!s.review?.appealUntil || Date.parse(s.review.appealUntil) > now)
   const replyRequested = active && s.review?.tutorReplyPending
-  const proofField = <label className="block font-semibold">Supporting photo or screenshot (optional)
-    <input type="file" accept="image/jpeg,image/png" className="input mt-1 w-full text-base" disabled={busy} onChange={e => {
+  const proofField = <label className="block font-semibold">Supporting photo or document (optional)
+    <input type="file" accept="image/jpeg,image/png,application/pdf" className="input mt-1 w-full text-base" disabled={busy} onChange={e => {
       const file = e.target.files?.[0]
       e.target.value = ''
       if (!file) return
       setProof(null)
       run(async () => {
-        if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Choose a JPG or PNG up to 5 MB.')
-        const receipt = await uploadImage(file, 'attendance', s.id)
+        if (!['image/jpeg', 'image/png', 'application/pdf'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Choose a JPG, PNG or PDF up to 5 MB.')
+        const receipt = await uploadImage(file, 'attendance-proof', s.id)
         if (s.review && !reconsider && !replyRequested) await send({ action: 'attach-proof', photo: receipt })
         else setProof(receipt)
       })
@@ -149,8 +151,10 @@ function SessionForm({ session: s, setSession }) {
             <p>Missed check-in review · {{ OPEN: 'Submitted', IN_PROGRESS: 'Under review', RESOLVED: 'Resolved', DISMISSED: 'Dismissed' }[s.review.status]}</p>
             {s.review.attendanceRefund?.attendanceRefundState ? <p>{refundHoldLabels[s.review.attendanceRefund.attendanceRefundState]}</p> : s.review.attendanceRefund && <p>Refund review: {{ PENDING: 'Awaiting admin decision', ESCALATED: 'Escalated', APPROVED: 'Approved', REJECTED: 'Declined' }[s.review.attendanceRefund.status]}</p>}
             {s.review.attendanceApproved && <p>Attendance confirmed by admin. {s.report ? 'Report submitted.' : 'You can submit your lesson report below.'}</p>}
-            {s.review.evidenceUrl && <a className="btn-outline" href={s.review.evidenceUrl} target="_blank" rel="noreferrer">View supporting proof</a>}
+            {s.review.hasEvidence && <p>Supporting evidence submitted. Admin can view it during the review.</p>}
             {s.review.attendanceOutcome && !s.review.attendanceApproved && <p>{attendanceLabels[s.review.attendanceOutcome]}</p>}
+            {s.review.appealUntil && reconsider && <p>Request reconsideration by {fmtDate(s.review.appealUntil)}, {fmtTime(s.review.appealUntil)} (Malaysia time).</p>}
+            {s.review.penaltyAmount && <p>{s.review.penaltyEffectiveAt && Date.parse(s.review.penaltyEffectiveAt) <= now ? 'Final attendance penalty' : 'Potential attendance penalty'}: {money(s.review.penaltyAmount)}. It is deducted only after the decision is final.</p>}
             {['OPEN', 'IN_PROGRESS'].includes(s.review.status) && !replyRequested && proofField}
             {!!s.review.reviewHistory?.length && <details><summary>Review history</summary>
               <ul>{s.review.reviewHistory.map((entry, i) => <li key={i}>{attendanceLabels[entry.action]} · {entry.message}</li>)}</ul>
@@ -172,11 +176,11 @@ function SessionForm({ session: s, setSession }) {
             </form>}
             <p>Your explanation: {s.review.description}</p>
             {s.review.adminResponse && <p>Admin response: {s.review.adminResponse}</p>}
-          </div> : ended && s.status === 'CONFIRMED' ? <form className="space-y-3" onSubmit={e => {
+          </div> : now >= checkInCloses && s.status === 'CONFIRMED' ? <form className="space-y-3" onSubmit={e => {
             e.preventDefault()
             run(() => send({ action: 'request-review', reason: reason.trim(), ...(proof && { photo: proof }) }))
           }}>
-            <p>The lesson ended before you checked in. You can ask an admin to review what happened.</p>
+            <p>The check-in window has closed. You can ask an admin to review what happened.</p>
             <label className="block font-semibold">Why did you miss check-in?
               <textarea required maxLength={1000} className="input mt-1 min-h-20 w-full text-base" value={reason} onChange={e => setReason(e.target.value)} />
             </label>
@@ -200,8 +204,8 @@ function SessionForm({ session: s, setSession }) {
                   onChange={e => { const file = e.target.files?.[0]; e.target.value = ''; run(() => takePhoto(file)) }} />
               </label>
               {photo && <p role="status">Photo ready for check-in.</p>}
-            </> : <p>Check in when your online lesson starts.</p>}
-            {!started && <p>Check-in opens at {fmtTime(s.startAt)} on {fmtDate(s.startAt)}.</p>}
+            </> : <p>Check in from 10 minutes before until 15 minutes after the lesson starts.</p>}
+            {now < checkInOpens && <p>Check-in opens at {fmtTime(checkInOpens)} on {fmtDate(checkInOpens)}.</p>}
             {ended && <p>The scheduled lesson has ended.</p>}
             <button className="btn-primary min-h-11 w-full sm:w-auto" disabled={!entry || busy || (physical && !(within && photo))} onClick={() => run(checkIn)}>Check in</button>
           </div>}

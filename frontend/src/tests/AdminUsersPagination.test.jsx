@@ -32,4 +32,8 @@ test('an admin opens the watermarked verification copy', async () => {
   render(<MemoryRouter><AdminUsers /></MemoryRouter>)
   fireEvent.click(await screen.findByRole('button', { name: 'Manage' }))
   expect(await screen.findByRole('link', { name: 'View watermarked document' })).toHaveAttribute('href', '/api/admin/qualifications/7/file')
+  const approve = screen.getByRole('button', { name: 'Approve' })
+  expect(approve).toBeDisabled()
+  fireEvent.click(screen.getByLabelText('I opened and could read this document.'))
+  expect(approve).toBeEnabled()
 })

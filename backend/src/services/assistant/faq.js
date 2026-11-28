@@ -3,7 +3,7 @@
 // Every entry was checked against the CODE that enforces it (source = file/function) on the review date. When the
 // project documents (CLAUDE.md, reports) say more than the code does, the answer sticks to what the code does and the
 // gap is recorded in OPEN_POLICY_QUESTIONS for the project owner. Bump FAQ_VERSION whenever an answer changes.
-export const FAQ_VERSION = '2026-11-24.1'
+export const FAQ_VERSION = '2026-11-28.1'
 const REVIEWED = '2026-11-09'
 
 export const FAQ = [
@@ -27,7 +27,7 @@ export const FAQ = [
     id: 'faq.missed-lesson',
     topic: 'Past paid lessons and missing attendance',
     keywords: ['missed lesson', 'no show', 'no-show', 'overdue', 'needs attention', 'lesson date has passed', 'lesson has passed', 'tidak hadir', 'kelas terlepas', '没来', '未上课', '过期课程'],
-    answer: 'An unanswered request or unpaid accepted booking expires under the booking and payment deadlines. A paid confirmed lesson does not automatically expire, become completed, receive a refund or move to a new date just because its time has passed. If the lesson remains confirmed after its end, it appears in My Bookings under Needs attention. Open View Details to check the attendance and tutor report. Contact the tutor about a missing record and report a problem for administrator review if the lesson did not take place or attendance is missing. For a paid confirmed lesson that has started or ended, the details can offer Request a refund, which creates an administrator-reviewed request rather than paying money back immediately. Ordinary rescheduling after a lesson starts and backdated tutor check-in are not supported. No automatic missed-lesson refund or grace period has been established.',
+    answer: 'An unanswered request or unpaid accepted booking expires under the booking and payment deadlines. A paid confirmed lesson does not automatically expire, become completed, receive a refund or move to a new date just because its time has passed. If the lesson remains confirmed after its end, it appears in My Bookings under Needs attention. Open View Details to check attendance and the tutor report. Tutors can check in from 10 minutes before until 15 minutes after the start; a missed check-in can be reviewed by admin. After a lesson ends, admin can review whether it took place and, if it did not, send the remaining payment for refund review. Ordinary rescheduling after a lesson starts and backdated tutor check-in are not supported.',
     source: 'backend/src/services/lifecycle.service.js; backend/src/controllers/parent/bookings.controller.js#requestRefund; backend/src/services/reschedule.service.js; backend/src/services/lessonSession.service.js; frontend/src/pages/parent/MyBookings.jsx',
     reviewed: '2026-11-13',
   },
@@ -75,7 +75,7 @@ export const FAQ = [
     id: 'faq.cancel-refund',
     topic: 'Cancelling and refunds (parent)',
     keywords: ['cancel', 'refund', 'money back', 'batal', 'pulangan', 'bayaran balik', '取消', '退款', '退钱'],
-    answer: 'You can cancel a request before payment at no cost. If you cancel a paid lesson before it starts, the booking is cancelled and a refund request is sent to the WonderTutor admin team, who review it and decide the amount; it is not automatic. If the tutor cancels a paid lesson before it starts, a full refund request is queued automatically. After a paid lesson has started or finished you can send a refund request with a reason (for example if you dispute the attendance); the admin team reviews it. An approved refund status means the request was approved; it does not by itself confirm the money has reached your bank.',
+    answer: 'You can cancel a request before payment at no cost. For a paid lesson cancelled by the parent at least 24 hours before it starts, the full payment goes to admin refund review; under 24 hours, 90% goes to refund review and 10% goes to the tutor after the refund is transferred. If the tutor cancels a paid lesson, you have 48 hours to choose a refund or propose another time. If the tutor does not answer a proposed time within 24 hours, the refund goes to admin review. After a paid lesson has started or finished, you can request a refund with a reason. An approved refund has not necessarily reached your bank.',
     source: 'backend/src/controllers/parent/bookings.controller.js#cancelBooking/requestRefund (type ADMIN_REVIEW); backend/src/services/tutorBooking.service.js#tutorAction (type AUTO)',
     reviewed: '2026-11-13',
   },
@@ -155,9 +155,9 @@ export const FAQ = [
 
 // Things the project documents describe but the code does not (yet) enforce. The assistant must not state these.
 export const OPEN_POLICY_QUESTIONS = [
-  'A final missed-lesson/late-report grace period and booking-closure workflow are undecided. Do not promise automatic expiry, completion, rescheduling or refunds for paid confirmed lessons solely because time passed.',
-  'Tutor cancellation now queues a full refund request. Automatic refunds for failed check-in or mutual cancellation are not established by the current implementation; do not promise these or claim that a queued refund has reached the bank.',
-  'Partial-refund percentage is undecided (client open question); the admin decides the amount case by case.',
+  'Do not promise automatic expiry, completion, rescheduling or refunds for paid confirmed lessons solely because time passed.',
+  'A failed check-in alone does not establish that a lesson did not happen. Do not claim a refund has reached the bank until the transfer is recorded.',
+  'Other refund decisions are reviewed by admin; do not apply the parent cancellation percentages to unrelated cases.',
 ]
 
 const norm = (s) => String(s || '').toLowerCase()

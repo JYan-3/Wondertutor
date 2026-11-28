@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import api, { errorMessage } from '../../api/client'
 import { ErrorBox, LoadError, PageTitle, Spinner } from '../../components/ui/Common'
+import { fmtDate, fmtTime } from '../../lib/format'
 
 const fields = [
   { key: 'GPS_RADIUS_METRES', title: 'GPS check-in distance', hint: 'How close a tutor must be to the lesson address for a physical check-in.', unit: 'metres', min: 50, max: 300, step: 1, type: 'range' },
@@ -8,7 +9,7 @@ const fields = [
   { key: 'BASE_COMMISSION_RATE', title: 'Base commission rate', hint: 'The platform commission assigned when a tutor is newly verified. Existing verified tutors keep their rate.', unit: '%', min: 0, max: 100, step: 0.01 },
 ]
 
-function SettingCard({ field, initial }) {
+function SettingCard({ field, initial, onSaved }) {
   const { key, title, hint, unit, min, max, step, type = 'number' } = field
   const [saved, setSaved] = useState(initial)
   const [draft, setDraft] = useState(String(initial))
@@ -25,6 +26,7 @@ function SettingCard({ field, initial }) {
       const { data } = await api.patch('/admin/settings', { key, value: Number(draft) })
       setSaved(data.value)
       setMessage('Saved.')
+      onSaved()
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -59,15 +61,32 @@ function SettingCard({ field, initial }) {
 export default function AdminSettings() {
   const [settings, setSettings] = useState(null)
   const [error, setError] = useState('')
+  const [history, setHistory] = useState(null)
+  const [historyError, setHistoryError] = useState('')
+  function loadHistory() {
+    setHistoryError('')
+    api.get('/admin/settings/history').then(({ data }) => setHistory(data.history)).catch(() => setHistoryError('Could not load setting history.'))
+  }
   function load() {
     api.get('/admin/settings').then(({ data }) => setSettings(data)).catch((err) => setError(errorMessage(err)))
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load(); loadHistory() }, [])
   return (
     <div className="min-w-0">
       <PageTitle title="System configuration" subtitle="Manage check-in, tutor ratings and commission." sparkle={false} />
-      {settings ? <div className="space-y-4">{fields.map((field) => <SettingCard key={field.key} field={field} initial={settings[field.key]} />)}</div>
+      {settings ? <div className="space-y-4">{fields.map((field) => <SettingCard key={field.key} field={field} initial={settings[field.key]} onSaved={loadHistory} />)}</div>
         : error ? <LoadError message={error} onRetry={() => { setError(''); load() }} /> : <Spinner />}
+      <section className="card mt-6 p-4 sm:p-6" aria-labelledby="settings-history-title">
+        <h2 id="settings-history-title" className="text-lg font-bold text-navy">Recent setting changes</h2>
+        <p className="mt-1 text-sm text-slate-600">The most recent 100 changes, including who made them.</p>
+        {historyError ? <div><ErrorBox>{historyError}</ErrorBox><button type="button" className="btn-outline mt-2 min-h-11" onClick={loadHistory}>Try again</button></div>
+          : !history ? <Spinner /> : history.length === 0 ? <p className="mt-3 text-sm">No changes recorded yet.</p>
+            : <ul className="mt-3 divide-y divide-brand-100">{history.map(item => <li key={item.id} className="min-w-0 py-3 text-sm">
+              <strong>{fields.find(field => field.key === item.key)?.title || item.key}</strong>
+              <span className="block break-words">{item.oldValue} → {item.newValue} · {item.adminName}</span>
+              <span className="text-slate-600">{fmtDate(item.createdAt)}, {fmtTime(item.createdAt)} (Malaysia time)</span>
+            </li>)}</ul>}
+      </section>
     </div>
   )
 }

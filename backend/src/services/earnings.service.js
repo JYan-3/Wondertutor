@@ -11,9 +11,11 @@ import { AppError } from '../utils/AppError.js'
 import { baseCommission } from './systemSettings.service.js'
 import { renderEmail } from './notification.service.js'
 import { sendEmail } from './email.service.js'
+import { mytParts } from '../utils/time.js'
 
 const zero = new Prisma.Decimal(0)
 const holding = ['PENDING', 'ESCALATED']
+export const MIN_WITHDRAWAL = 10
 export const withdrawalPaid = w => w.status === 'APPROVED' && Boolean(w.paidAt || w.legacyPaid)
 const withdrawalState = (w, l) => {
   if (withdrawalPaid(w)) return w.legacyPaid ? 'LEGACY_PAID' : 'PAID'
@@ -27,15 +29,11 @@ const transferFields = (w, l) => ({ payoutStatus: withdrawalState(w, l), paidAt:
 const bankView = b => b && ({ id: b.id, bankName: b.bankName, accountName: readBank(b).accountName, lastFour: b.accountNumber.slice(-4) })
 const lockTutor = (db, tutorId) => db.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutorId} FOR UPDATE`
 
-async function ledger(db, tutorId) {
-  const payments = await db.payment.findMany({
-    where: { booking: { tutorId }, status: { in: ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'] } },
-    include: { booking: { select: { id: true, publicId: true, subject: true, status: true, startAt: true, child: { select: { name: true } } } },
-      refunds: tutorRefunds }, orderBy: [{ paidAt: 'desc' }, { id: 'desc' }],
-  })
-  const withdrawals = await db.withdrawal.findMany({ where: { tutorId }, include: { bankAccount: true }, orderBy: { id: 'desc' } })
-  let earned = zero, pending = zero, held = zero, paidOut = zero
-  const transactions = payments.map(p => {
+const paymentInclude = { booking: { select: { id: true, publicId: true, subject: true, status: true, startAt: true, child: { select: { name: true } } } }, refunds: tutorRefunds }
+const paymentWhere = tutorId => ({ booking: { tutorId }, status: { in: ['PAID', 'PARTIALLY_REFUNDED', 'REFUNDED'] } })
+
+function mapPayments(payments, totals) {
+  return payments.map(p => {
     const b = p.booking
     let commission = p.commissionAmount
     let fee = p.amount
@@ -52,43 +50,102 @@ async function ledger(db, tutorId) {
     }
     const originalShare = p.amount.minus(p.commissionAmount)
     const retainedShare = fee.minus(commission)
+    if (['COMPLETED', 'DISPUTED'].includes(b.status) && p.status !== 'REFUNDED') totals.settledEarned = totals.settledEarned.plus(retainedShare)
     let net = retainedShare
+    let cancellationFee = zero
     let state = 'Under review'
     if (p.status === 'REFUNDED' || b.status === 'CANCELLED') {
       state = p.status === 'REFUNDED' ? 'Refunded' : 'Cancelled'
       net = zero
+      const lateCancellation = p.refunds.find(r => r.policy === 'PARENT_LATE' && r.status === 'APPROVED' && r.issuedAt)
+      if (b.status === 'CANCELLED' && lateCancellation) {
+        cancellationFee = p.amount.minus(lateCancellation.amount)
+        net = cancellationFee
+        commission = zero
+        totals.earned = totals.earned.plus(cancellationFee)
+        totals.settledEarned = totals.settledEarned.plus(cancellationFee)
+        state = 'Cancellation fee earned'
+      }
     } else if (!refundInReview &&
         ((p.status === 'PAID' && refunded.isZero()) || (p.status === 'PARTIALLY_REFUNDED' && refunded.gt(0)))) {
-      if (b.status === 'COMPLETED') { state = 'Earned'; earned = earned.plus(net) }
-      if (b.status === 'CONFIRMED') { state = 'Report due'; pending = pending.plus(net) }
+      if (b.status === 'COMPLETED') { state = 'Earned'; totals.earned = totals.earned.plus(net) }
+      if (b.status === 'CONFIRMED') { state = 'Report due'; totals.pending = totals.pending.plus(net) }
     }
     return { id: p.id, bookingId: b.id, bookingRef: b.publicId || b.id, bookingStatus: b.status, payment: tutorPaymentStatus(p), date: p.paidAt || p.createdAt, subject: b.subject, student: b.child.name,
       fee: p.amount, originalCommission: p.commissionAmount, commission, originalShare,
-      tutorRefundShare: originalShare.minus(retainedShare), platformRefundShare: p.commissionAmount.minus(commission),
-      refunded: p.status === 'REFUNDED' ? p.amount : refunded, rate: p.commissionRate, net, state }
+      tutorRefundShare: originalShare.minus(cancellationFee.gt(0) ? cancellationFee : retainedShare), platformRefundShare: p.commissionAmount.minus(commission),
+      refunded: p.status === 'REFUNDED' ? p.amount : refunded, rate: p.commissionRate, net, state, cancellationFee }
   })
+}
+
+async function ledger(db, tutorId, { includeTransactions = false } = {}) {
+  const withdrawals = await db.withdrawal.findMany({ where: { tutorId }, include: { bankAccount: true }, orderBy: { id: 'desc' } })
+  const totals = { earned: zero, pending: zero, settledEarned: zero }
+  const transactions = []
+  const basisHash = createHash('sha256').update('[[')
+  let offset = 0, first = true
+  while (true) {
+    const payments = await db.payment.findMany({ where: paymentWhere(tutorId), include: paymentInclude, orderBy: [{ paidAt: 'desc' }, { id: 'desc' }], skip: offset, take: 100 })
+    if (!payments.length) break
+    for (const row of mapPayments(payments, totals)) {
+      if (includeTransactions) transactions.push(row)
+      if (!first) basisHash.update(',')
+      basisHash.update(JSON.stringify([row.id, row.bookingStatus, row.state, String(row.fee), String(row.commission), String(row.net), String(row.refunded)]))
+      first = false
+    }
+    offset += payments.length
+    if (payments.length < 100) break
+  }
+  const { earned, pending, settledEarned } = totals
+  let held = zero, paidOut = zero
   for (const w of withdrawals) {
     if (holding.includes(w.status) || (w.status === 'APPROVED' && !withdrawalPaid(w))) held = held.plus(w.amount)
     if (withdrawalPaid(w)) paidOut = paidOut.plus(w.amount)
   }
-  const balance = earned.minus(held).minus(paidOut)
+  const penalties = await db.complaint.findMany({ where: { category: 'Missed check-in', status: 'DISMISSED', attendanceOutcome: 'NOT_HELD', penaltyEffectiveAt: { lte: new Date() }, penaltyAmount: { not: null }, booking: { tutorId } }, select: { id: true, penaltyAmount: true, penaltyEffectiveAt: true, bookingId: true, booking: { select: { publicId: true, subject: true } } }, orderBy: { penaltyEffectiveAt: 'desc' } })
+  const penaltyTotal = penalties.reduce((sum, row) => sum.plus(row.penaltyAmount), zero)
+  const balance = earned.minus(held).minus(paidOut).minus(penaltyTotal)
   // Compare the lesson earnings reviewed at approval with the current ledger.
-  const basis = createHash('sha256').update(JSON.stringify(transactions.map(t => [t.id, t.bookingStatus, t.state, String(t.fee), String(t.commission), String(t.net), String(t.refunded)]))).digest('hex')
+  const basis = basisHash.update('],').update(JSON.stringify(penalties.map(p => [p.id, String(p.penaltyAmount)]))).update(']').digest('hex')
   // A repeat submission from the same displayed balance must not reserve a second amount.
   const version = createHash('sha256').update([balance, withdrawals[0]?.id || 0, held, paidOut].join('|')).digest('hex')
-  return { transactions, withdrawals, earned, pending, held, paidOut, balance, version, basis }
+  return { transactions, withdrawals, earned, pending, held, paidOut, balance, version, basis, penalties, penaltyTotal, amountOwed: Prisma.Decimal.max(paidOut.plus(penaltyTotal).minus(settledEarned), 0) }
 }
 
-export function earnings(tutorId) {
+export function earnings(tutorId, { compact = false } = {}) {
   return prisma.$transaction(async db => {
-    const l = await ledger(db, tutorId)
+    const l = await ledger(db, tutorId, { includeTransactions: !compact })
     const bank = await db.bankAccount.findFirst({ where: { tutorId, isDefault: true } })
     const tutor = await db.tutorProfile.findUniqueOrThrow({ where: { id: tutorId }, select: { commissionRate: true } })
     const base = await baseCommission(db)
-    return { available: Prisma.Decimal.max(l.balance, 0), totalEarned: l.earned, pending: l.pending, held: l.held, withdrawn: l.paidOut,
-      version: l.version, rate: tutor.commissionRate ?? base, baseRate: base, bank: bankView(bank), transactions: l.transactions,
+    return { available: Prisma.Decimal.max(l.balance, 0), totalEarned: l.earned, pending: l.pending, held: l.held, withdrawn: l.paidOut, penalties: l.penalties, penaltyTotal: l.penaltyTotal, amountOwed: l.amountOwed,
+      version: l.version, rate: tutor.commissionRate ?? base, baseRate: base, bank: bankView(bank), ...(compact ? {} : { transactions: l.transactions }),
       withdrawals: l.withdrawals.map(w => ({ id: w.id, date: w.createdAt, reviewedAt: w.reviewedAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w, l), bank: bankView(w.bankAccount) })) }
   })
+}
+
+// Process history in bounded batches while keeping the same calculation as the balance ledger.
+export async function earningsHistory(tutorId, { page, pageSize, period, state, all }) {
+  return prisma.$transaction(async db => {
+    const rows = [], states = new Set()
+    const month = mytParts(new Date()).date.slice(0, 7)
+    const totals = { earned: zero, pending: zero, settledEarned: zero }
+    let offset = 0, matched = 0
+    while (true) {
+      const batch = await db.payment.findMany({ where: paymentWhere(tutorId), include: paymentInclude, orderBy: [{ paidAt: 'desc' }, { id: 'desc' }], skip: offset, take: 100 })
+      if (!batch.length) break
+      for (const row of mapPayments(batch, totals)) {
+        states.add(row.state)
+        if (period === 'month' && mytParts(row.date).date.slice(0, 7) !== month) continue
+        if (state !== 'all' && row.state !== state) continue
+        if (all || (matched >= (page - 1) * pageSize && matched < page * pageSize)) rows.push(row)
+        matched++
+      }
+      offset += batch.length
+      if (batch.length < 100) break
+    }
+    return { rows, states: [...states].sort(), pagination: { page, pageSize, total: matched, totalPages: Math.max(1, Math.ceil(matched / pageSize)) } }
+  }, { timeout: 30000 })
 }
 
 export function changeBank(tutorId, expectedBank, details) {
@@ -114,19 +171,30 @@ export function requestWithdrawal(tutorId, input) {
     const l = await ledger(db, tutorId)
     if (input.version !== l.version) throw new AppError(409, 'Your balance changed. Refresh and check your withdrawal history.')
     const amount = new Prisma.Decimal(input.amount)
+    if (amount.lt(MIN_WITHDRAWAL)) throw new AppError(400, 'The minimum withdrawal is RM10.')
     if (amount.gt(l.balance)) throw new AppError(400, 'The amount exceeds your available balance.')
     return db.withdrawal.create({ data: { tutorId, bankAccountId: bank.id, amount }, select: { id: true } })
   })
 }
 
-export async function pendingReviews(adminId) {
-  const rows = await prisma.withdrawal.findMany({ orderBy: { id: 'asc' },
+export async function pendingReviews(adminId, pagination) {
+  const total = pagination ? await prisma.withdrawal.count() : null
+  const totalPages = pagination ? Math.max(1, Math.ceil(total / pagination.pageSize)) : null
+  const page = pagination ? Math.min(pagination.page, totalPages) : null
+  const rows = await prisma.withdrawal.findMany({ orderBy: { id: pagination ? 'desc' : 'asc' },
+    ...(pagination && { skip: (page - 1) * pagination.pageSize, take: pagination.pageSize }),
     include: { bankAccount: true, tutor: { select: { user: { select: { fullName: true } } } } } })
-  const ledgers = new Map(await Promise.all([...new Set(rows.map(w => w.tutorId))].map(async id => [id, await ledger(prisma, id)])))
-  return rows.map(w => {
+  const ledgers = new Map()
+  const tutors = [...new Set(rows.map(w => w.tutorId))]
+  for (let i = 0; i < tutors.length; i += 4) {
+    const batch = await Promise.all(tutors.slice(i, i + 4).map(async id => [id, await prisma.$transaction(db => ledger(db, id), { timeout: 30000 })]))
+    for (const [id, value] of batch) ledgers.set(id, value)
+  }
+  const requests = rows.map(w => {
     const l = ledgers.get(w.tutorId)
-    return { id: w.id, tutor: w.tutor.user.fullName, date: w.createdAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w, l), transferStartedAt: w.transferStartedAt, transferOwned: w.transferStartedById === adminId, earned: l.earned, held: l.held, paidOut: l.paidOut, balance: l.balance, bank: bankView(w.bankAccount) }
+    return { id: w.id, tutor: w.tutor.user.fullName, date: w.createdAt, amount: w.amount, status: w.status, reason: w.rejectReason, ...transferFields(w, l), transferStartedAt: w.transferStartedAt, transferOwned: w.transferStartedById === adminId, earned: l.earned, held: l.held, paidOut: l.paidOut, balance: l.balance, penaltyTotal: l.penaltyTotal, amountOwed: l.amountOwed, bank: bankView(w.bankAccount) }
   })
+  return pagination ? { requests, pagination: { page, pageSize: pagination.pageSize, total, totalPages } } : requests
 }
 
 export async function reviewWithdrawal(id, adminId, decision) {

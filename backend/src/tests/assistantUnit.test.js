@@ -140,8 +140,8 @@ describe('FAQ', () => {
     const entry = searchFaq(question)[0]
     expect(entry.id).toBe('faq.missed-lesson')
     expect(entry.answer).toContain('does not automatically expire')
-    expect(entry.answer).toContain('administrator-reviewed request')
-    expect(entry.answer).toContain('No automatic missed-lesson refund or grace period has been established')
+    expect(entry.answer).toContain('15 minutes after the start')
+    expect(entry.answer).toContain('send the remaining payment for refund review')
   })
 })
 

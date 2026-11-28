@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { prisma } from '../config/prisma.js'
 import { env, readToyyibPayConfig } from '../config/env.js'
 import { signatureFor, signatureIsValid, billExpiryDate } from '../services/toyyibpay.service.js'
-import { MONDAY, api, apiBase, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { MONDAY, api, apiBase, makeBooking, makeChild, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 const realFetch = global.fetch
 const BASE = 'https://toyyibpay.test'
@@ -53,7 +53,8 @@ afterAll(async () => {
 })
 
 async function booking(price = 60) {
-  return makeBooking({ parent: parent.parent, child: parent.child, tutor: tutor.tutor, date: monday, status: 'AWAITING_PAYMENT', price })
+  const child = await makeChild(parent.parent.id)
+  return makeBooking({ parent: parent.parent, child, tutor: tutor.tutor, date: monday, status: 'AWAITING_PAYMENT', price })
 }
 async function startPayment(price = 60) {
   const b = await booking(price)

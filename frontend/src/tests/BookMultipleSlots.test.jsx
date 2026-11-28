@@ -12,6 +12,7 @@ test('selected dates submit together with the public child ID and the slot teach
  api.get.mockImplementation((url,options)=>Promise.resolve({data:url.endsWith('/slots')?{days:[{date:options.params.from,slots:[{start:'17:00',end:'18:00',status:'available',mode:'ONLINE'}]}]}:{tutor:{id:2,name:'Tutor',hourlyRate:50,rating:4,reviewCount:1,subjects:['Mathematics'],grades:['Primary 5'],offersOnline:true,offersPhysical:true}}}))
  api.post.mockResolvedValue({data:{}})
  render(<MemoryRouter initialEntries={[{pathname:'/parent/tutors/2/book',state:{childId:'bbeb101f-87b2-4ddb-9625-799f01ea005d'}}]}><Routes><Route path="/parent/tutors/:id/book" element={<BookLesson/>}/></Routes></MemoryRouter>)
+ expect(await screen.findByText(/Book by 11:59 pm Malaysia time on the day before the lesson/)).toBeVisible()
  const first=await screen.findByRole('button',{name:/^\d{4}-\d{2}-\d{2} 17:00$/})
  const date=first.getAttribute('aria-label').slice(0,10)
  expect(screen.queryByRole('button',{name:date+' 07:00'})).not.toBeInTheDocument()

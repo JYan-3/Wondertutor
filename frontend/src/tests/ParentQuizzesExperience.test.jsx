@@ -49,6 +49,17 @@ test('a parent can explore the leaderboard and return to the quizzes', async () 
   expect(screen.getByRole('heading', { name: 'Fractions' })).toBeVisible()
 })
 
+test('a parent can report a quiz without leaving the page', async () => {
+  setupApi()
+  api.post.mockResolvedValue({ data: { id: 1 } })
+  render(<MemoryRouter><ParentQuizzes /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('button', { name: 'Report quiz' }))
+  fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Please review this question.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send report' }))
+  expect(await screen.findByText('Your report was sent to admin for review.')).toBeVisible()
+  expect(api.post).toHaveBeenCalledWith('/parent/quizzes/1/report', { reason: 'Please review this question.' })
+})
+
 test('the quiz shows the current leaderboard while answers stay in place', async () => {
   setupApi()
   render(<MemoryRouter><ParentQuizzes /></MemoryRouter>)
@@ -143,6 +154,19 @@ function NavigationControls() {
 function renderFlow(search = '') {
   return render(<MemoryRouter initialEntries={[`/parent/quizzes${search}`]}><NavigationControls /><ParentQuizzes /></MemoryRouter>)
 }
+
+test('a child selected by link can submit privately without a leaderboard nickname', async () => {
+  setupFlowApi()
+  api.post.mockResolvedValue({ data: { id: 4 } })
+  renderFlow(`?child=${learner.publicId}`)
+  fireEvent.click(await screen.findByRole('button', { name: 'Start quiz' }))
+  fireEvent.click(screen.getByLabelText('Show this child’s result on the leaderboard'))
+  expect(screen.queryByLabelText(/Leaderboard nickname/)).toBeNull()
+  fireEvent.click(screen.getByLabelText('Two'))
+  fireEvent.click(screen.getByRole('button', { name: 'Review answers' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm submission' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/parent/quizzes/1/attempts', expect.objectContaining({ childId: 3, nickname: '', showOnLeaderboard: false })))
+})
 
 test.each([learner.publicId, String(learner.id)])('a child link using %s preselects the learner and filters attempts', async reference => {
   setupFlowApi({ attempts: [attempt(), { ...attempt(5, 'Other exercise'), child: sibling }] })

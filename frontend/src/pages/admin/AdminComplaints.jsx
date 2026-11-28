@@ -141,6 +141,8 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
           <h3 className="font-bold">Attendance evidence</h3>
           {evidence.attendanceRefundState && <p>{refundHoldLabels[evidence.attendanceRefundState]}</p>}
           {evidence.outcome && <p>{attendanceLabels[evidence.outcome]}</p>}
+          {evidence.appealUntil && <p>Reconsideration available until {fmtDate(evidence.appealUntil)}.</p>}
+          {evidence.penaltyAmount && <p>Attendance penalty: {money(evidence.penaltyAmount)}. {evidence.penaltyEffectiveAt ? `Effective ${fmtDate(evidence.penaltyEffectiveAt)} if the decision remains final.` : 'Paused during reconsideration.'}</p>}
           {evidence.tutorReplyPending && <p>Waiting for the tutor to reply.</p>}
           {!!evidence.history?.length && <ol className="space-y-2">{evidence.history.map(entry => <li key={entry.id} className="break-words">
             <strong>{attendanceLabels[entry.action]}</strong> · {fmtShortDate(entry.createdAt)} · {entry.message}
@@ -152,6 +154,7 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
           {!closed && <button className="btn-outline" onClick={loadInvestigation}>Refresh evidence</button>}
         </section>}
         <Investigation inv={inv} />
+        {inv?.quiz && <QuizModeration quiz={inv.quiz} onRefresh={loadInvestigation} />}
         {review && <ReviewModeration review={review} onRefresh={loadInvestigation} onChanged={(updated) => { setReview((previous) => ({ ...previous, ...updated })); onReviewChanged() }} />}
         {c.against && !closed && <WarnUser userId={c.against.id} name={c.against.name} complaintId={c.id} onDone={loadInvestigation} />}
         <ErrorBox>{error}</ErrorBox>
@@ -172,6 +175,16 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
       </div>
     </Modal>
   )
+}
+
+function QuizModeration({ quiz, onRefresh }) {
+  const [reason, setReason] = useState(''), [busy, setBusy] = useState(false), [error, setError] = useState('')
+  async function moderate() {
+    setBusy(true); setError('')
+    try { await api.patch(`/admin/quizzes/${quiz.id}/moderation`, { isHidden: !quiz.isHidden, expectedHidden: quiz.isHidden, reason: reason.trim() }); setReason(''); await onRefresh() }
+    catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+  return <section aria-label="Quiz moderation" className="space-y-3 rounded-xl border border-brand-100 p-3 text-sm"><h3 className="font-bold text-navy">Reported quiz · {quiz.title}</h3><p>{quiz.isHidden ? 'Hidden from parents.' : 'Visible to parents.'} Review the content before deciding.</p>{quiz.moderationReason && <p>Previous decision: {quiz.moderationReason}</p>}<ol className="list-inside list-decimal space-y-2">{quiz.questions.map((q, i) => <li key={i} className="break-words">{q.text}{q.options?.length > 0 && <span className="block pl-4 text-slate-600">{q.options.join(' · ')}</span>}{q.imageUrl && <a className="ml-2 underline" href={q.imageUrl} target="_blank" rel="noreferrer">View question image</a>}</li>)}</ol><label className="block font-semibold">Reason for decision<textarea className="input mt-1 text-base" rows={2} maxLength={500} value={reason} onChange={e => setReason(e.target.value)} /></label><ErrorBox>{error}</ErrorBox><button type="button" className={quiz.isHidden ? 'btn-outline min-h-11' : 'btn-danger min-h-11'} disabled={busy || reason.trim().length < 3} onClick={moderate}>{quiz.isHidden ? 'Restore quiz' : 'Hide quiz'}</button></section>
 }
 
 function ReviewModeration({ review, onChanged, onRefresh }) {

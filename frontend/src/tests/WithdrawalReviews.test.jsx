@@ -14,6 +14,15 @@ beforeEach(() => {
   api.post.mockResolvedValue({ data: { emailSent: true } })
 })
 
+test('admin can move between withdrawal pages', async () => {
+  api.get.mockImplementation(async (_path, options) => ({ data: { requests: [{ ...row, tutor: options.params.page === 1 ? 'Iris' : 'Alya' }], pagination: { page: options.params.page, totalPages: 2 } } }))
+  render(<WithdrawalReviews />)
+  expect(await screen.findByText(/Iris ·/)).toBeVisible()
+  fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+  expect(await screen.findByText(/Alya ·/)).toBeVisible()
+  expect(screen.getByText('Page 2 of 2')).toBeVisible()
+})
+
 test('admin records a reference and uploaded receipt, then sees paid history', async () => {
   const receipt = { url: 'https://example.test/receipt.pdf', version: 1, signature: 'test' }
   uploadImage.mockResolvedValue(receipt)

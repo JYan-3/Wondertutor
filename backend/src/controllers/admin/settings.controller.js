@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { getSettings, saveSetting } from '../../services/systemSettings.service.js'
+import { getSettings, saveSetting, settingHistory } from '../../services/systemSettings.service.js'
 
 const setting = z.discriminatedUnion('key', [
   z.object({ key: z.literal('GPS_RADIUS_METRES'), value: z.number().int().min(50).max(300) }).strict(),
@@ -13,6 +13,10 @@ export async function list(req, res) {
 
 export async function update(req, res) {
   const { key, value } = setting.parse(req.body)
-  await saveSetting(key, value)
+  await saveSetting(key, value, req.user)
   res.json({ key, value })
+}
+
+export async function history(req, res) {
+  res.json({ history: await settingHistory() })
 }

@@ -3,7 +3,7 @@ import { prisma } from '../config/prisma.js'
 import { jest } from '@jest/globals'
 import { env } from '../config/env.js'
 import { outbox } from '../services/email.service.js'
-import { MONDAY, api, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { MONDAY, api, makeAdmin, makeBooking, makeChild, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
 
 let parent, other, monday
 
@@ -18,7 +18,8 @@ afterAll(stopServer)
 
 // Create an AWAITING_PAYMENT booking and start a sandbox checkout for it
 async function checkout(tutor, { price = 60, start = '17:00' } = {}) {
-  const b = await makeBooking({ parent: parent.parent, child: parent.child, tutor: tutor.tutor, date: monday, start, status: 'AWAITING_PAYMENT', price })
+  const child = await makeChild(parent.parent.id)
+  const b = await makeBooking({ parent: parent.parent, child, tutor: tutor.tutor, date: monday, start, status: 'AWAITING_PAYMENT', price })
   const res = await api(parent.token).post('/parent/payments/checkout', { bookingId: b.id })
   return { booking: b, checkout: res }
 }

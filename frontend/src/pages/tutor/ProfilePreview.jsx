@@ -67,6 +67,7 @@ export default function ProfilePreview({ ownProfile = false }) {
         <section className="card p-6">
           <h2 className="font-display text-lg font-bold text-navy">Qualifications <span className="font-sans text-sm font-normal text-slate-500">(optional)</span></h2>
           {ownProfile && <Link className="inline-flex min-h-11 items-center text-sm font-semibold text-brand-600 underline" to="/tutor/setup" state={{ step: 'documents' }}>Manage qualifications</Link>}
+          {ownProfile && <p className="text-sm text-slate-600">Document previews are watermarked. A watermark cannot prevent screenshots, and deleting a document may not immediately remove every backup.</p>}
           {quals.length ? (
             <ul className="mt-2 space-y-1 text-sm text-navy">
               {quals.map((q) => (

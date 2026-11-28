@@ -31,7 +31,7 @@ export async function uploadSignature(req, res) {
       folder = 'wondertutor/children/' + parent.id
     } else if (req.user.role !== 'TUTOR') throw new AppError(403, 'Tutor access required')
     else if (purpose === 'qualification') folder = 'wondertutor/qualifications/' + req.user.id
-    else if (purpose === 'attendance') {
+    else if (purpose === 'attendance' || purpose === 'attendance-proof') {
       const id = req.body.bookingId
       if (!Number.isSafeInteger(id) || id < 1) throw new AppError(400, 'Invalid booking')
       const booking = await prisma.booking.findFirst({ where: { id, tutor: { userId: req.user.id } }, select: { id: true } })

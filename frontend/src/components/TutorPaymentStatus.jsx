@@ -2,7 +2,7 @@ import { money } from '../lib/format'
 
 const paymentLabels = { PAID: 'Paid', REFUNDED: 'Refunded', PARTIALLY_REFUNDED: 'Partially refunded', PENDING: 'Pending', FAILED: 'Failed' }
 const refundLabels = { PENDING: 'Pending review', ESCALATED: 'Escalated for review', APPROVED: 'Approved · awaiting transfer',
-  TRANSFERRED: 'Transfer recorded', REJECTED: 'Declined', ON_HOLD: 'On hold during attendance review' }
+  TRANSFERRED: 'Transfer recorded', REJECTED: 'Declined', ON_HOLD: 'On hold during attendance review', AWAITING_APPEAL: 'Transfer waiting for reconsideration period' }
 
 export default function TutorPaymentStatus({ payment }) {
   if (!payment) return null

@@ -3,6 +3,7 @@ import { v2 as cloudinary } from 'cloudinary'
 import { prisma } from '../config/prisma.js'
 import { api, startServer, stopServer, resetDb, makeParent, makeTutor, makeAdmin, makeBooking, MONDAY, nextDate } from './helpers.js'
 import { outbox } from '../services/email.service.js'
+import { createHash } from 'node:crypto'
 
 let parent, admin
 beforeAll(async () => { await resetDb(); await startServer(); parent = await makeParent(); admin = api((await makeAdmin()).token) })
@@ -54,6 +55,87 @@ test('completed lessons use the historical fee; current rate, refunds and pendin
   expect(v.transactions).toHaveLength(4)
 })
 
+test('history pages and export match the financial ledger and remain tutor-scoped', async () => {
+  const { client, get, pay } = await setup()
+  for (let i = 0; i < 11; i++) await pay()
+  await pay('CONFIRMED')
+  const view = await get()
+  const compact = await client.get(root + '?compact=1')
+  expect(compact.transactions).toBeUndefined()
+  expect(compact.available).toBe(view.available)
+  const first = await client.get(root + '/history?page=1&pageSize=10')
+  const second = await client.get(root + '/history?page=2&pageSize=10')
+  expect(first.pagination.total).toBe(12)
+  expect(first.rows).toHaveLength(10)
+  expect(second.rows).toHaveLength(2)
+  expect([...first.rows, ...second.rows]).toEqual(view.transactions)
+  const filtered = await client.get(root + '/history?state=Earned&export=1')
+  expect(filtered.rows).toHaveLength(11)
+  expect(filtered.rows.every(r => r.state === 'Earned')).toBe(true)
+  await prisma.payment.update({ where: { id: first.rows[0].id }, data: { paidAt: new Date('2020-01-15T04:00:00.000Z') } })
+  const month = await client.get(root + '/history?period=month&export=1')
+  expect(month.pagination.total).toBe(11)
+  expect(month.rows.some(r => r.id === first.rows[0].id)).toBe(false)
+  const other = await makeTutor()
+  expect((await api(other.token).get(root + '/history')).rows).toHaveLength(0)
+  expect((await api().get(root + '/history')).status).toBe(401)
+  expect((await api(parent.token).get(root + '/history')).status).toBe(403)
+})
+
+test('batched balance calculation keeps the existing approval fingerprint', async () => {
+  const { pay, get, request } = await setup()
+  for (let i = 0; i < 101; i++) await pay()
+  const view = await get()
+  expect(view.transactions).toHaveLength(101)
+  const original = createHash('sha256').update(JSON.stringify([view.transactions.map(r => [r.id, r.bookingStatus, r.state, String(r.fee), String(r.commission), String(r.net), String(r.refunded)]), view.penalties.map(p => [p.id, String(p.penaltyAmount)])])).digest('hex')
+  const withdrawal = await request(view, '10')
+  expect((await admin.post(`/admin/withdrawals/${withdrawal.id}/review`, { status: 'APPROVED', expectedStatus: 'PENDING' })).status).toBe(200)
+  expect((await prisma.withdrawal.findUniqueOrThrow({ where: { id: withdrawal.id } })).approvalBasis).toBe(original)
+})
+
+test('admin withdrawal pages include every request without duplicating rows', async () => {
+  const { t, get } = await setup()
+  const bankId = (await get()).bank.id
+  const ids = []
+  for (let i = 0; i < 12; i++) {
+    const item = await prisma.withdrawal.create({ data: { tutorId: t.tutor.id, bankAccountId: bankId, amount: 10 } })
+    ids.push(item.id)
+  }
+  const seen = []
+  let page = 1, pages = 1
+  do {
+    const result = await admin.get(`/admin/withdrawals?page=${page}&pageSize=5`)
+    expect(result.status).toBe(200)
+    expect(result.requests.length).toBeLessThanOrEqual(5)
+    seen.push(...result.requests.map(r => r.id))
+    pages = result.pagination.totalPages
+    page++
+  } while (page <= pages)
+  expect(new Set(seen).size).toBe(seen.length)
+  expect(seen).toEqual(expect.arrayContaining(ids))
+  await prisma.withdrawal.deleteMany({ where: { id: { in: ids } } })
+})
+
+test('a refund after a recorded payout is recovered from future earnings without showing a pending hold as debt', async () => {
+  const { get, request, pay } = await setup()
+  const payment = await pay()
+  const withdrawal = await request(await get(), '88')
+  expect(withdrawal.status).toBe(201)
+  await prisma.withdrawal.update({ where: { id: withdrawal.id }, data: { status: 'APPROVED', legacyPaid: true } })
+  const refund = await prisma.refund.create({ data: { paymentId: payment.id, type: 'ADMIN_REVIEW', amount: 20, reason: 'Partial refund review' } })
+  expect(Number((await get()).amountOwed)).toBe(0)
+  const path = `/admin/refunds/${refund.id}/decision`
+  expect((await admin.post(path, { action: 'approve', amount: 20, basis: 'Mutual agreement', reason: 'Partial refund' })).status).toBe(204)
+  expect((await admin.post(path, { action: 'issued', reference: `post-payout-${refund.id}` })).status).toBe(204)
+  const adjusted = await get()
+  expect(Number(adjusted.amountOwed)).toBe(17.6)
+  expect(Number(adjusted.available)).toBe(0)
+  await pay()
+  const recovered = await get()
+  expect(Number(recovered.amountOwed)).toBe(0)
+  expect(Number(recovered.available)).toBe(70.4)
+})
+
 test('two simultaneous withdrawals reserve only once, even when both individually fit', async () => {
   const { get, request, pay } = await setup()
   await pay()
@@ -64,7 +146,8 @@ test('two simultaneous withdrawals reserve only once, even when both individuall
   expect(Number(held.held)).toBe(30.01)
   expect(Number(held.available)).toBe(57.99)
   expect((await request(held, '58')).status).toBe(400)
-  expect((await request(held, '0.01')).status).toBe(201)
+  expect((await request(held, '0.01')).status).toBe(400)
+  expect((await request(held, '10')).status).toBe(201)
   expect((await request(await get(), '0.001')).status).toBe(400)
 })
 

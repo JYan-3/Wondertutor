@@ -5,7 +5,7 @@ import Icon from './ui/Icon'
 
 // Uploads an image straight to Cloudinary using a one-time signature from our backend.
 export async function uploadImage(file, purpose, bookingId) {
-  const attendance = purpose === 'attendance'
+  const attendance = purpose === 'attendance' || purpose === 'attendance-proof'
   const withdrawal = purpose === 'withdrawal-receipt'
   const { data: sig } = await (purpose ? api.post('/uploads/signature', attendance ? { purpose, bookingId } : withdrawal ? { purpose, withdrawalId: bookingId } : { purpose }) : api.post('/uploads/signature'))
   const form = new FormData()

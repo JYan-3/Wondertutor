@@ -45,9 +45,17 @@ test('publication, marking, notifications, privacy, retries and versioning', asy
   let board = (await api(parent.token).get(`/parent/quizzes/${created.id}/leaderboard?version=${quiz.versionId}`)).leaderboard
   expect(board).toEqual([{ rank: 1, nickname: 'Math Star', score: 9, maxScore: 10 }])
   const retry = await api(parent.token).post(`/parent/quizzes/${created.id}/attempts`, { ...attempt, requestId: 'dfb3822c-9b0a-424a-858a-a0e3366c1f4e', answers: ['0', 'wrong', 'again'] })
+  expect((await api(parent.token).get(`/parent/quizzes/${created.id}/leaderboard?version=${quiz.versionId}`)).leaderboard[0].score).toBe(9)
   await api(tutor.token).post(`/tutor/quiz-attempts/${retry.id}/review`, { ...review, marks: [{ ...review.marks[0], score: 1 }] })
   board = (await api(parent.token).get(`/parent/quizzes/${created.id}/leaderboard?version=${quiz.versionId}`)).leaderboard
   expect(board).toEqual([{ rank: 1, nickname: 'Math Star', score: 1, maxScore: 10 }])
+  expect((await api(otherParent.token).patch(`/parent/quiz-attempts/${retry.id}/hide-leaderboard`)).status).toBe(404)
+  expect((await api(parent.token).patch(`/parent/quiz-attempts/${retry.id}/hide-leaderboard`)).status).toBe(200)
+  expect((await api(parent.token).get(`/parent/quizzes/${created.id}/leaderboard?version=${quiz.versionId}`)).leaderboard).toEqual([])
+  const privateAttempt = await api(parent.token).post(`/parent/quizzes/${created.id}/attempts`, { ...attempt, requestId: '8f778ad3-92fb-4902-8500-af22f61b3901', nickname: '', showOnLeaderboard: false })
+  expect(privateAttempt.status).toBe(201)
+  expect((await api(parent.token).get(`/parent/quizzes/${created.id}/leaderboard?version=${quiz.versionId}`)).leaderboard).toEqual([])
+  expect((await api(parent.token).get(`/parent/quiz-attempts/${privateAttempt.id}`)).status).toBe(200)
   expect((await api(tutor.token).put(`/tutor/quizzes/${created.id}`, { ...body, title: 'Changed' })).status).toBe(200)
   expect((await api(parent.token).get(`/parent/quizzes/${created.id}`)).title).toBe('Fractions')
   expect((await api(parent.token).get(`/parent/quiz-attempts/${submitted.id}`)).version.quiz.title).toBe('Fractions')

@@ -6,6 +6,7 @@ import { groupTutorCandidates } from '../../services/tutorSearchScope.js'
 import { activeTutors } from '../../services/activeTutors.js'
 import { distanceKm, rankTutors } from '../../services/matching.service.js'
 import { tutorInclude, toTutorCard, toTutorProfile } from '../../services/tutor.service.js'
+import { canRequestLessonDate } from '../../services/bookingCutoff.js'
 import { SLOT_BLOCKING, getTutorSlots } from '../../services/booking.service.js'
 import { effectiveSlots, slotAllows, slotsCoverInterval } from '../../services/availability.service.js'
 import { addDays, mondayOf, mytParts, mytToDate, todayMyt } from '../../utils/time.js'
@@ -63,7 +64,7 @@ const browseSchema = z.object({
 async function freeAt(tutors, date, time, mode) {
   const start = mytToDate(date, time)
   const end = new Date(start.getTime() + 3600000)
-  if (start <= new Date()) return new Set()
+  if (!canRequestLessonDate(date) || start <= new Date()) return new Set()
   const hours = await effectiveSlots(tutors.map((t) => t.id), [date]) // date change, then week, then usual hours
   const covering = tutors.filter(tutor => slotsCoverInterval(hours.get(tutor.id).get(date), start, end, mode))
   const busy = await prisma.booking.findMany({
@@ -79,7 +80,7 @@ const DAY_FILTER_WEEKS = 4
 async function openOnDays(tutors, days, mode) {
   const today = todayMyt()
   const dates = Array.from({ length: DAY_FILTER_WEEKS * 7 }, (_, i) => addDays(today, i))
-    .filter((d) => days.includes(mytParts(mytToDate(d, '12:00')).dow))
+    .filter((d) => canRequestLessonDate(d) && days.includes(mytParts(mytToDate(d, '12:00')).dow))
   const hours = await effectiveSlots(tutors.map((t) => t.id), dates)
   return new Set(tutors.filter((t) => dates.some((d) => hours.get(t.id).get(d).some((a) => !mode || slotAllows(a.mode, mode)))).map((t) => t.id))
 }

@@ -1,7 +1,7 @@
 // Admin user management + complaints, and account security rules.
 import { prisma } from '../config/prisma.js'
 import { jest } from '@jest/globals'
-import { MONDAY, api, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, resetDb, startServer, stopServer } from './helpers.js'
+import { MONDAY, api, makeAdmin, makeBooking, makeParent, makeTutor, nextDate, recordDocumentPreview, resetDb, startServer, stopServer } from './helpers.js'
 
 let admin, parent, tutor
 
@@ -73,7 +73,11 @@ describe('user management', () => {
     await prisma.qualification.create({ data: { tutorId: t.tutor.id, kind: 'IDENTITY', title: 'NRIC', documentUrl: 'x', status: 'APPROVED' } })
     const q = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'BSc Maths', documentUrl: 'x' } })
 
-    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED' })).status).toBe(200)
+    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED' })).status).toBe(400)
+    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED', confirmedReadable: true })).status).toBe(409)
+    await recordDocumentPreview(admin.user, q.id)
+    expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'APPROVED', confirmedReadable: true })).status).toBe(200)
+    expect(await prisma.qualificationReview.count({ where: { qualificationId: q.id, status: 'APPROVED', adminId: admin.user.id } })).toBe(1)
     expect((await prisma.tutorProfile.findUnique({ where: { id: t.tutor.id } })).isVerified).toBe(true)
 
     expect((await api(admin.token).post(`/admin/qualifications/${q.id}/review`, { status: 'REJECTED' })).status).toBe(400) // reason required
@@ -87,7 +91,8 @@ describe('user management', () => {
     const documents = await Promise.all(['IDENTITY', 'QUALIFICATION'].map(kind => prisma.qualification.create({
       data: { tutorId: t.tutor.id, kind, title: kind, documentUrl: 'seed://verification' },
     })))
-    const replies = await Promise.all(documents.map((document, index) => api(index ? second.token : admin.token).post(`/admin/qualifications/${document.id}/review`, { status: 'APPROVED' })))
+    await Promise.all(documents.map((document, index) => recordDocumentPreview(index ? second.user : admin.user, document.id)))
+    const replies = await Promise.all(documents.map((document, index) => api(index ? second.token : admin.token).post(`/admin/qualifications/${document.id}/review`, { status: 'APPROVED', confirmedReadable: true })))
     expect(replies.map(reply => reply.status)).toEqual([200, 200])
     expect(await prisma.qualification.count({ where: { tutorId: t.tutor.id, status: 'APPROVED' } })).toBe(2)
     expect((await prisma.tutorProfile.findUnique({ where: { id: t.tutor.id } })).isVerified).toBe(true)
@@ -100,9 +105,10 @@ describe('user management', () => {
     const oldDocument = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'Old qualification', documentUrl: 'seed://old-qualification', status: 'APPROVED' } })
     const replacement = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'Replacement qualification', documentUrl: 'seed://replacement' } })
     await prisma.tutorProfile.update({ where: { id: t.tutor.id }, data: { isVerified: true } })
+    await recordDocumentPreview(admin.user, replacement.id)
     const replies = await Promise.all([
       api(t.token).del(`/tutor/documents/${oldDocument.id}`),
-      api(admin.token).post(`/admin/qualifications/${replacement.id}/review`, { status: 'APPROVED' }),
+      api(admin.token).post(`/admin/qualifications/${replacement.id}/review`, { status: 'APPROVED', confirmedReadable: true }),
     ])
     expect(replies.map(reply => reply.status)).toEqual([200, 200])
     expect(await prisma.qualification.count({ where: { id: oldDocument.id } })).toBe(0)
@@ -112,6 +118,7 @@ describe('user management', () => {
   test('a document removed while the admin loads it returns not found without a review notification', async () => {
     const t = await makeTutor()
     const document = await prisma.qualification.create({ data: { tutorId: t.tutor.id, title: 'Removed qualification', documentUrl: 'seed://removed' } })
+    await recordDocumentPreview(admin.user, document.id)
     const findDocument = prisma.qualification.findUnique.bind(prisma.qualification)
     const spy = jest.spyOn(prisma.qualification, 'findUnique').mockImplementationOnce(async args => {
       const snapshot = await findDocument(args)
@@ -119,7 +126,7 @@ describe('user management', () => {
       return snapshot
     })
     try {
-      const response = await api(admin.token).post(`/admin/qualifications/${document.id}/review`, { status: 'APPROVED' })
+      const response = await api(admin.token).post(`/admin/qualifications/${document.id}/review`, { status: 'APPROVED', confirmedReadable: true })
       expect(response.status).toBe(404)
       expect(await prisma.notification.count({ where: { userId: t.user.id, type: 'QUALIFICATION_REVIEWED' } })).toBe(0)
     } finally { spy.mockRestore() }

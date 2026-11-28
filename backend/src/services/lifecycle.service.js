@@ -15,7 +15,9 @@ import { notify, notifyWithEmail } from './notification.service.js'
 import { promoteChildren } from './progression.service.js'
 import { publicReference } from '../utils/publicIds.js'
 import { cleanupExpiredSessions } from './session.service.js'
+import { expireCancellationChoices, expireCancellationResponses, remindCancellationResponses } from './cancellationChoice.service.js'
 import { retryVerificationCleanups } from './verificationCleanup.js'
+import { retryAttendanceEvidenceCleanups } from './attendanceEvidenceCleanup.js'
 
 import { paymentDeadline, PAYMENT_DEADLINE_MINUTES } from './paymentWindow.js'
 export { PAYMENT_DEADLINE_MINUTES }
@@ -116,18 +118,37 @@ export async function sendPaymentReminders(now = new Date()) {
 
 // One finite pass, shared by the local timer and the Hostinger cron entry point.
 export async function runHousekeeping(now = new Date()) {
-  try {
-    await cleanupExpiredSessions(now)
-    const { expired } = await expireStaleBookings(now)
-    const { sent } = await sendLessonReminders(now)
-    const { sent: paymentReminders } = await sendPaymentReminders(now)
-    const { moved } = await promoteChildren(now)
-    // A browser may disappear permanently without ever sending an unsubscribe.
-    await prisma.pushSubscription.deleteMany({ where: { expiresAt: { lte: now } } })
-    return { expired, sent, paymentReminders, moved }
-  } finally {
-    try { await retryVerificationCleanups(now) } catch { console.error('Verification upload cleanup could not be started.') }
+  let firstError
+  // Continue the remaining jobs when an unrelated task fails, then report the pass as failed.
+  async function run(name, task, fallback = {}) {
+    let failed = false
+    let result
+    try { result = await task() } catch (error) {
+      console.error(`[scheduler] ${name} failed`)
+      firstError ??= error
+      failed = true
+      result = fallback
+    }
+    // A status write must never prevent another job from running.
+    try {
+      const stamp = new Date()
+      await prisma.housekeepingStatus.upsert({ where: { name }, create: { name, lastAttemptAt: stamp, ...(failed ? { lastFailureAt: stamp } : { lastSuccessAt: stamp }) }, update: { lastAttemptAt: stamp, ...(failed ? { lastFailureAt: stamp } : { lastSuccessAt: stamp }) } })
+    } catch { console.error('[scheduler] Could not record job status') }
+    return result
   }
+  await run('session cleanup', () => cleanupExpiredSessions(now))
+  await run('cancellation choices', () => expireCancellationChoices(now))
+  await run('cancellation responses', () => expireCancellationResponses(now))
+  await run('cancellation response reminders', () => remindCancellationResponses(now))
+  const { expired = 0 } = await run('booking expiry', () => expireStaleBookings(now))
+  const { sent = 0 } = await run('lesson reminders', () => sendLessonReminders(now))
+  const { sent: paymentReminders = 0 } = await run('payment reminders', () => sendPaymentReminders(now))
+  const { moved = 0 } = await run('student progression', () => promoteChildren(now))
+  await run('push subscription cleanup', () => prisma.pushSubscription.deleteMany({ where: { expiresAt: { lte: now } } }))
+  await run('verification upload cleanup', () => retryVerificationCleanups(now))
+  await run('attendance evidence cleanup', () => retryAttendanceEvidenceCleanups(now))
+  if (firstError) throw firstError
+  return { expired, sent, paymentReminders, moved }
 }
 
 // Runs once at start-up and then every few minutes. Errors are logged, never thrown, so the API keeps running.

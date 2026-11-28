@@ -27,8 +27,9 @@ const validTab = value => TABS.some(([key]) => key === value)
 const PAGE_SIZE = 5
 const GROUP_LABELS = { upcoming: 'upcoming lessons', pending: 'pending requests', attention: 'lessons needing attention', completed: 'completed lessons', cancelled: 'cancelled and declined bookings' }
 const needsAttention = (b, now) => b.status === 'CONFIRMED' && Date.parse(b.endAt) <= now
+const cancellationChoiceOpen = b => b.status === 'CANCELLED' && ['OPEN', 'RESCHEDULING'].includes(b.cancellationChoice?.status)
 function groupFor(b, now) {
-  if (needsAttention(b, now)) return 'attention'
+  if (needsAttention(b, now) || cancellationChoiceOpen(b)) return 'attention'
   return Object.keys(GROUPS).find(group => GROUPS[group].includes(b.status)) || 'all'
 }
 const joinable = (b, now) => b.status === 'CONFIRMED' && Date.parse(b.endAt) > now && b.teachingMode === 'ONLINE' && /^https:\/\//i.test(b.meetingLink || '')
@@ -120,9 +121,8 @@ export default function MyBookings() {
 
   const counts = useMemo(() => {
     const list = bookings || []
-    const n = group => list.filter(b => GROUPS[group].includes(b.status)).length
-    const attention = list.filter(b => needsAttention(b, now)).length
-    return { all: list.length, pending: n('pending'), upcoming: n('upcoming') - attention, attention, completed: n('completed'), cancelled: n('cancelled') }
+    const n = group => list.filter(b => groupFor(b, now) === group).length
+    return { all: list.length, pending: n('pending'), upcoming: n('upcoming'), attention: n('attention'), completed: n('completed'), cancelled: n('cancelled') }
   }, [bookings, now])
   if (!bookings) return loadError ? <LoadError message={loadError} onRetry={load} /> : <Spinner />
   const currentDetail = detail && (bookings.find(b => matchesRecordRef(b, recordRef(detail))) || detail)
@@ -130,7 +130,7 @@ export default function MyBookings() {
   const sections = [
     ['upcoming', 'Upcoming Lessons', 'Confirmed future lessons and lessons in progress.'],
     ['pending', 'Pending Requests', 'Requests, counter-offers and lessons awaiting payment.'],
-    ['attention', 'Needs attention', 'Past lessons awaiting completion or administrator review.'],
+    ['attention', 'Needs attention', 'Lessons needing your choice, completion or administrator review.'],
     ['completed', 'Completed Lessons', 'Finished lessons and disputed attendance records.'],
     ['cancelled', 'Cancelled & Declined', 'Requests and lessons that did not go ahead.'],
   ].filter(([group]) => show(group)).map(([group, title, description]) => [group, title, description, orderBookings(bookings.filter(b => groupFor(b, now) === group), group, sortOrder)])
@@ -270,7 +270,7 @@ export default function MyBookings() {
       try { await api.post('/parent/bookings/' + recordRef(rescheduleFor) + '/reschedule', body); setRescheduleFor(null); await load(); return null }
       catch (err) { return errorMessage(err) }
     }} />
-    <CancelModal key={'cancel-' + (cancelFor ? recordRef(cancelFor) : 'closed')} booking={cancelFor} error={notice} onClose={() => setCancelFor(null)} onConfirm={async reason => {
+    <CancelModal key={'cancel-' + (cancelFor ? recordRef(cancelFor) : 'closed')} booking={cancelFor} error={notice} onClose={() => setCancelFor(null)} onReschedule={() => { setRescheduleFor(cancelFor); setCancelFor(null); setNotice('') }} onConfirm={async reason => {
       const cancelled = await act('/parent/bookings/' + recordRef(cancelFor) + '/cancel', { reason })
       if (cancelled) setCancelFor(null)
       return cancelled
@@ -280,6 +280,7 @@ export default function MyBookings() {
 }
 
 function bookingHint(b, now) {
+  if (cancellationChoiceOpen(b)) return b.cancellationChoice.status === 'OPEN' ? 'Your tutor cancelled. Choose a new time or request a refund.' : 'Your new-time request is being reviewed.'
   if (needsAttention(b, now) && b.attendanceReview?.attendanceOutcome === 'NOT_HELD') return 'Admin confirmed this lesson was not held. View Details for the refund status.'
   if (needsAttention(b, now) && b.attendanceReview?.status === 'RESOLVED' && b.attendanceReview.attendanceApproved) return 'Attendance confirmed by admin; waiting for the tutor’s report.'
   if (needsAttention(b, now)) return 'Attendance or completion needs review.'
@@ -459,7 +460,17 @@ function BookingDetailActions({ b, now, onCancel, onReview, onReschedule, act })
     ? b.review.isHidden && <p className="text-sm text-slate-600">Your review is hidden from the public profile by an administrator. {b.review.moderationReason}</p>
     : <Btn kind="primary" onClick={() => onReview(b)}>Leave a Review</Btn>
   if (b.status === 'DISPUTED') return <p className="rounded-xl bg-orange-50 p-3 text-sm text-slate-700">Your refund request is with our admin team. They will check the lesson record and decide on the refund.</p>
-  if (b.status === 'CANCELLED') return <div className="space-y-3">{b.payment?.status === 'REFUNDED' && <StatusPill status="REFUNDED" />}<NegotiationForm b={b} act={act} /></div>
+  if (b.status === 'CANCELLED') return <div className="space-y-3">
+    {cancellationChoiceOpen(b) && <section className="space-y-3 rounded-xl bg-brand-25 p-3" aria-label="Cancellation choices">
+      <p className="font-semibold text-navy">Your tutor cancelled this lesson.</p>
+      {b.cancellationChoice.status === 'OPEN' ? <><p>Choose a new time with the same payment, or request a refund for admin review. Your lesson stays cancelled until a new time is accepted.</p>
+        <p className="text-sm">Choose by {fmtDate(b.cancellationChoice.until)}, {fmtTime(b.cancellationChoice.until)} (Malaysia time). After that, the refund goes to admin review.</p>
+        {Date.parse(b.cancellationChoice.until) > now && <button type="button" className="btn-outline min-h-11" onClick={() => onReschedule(b)}>Request a new time</button>}
+      </> : <><p>Your lesson remains cancelled while the new time is reviewed.</p>{b.reschedule?.responseBy && <p className="text-sm">The tutor must reply by {fmtDate(b.reschedule.responseBy)}, {fmtTime(b.reschedule.responseBy)} (Malaysia time). Otherwise, your refund goes to admin review.</p>}<RescheduleBanner b={b} act={act} /></>}
+      <button type="button" className="btn-primary min-h-11" onClick={() => { if (window.confirm('Send this payment for refund review? Any new-time request will be closed.')) act('/parent/bookings/' + recordRef(b) + '/cancellation-refund') }}>Request refund review</button>
+    </section>}
+    {b.cancellationChoice?.status === 'REFUND' && <p className="rounded-xl bg-brand-25 p-3 text-sm">Your refund request is with the admin team. Check Payments for its progress.</p>}
+    {b.payment?.status === 'REFUNDED' && <StatusPill status="REFUNDED" />}<NegotiationForm b={b} act={act} /></div>
   return null
 }
 
@@ -486,7 +497,7 @@ function RescheduleBanner({ b, act }) {
   if (!r || !['PENDING', 'ESCALATED'].includes(r.status)) return null
   const newTime = `${fmtDateLong(r.newStartAt)}, ${fmtTimeRange(r.newStartAt, r.newEndAt)}`
   if (r.status === 'ESCALATED')
-    return <div role="status" className="flex gap-2 rounded-lg bg-accent-50 px-3 py-2 text-xs text-amber-900"><Icon name="info" className="h-4 w-4 shrink-0" /> The new time ({newTime}) was not agreed. Our admin team is reviewing it; the lesson stays at its current time for now.</div>
+    return <div role="status" className="flex gap-2 rounded-lg bg-accent-50 px-3 py-2 text-xs text-amber-900"><Icon name="info" className="h-4 w-4 shrink-0" /> The new time ({newTime}) was not agreed. Our admin team is reviewing it; {b.status === 'CANCELLED' ? 'the lesson remains cancelled for now.' : 'the lesson stays at its current time for now.'}</div>
   if (r.requestedBy === 'PARENT')
     return (
       <div role="status" className="rounded-lg bg-brand-25 px-3 py-2 text-xs text-slate-700">
@@ -505,20 +516,21 @@ function RescheduleBanner({ b, act }) {
   )
 }
 
-function CancelModal({ booking, error, onClose, onConfirm }) {
+function CancelModal({ booking, error, onClose, onReschedule, onConfirm }) {
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
   if (!booking) return null
   const paid = booking.status === 'CONFIRMED'
+  const hasOpenReschedule = ['PENDING', 'ESCALATED'].includes(booking.reschedule?.status)
   return (
     <Modal open onClose={onClose} title={paid ? 'Cancel this booking?' : 'Cancel this request?'}
       footer={<>
         <button onClick={onClose} className="btn-outline">Keep it</button>
-        <button disabled={busy} onClick={async () => { setBusy(true); const cancelled = await onConfirm(reason); setBusy(false); if (cancelled) setReason('') }} className="btn bg-red-500 text-white hover:bg-red-600">{busy ? 'Cancelling…' : 'Yes, cancel'}</button>
+        <button disabled={busy} onClick={async () => { setBusy(true); const cancelled = await onConfirm(reason); setBusy(false); if (cancelled) setReason('') }} className="btn bg-red-500 text-white hover:bg-red-600">{busy ? 'Cancelling…' : paid ? 'Cancel and request refund' : 'Yes, cancel'}</button>
       </>}>
       <p className="text-sm text-slate-600">{booking.subject} with {booking.tutor.name} on {fmtDateLong(booking.startAt)}, {fmtTimeRange(booking.startAt, booking.endAt)}.</p>
       <ErrorBox className="mt-3">{error}</ErrorBox>
-      {paid && <div className="mt-3 flex gap-2 rounded-lg bg-accent-50 p-3 text-sm text-amber-800"><Icon name="info" className="h-4 w-4 shrink-0" /> Because you already paid, your refund request will be reviewed by our Admin team.</div>}
+      {paid && <div className="mt-3 space-y-3 rounded-lg bg-brand-25 p-3 text-sm"><p>Would you prefer another time? A reschedule keeps this lesson and payment while the tutor considers your request.</p>{hasOpenReschedule ? <p>A time change is already awaiting a response or admin review.</p> : <button type="button" className="btn-outline min-h-11" disabled={busy} onClick={onReschedule}>Request a new time</button>}<p className="text-amber-800">Cancel at least 24 hours before the lesson for a full refund. Under 24 hours, 90% is refunded and 10% goes to the tutor. Your refund goes to the admin team for review; approval does not mean it has been transferred.</p></div>}
       <label className="mt-3 block text-sm font-semibold text-navy">Reason (optional)
         <textarea rows={3} maxLength={200} className="input mt-1 resize-none" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Schedule changed" /></label>
     </Modal>

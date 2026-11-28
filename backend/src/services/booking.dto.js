@@ -4,13 +4,14 @@ import { childPhotoFields, mediaLink } from './privateMedia.js'
 import { toTutorCard } from './tutor.service.js'
 import { toSummaryDto } from './progress.service.js'
 import { canEditLessonLocation, lessonLocationFields } from './lessonLocation.service.js'
+import { cancellationResponseDeadline } from './cancellationChoice.service.js'
 
 export const bookingInclude = {
   tutor: { include: { user: { select: { fullName: true, profilePhotoUrl: true, status: true } }, subjects: true, availability: true } },
   child: true,
   payment: { include: { refunds: { orderBy: { createdAt: 'desc' } } } },
   review: true,
-  complaints: { where: { category: 'Missed check-in' }, select: { id: true, updatedAt: true, attendanceRefundId: true, attendanceOutcome: true, parentAnswer: true, parentNote: true, status: true, adminResponse: true, attendanceApproved: true }, take: 1 },
+  complaints: { where: { category: 'Missed check-in' }, select: { id: true, updatedAt: true, attendanceRefundId: true, attendanceOutcome: true, appealUntil: true, appealUsed: true, parentAnswer: true, parentNote: true, status: true, adminResponse: true, attendanceApproved: true }, take: 1 },
   attendance: true,
   summary: true,
   parent: { select: { userId: true } },
@@ -46,6 +47,7 @@ export function toBookingDto(b) {
     totalAmount: hourly == null ? null : Math.round(hourly * hours * 100) / 100,
     rejectionReason: b.rejectionReason,
     cancelReason: b.cancelReason,
+    cancellationChoice: b.cancellationChoiceStatus && { status: b.cancellationChoiceStatus, until: b.cancellationChoiceUntil },
     createdAt: b.createdAt,
     updatedAt: b.updatedAt,
     tutor: b.tutor && { ...toTutorCard(b.tutor, b.subject), levels: undefined },
@@ -71,6 +73,7 @@ export function toBookingDto(b) {
       reason: b.reschedules[0].reason,
       requestedBy: b.parent && b.reschedules[0].requestedById === b.parent.userId ? 'PARENT' : 'TUTOR',
       createdAt: b.reschedules[0].createdAt,
+      responseBy: b.status === 'CANCELLED' && b.cancellationChoiceStatus === 'RESCHEDULING' && b.reschedules[0].status === 'PENDING' ? cancellationResponseDeadline(b.reschedules[0]) : null,
     },
   }
 }

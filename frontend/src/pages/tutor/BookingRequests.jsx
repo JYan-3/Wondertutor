@@ -17,15 +17,16 @@ const labels = { accept: 'Accept request', decline: 'Decline request', counter: 
   escalate: 'Ask admin to review', reschedule: 'Request a time change', link: 'Save class link',
   'approve-time': 'Accept new time', 'decline-time': 'Decline and escalate', 'withdraw-time': 'Withdraw time change' }
 
-const needsReply = b => b.status === 'PENDING' || (groups.Lessons.includes(b.status) && b.reschedule?.status === 'PENDING' && !b.reschedule.mine)
+const cancellationReschedule = b => b.status === 'CANCELLED' && b.cancellationChoice?.status === 'RESCHEDULING'
+const needsReply = b => b.status === 'PENDING' || ((groups.Lessons.includes(b.status) || cancellationReschedule(b)) && b.reschedule?.status === 'PENDING' && !b.reschedule.mine)
 
-const groupFor = b => Object.keys(groups).find(g => groups[g].includes(b.status)) || 'History'
+const groupFor = b => cancellationReschedule(b) ? 'Requests' : Object.keys(groups).find(g => groups[g].includes(b.status)) || 'History'
 
 function BookingRowStatus({ booking: b }) {
   let reply
   if (b.status === 'PENDING') reply = 'Your reply needed'
   if (b.status === 'COUNTER_OFFERED') reply = 'Waiting for parent to reply to your offer'
-  if (groups.Lessons.includes(b.status)) {
+  if (groups.Lessons.includes(b.status) || cancellationReschedule(b)) {
     if (b.reschedule?.status === 'ESCALATED') reply = 'Admin reviewing time change'
     if (b.reschedule?.status === 'PENDING') reply = b.reschedule.mine ? 'Waiting for parent to reply to time change' : 'Your reply needed on time change'
   }
@@ -33,6 +34,7 @@ function BookingRowStatus({ booking: b }) {
   return <span className="mt-1 block text-sm font-semibold text-navy">
     {reply && <span className="block">{reply}</span>}
     {paymentDue && <span className="block">Payment due {fmtDate(b.payBy)}, {fmtTime(b.payBy)} (MYT)</span>}
+    {cancellationReschedule(b) && b.reschedule?.responseBy && <span className="block">Reply by {fmtDate(b.reschedule.responseBy)}, {fmtTime(b.reschedule.responseBy)} (MYT)</span>}
     {!reply && !paymentDue && <span>{b.status[0] + b.status.slice(1).toLowerCase().replaceAll('_', ' ')}</span>}
   </span>
 }
@@ -100,6 +102,9 @@ function BookingDetails({ b, onUpdate, onReload, openLinkForm }) {
     {b.parentSince && <p className="text-sm text-slate-600">Parent member since {fmtDate(b.parentSince)} · {b.completedLessons} completed lessons</p>}
     {b.messageToTutor && <p><b>Parent’s note</b> · {b.messageToTutor}</p>}
     {(b.cancelReason || b.rejectionReason) && <p><b>Reason</b> · {b.cancelReason || b.rejectionReason}</p>}
+    {b.status === 'CANCELLED' && b.cancellationChoice?.status === 'OPEN' && <p>The parent has 48 hours to choose a new time or request a refund.</p>}
+    {cancellationReschedule(b) && <p>The lesson stays cancelled unless the new time is accepted.</p>}
+    {cancellationReschedule(b) && request?.responseBy && <p>Reply by {fmtDate(request.responseBy)}, {fmtTime(request.responseBy)} (Malaysia time). If you do not reply, the refund goes to admin review.</p>}
     {b.status === 'AWAITING_PAYMENT' && b.payBy && <p>Held until {fmtDate(b.payBy)}, {fmtTime(b.payBy)} while the parent pays.</p>}
     {b.status === 'COUNTER_OFFERED' && <p>Waiting for the parent to respond to your offer.</p>}
     {b.teachingMode === 'ONLINE' && active && <div className="space-y-2 border-y border-brand-100 py-4">
@@ -111,7 +116,7 @@ function BookingDetails({ b, onUpdate, onReload, openLinkForm }) {
     {request && ['PENDING','ESCALATED'].includes(request.status) && <div className="space-y-2 rounded-lg bg-brand-50 p-3">
       <b>{request.status === 'ESCALATED' ? 'Admin reviewing time change' : 'Proposed time change'}</b>
       <p>{fmtDate(request.startAt)}, {fmtTime(request.startAt)} · {request.reason}</p>
-      {request.status === 'PENDING' && active && <div className="flex flex-wrap gap-2">{request.mine ? button('withdraw-time') : <>{button('approve-time')}{button('decline-time')}</>}</div>}
+      {request.status === 'PENDING' && (active || cancellationReschedule(b)) && <div className="flex flex-wrap gap-2">{request.mine ? button('withdraw-time') : <>{button('approve-time')}{button('decline-time')}</>}</div>}
     </div>}
     <div className="flex flex-wrap gap-2">
       {b.status === 'PENDING' && <>{button('accept', true)}{button('counter')}{button('decline')}</>}
@@ -130,7 +135,7 @@ function BookingDetails({ b, onUpdate, onReload, openLinkForm }) {
       {form === 'counter' && <label className="block">Hourly rate (RM)<input className="input min-h-11 text-base" type="number" name="price" required min="0.01" max="1000" step="0.01" /></label>}
       {form === 'reschedule' && <div className="grid gap-2 sm:grid-cols-2"><label>Date<input className="input min-w-0 text-base" type="date" required name="date" /></label><label>Start time<select className="input text-base" name="startTime">{Array.from({length:15}, (_, i) => String(7+i).padStart(2,'0') + ':00').map(t => <option key={t}>{t}</option>)}</select></label></div>}
       {['cancel','decline','escalate','reschedule'].includes(form) && <label className="block">Reason<textarea className="input text-base" name="reason" required maxLength={200} /></label>}
-      {form === 'cancel' && b.status === 'CONFIRMED' && <p className="text-sm">Cancelling a paid lesson requests a full refund for the parent.</p>}
+      {form === 'cancel' && b.status === 'CONFIRMED' && <p className="text-sm">The parent can request a new time or a refund within 48 hours. Otherwise the refund goes to admin review.</p>}
       <div className="flex flex-wrap gap-2"><button disabled={busy || needsRefresh} className="btn-primary min-h-11">{busy ? 'Saving…' : 'Confirm'}</button><button type="button" className="btn-outline min-h-11" disabled={busy} onClick={() => choose('')}>Go back</button></div>
     </form>}
     {error && <ErrorBox>{error}</ErrorBox>}

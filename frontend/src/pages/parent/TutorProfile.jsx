@@ -383,6 +383,7 @@ export function BookingPanel({ tutor, kids }) {
           <div>
             <h2 className="text-xl font-extrabold text-navy">Book a Lesson</h2>
             <p className="text-xs text-slate-500">Select lessons here or choose later dates on the full calendar.</p>
+            <p className="mt-1 text-xs text-slate-600">Book by 11:59 pm Malaysia time on the day before the lesson.</p>
           </div>
         </div>
         <div className="space-y-3.5">

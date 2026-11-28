@@ -108,6 +108,51 @@ test('physical venue and management actions remain in details, and cancellation 
   expect(api.post).not.toHaveBeenCalled()
 })
 
+test('a parent can choose a new time instead of cancelling a paid lesson', async () => {
+  const paid = booking(1, { payment: { status: 'PAID', refunds: [] } })
+  open([paid])
+  fireEvent.click(await screen.findByRole('button', { name: 'View Details' }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel Booking' }))
+  const cancel = within(screen.getByRole('dialog', { name: 'Cancel this booking?' }))
+  expect(cancel.getByRole('button', { name: 'Cancel and request refund' })).toBeEnabled()
+  expect(cancel.getByText(/admin team for review/)).toBeVisible()
+  fireEvent.click(cancel.getByRole('button', { name: 'Request a new time' }))
+  expect(screen.getByRole('dialog', { name: 'Request a new lesson time' })).toBeVisible()
+  expect(api.post).not.toHaveBeenCalled()
+})
+
+test('a paid cancellation does not offer a duplicate reschedule during an open review', async () => {
+  const paid = booking(1, { payment: { status: 'PAID', refunds: [] }, reschedule: { status: 'ESCALATED', newStartAt: '2027-01-06T09:00:00Z', newEndAt: '2027-01-06T10:00:00Z' } })
+  open([paid])
+  fireEvent.click(await screen.findByRole('button', { name: 'View Details' }))
+  fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel Booking' }))
+  const cancel = within(screen.getByRole('dialog', { name: 'Cancel this booking?' }))
+  expect(cancel.queryByRole('button', { name: 'Request a new time' })).not.toBeInTheDocument()
+  expect(cancel.getByText(/already awaiting a response or admin review/)).toBeVisible()
+})
+
+test('a tutor-cancelled paid lesson offers the parent a new time or refund review', async () => {
+  const cancelled = booking(1, { status: 'CANCELLED', cancellationChoice: { status: 'OPEN', until: '2027-01-01T10:00:00Z' }, payment: { status: 'PAID', refunds: [] } })
+  vi.spyOn(window, 'confirm').mockReturnValue(true)
+  api.post.mockResolvedValue({ data: {} })
+  open([cancelled], '/parent/bookings?tab=attention')
+  fireEvent.click(await screen.findByRole('button', { name: 'View Details' }))
+  const choices = within(screen.getByRole('region', { name: 'Cancellation choices' }))
+  expect(choices.getByRole('button', { name: 'Request a new time' })).toBeEnabled()
+  expect(choices.getByText(/After that, the refund goes to admin review/)).toBeVisible()
+  fireEvent.click(choices.getByRole('button', { name: 'Request refund review' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith(`/parent/bookings/${cancelled.publicId}/cancellation-refund`, undefined))
+})
+
+test('a tutor-cancelled lesson explains that the new time needs acceptance', async () => {
+  const cancelled = booking(1, { status: 'CANCELLED', cancellationChoice: { status: 'OPEN', until: '2027-01-01T10:00:00Z' }, payment: { status: 'PAID', refunds: [] } })
+  open([cancelled], '/parent/bookings?tab=attention')
+  fireEvent.click(await screen.findByRole('button', { name: 'View Details' }))
+  fireEvent.click(within(screen.getByRole('region', { name: 'Cancellation choices' })).getByRole('button', { name: 'Request a new time' }))
+  expect(within(screen.getByRole('dialog', { name: 'Request a new lesson time' })).getByText(/stays cancelled until a new time is accepted/)).toBeVisible()
+  expect(api.post).not.toHaveBeenCalled()
+})
+
 test('counter-offer errors stay visible in details and a successful retry updates the dialog to payment actions', async () => {
   const counter = booking(1, { status: 'COUNTER_OFFERED', counterPrice: 55, hourlyPrice: 55, totalAmount: 55 })
   const accepted = { ...counter, status: 'AWAITING_PAYMENT', agreedPrice: 55 }

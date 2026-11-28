@@ -5,8 +5,10 @@ import TutorPaymentStatus from '../../components/TutorPaymentStatus'
 import TutorPageHeader from '../../components/TutorPageHeader'
 import { ErrorBox, LoadError, SectionCard, Spinner } from '../../components/ui/Common'
 import { fmtDate, money } from '../../lib/format'
+import { MALAYSIAN_BANKS } from '../../lib/malaysianBanks'
 
 const statusLabel = { PENDING: 'In review', APPROVED: 'Awaiting transfer', AWAITING_TRANSFER: 'Awaiting transfer', ON_HOLD: 'On hold — earnings under review', TRANSFER_IN_PROGRESS: 'Transfer in progress', TRANSFER_REVIEW: 'Transfer in progress — earnings under review', PAID: 'Paid', LEGACY_PAID: 'Previously approved (legacy record)', REJECTED: 'Rejected', ESCALATED: 'Bank change under review' }
+const LESSONS_PER_PAGE = 10
 const monthKey = date => new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: '2-digit', timeZone: 'Asia/Kuala_Lumpur' }).format(new Date(date))
 const accountLabel = bank => bank.bankName + ' ••' + bank.lastFour
 function exportCsv(rows) {
@@ -25,6 +27,7 @@ function exportCsv(rows) {
 }
 
 function LessonAmounts({ row }) {
+  if (Number(row.cancellationFee) > 0) return <p className="rounded-lg bg-amber-50 p-3 text-sm">The parent cancelled less than 24 hours before the lesson. Your cancellation fee is <strong>{money(row.cancellationFee)}</strong>, after the refund transfer was recorded.</p>
   const amounts = [
     ['Lesson fee', row.fee],
     [`Saved commission (${Number(row.rate)}%)`, row.originalCommission],
@@ -66,12 +69,13 @@ function BankCard({ data, refresh }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
+  const [bankChoice, setBankChoice] = useState('')
   const bank = data.bank
-  function open(next) { setMode(next); setError(''); setNote('') }
+  function open(next) { setMode(next); setBankChoice(bank?.bankName || ''); setError(''); setNote('') }
   async function submit(e) {
     e.preventDefault()
     const f = new FormData(e.currentTarget)
-    const details = mode === 'remove' ? null : { bankName: f.get('bankName'), accountName: f.get('accountName'), accountNumber: f.get('accountNumber') }
+    const details = mode === 'remove' ? null : { bankName: bankChoice === '__other__' ? f.get('otherBank') : bankChoice, accountName: f.get('accountName'), accountNumber: f.get('accountNumber') }
     setBusy(true)
     setError('')
     try {
@@ -100,11 +104,13 @@ function BankCard({ data, refresh }) {
     {bank ? <p className="mb-3 break-words">{accountLabel(bank)}<br />{bank.accountName}</p> : <p className="mb-3">Add a bank account to request a withdrawal.</p>}
     {mode ? <form onSubmit={submit} key={mode} className="space-y-3">
       {mode !== 'remove' && <>
-        <label className="block">Bank<input name="bankName" className="input min-h-11 text-base" required maxLength={100} defaultValue={bank?.bankName} /></label>
+        <label className="block">Bank<select aria-label="Bank" name="bankChoice" className="input min-h-11 text-base" required value={bankChoice} onChange={e => setBankChoice(e.target.value)}><option value="">Choose your bank</option>{bank?.bankName && !MALAYSIAN_BANKS.includes(bank.bankName) && <option value={bank.bankName}>{bank.bankName}</option>}{MALAYSIAN_BANKS.map(name => <option key={name} value={name}>{name}</option>)}<option value="__other__">Other bank</option></select></label>
+        {bankChoice === '__other__' && <label className="block">Other bank name<input name="otherBank" className="input min-h-11 text-base" required maxLength={100} /></label>}
+        <p className="text-sm text-slate-600">Check that the bank and account details match your bank account.</p>
         <label className="block">Account holder<input name="accountName" className="input min-h-11 text-base" required maxLength={100} defaultValue={bank?.accountName} /></label>
         <label className="block">Account number<input name="accountNumber" className="input min-h-11 text-base" required inputMode="numeric" pattern="[0-9]{6,20}" maxLength={20} autoComplete="off" /></label>
       </>}
-      {bank && <p className="text-sm">Open withdrawals keep their original account and pause for admin review.</p>}
+      {bank && <p className="text-sm">Existing withdrawals keep their original account. Pending requests may need admin review.</p>}
       {data.bankAuth === 'code' && <button className="btn-outline min-h-11" disabled={busy} type="button" onClick={sendCode}>Email confirmation code</button>}
       <label className="block">{data.bankAuth === 'code' ? 'Email code' : 'Confirm your password'}<input className="input min-h-11 text-base" name="confirmation" required type={data.bankAuth === 'code' ? 'text' : 'password'} autoComplete={data.bankAuth === 'code' ? 'one-time-code' : 'current-password'} /></label>
       <div className="flex flex-wrap gap-2"><button className="btn-primary min-h-11" disabled={busy}>{mode === 'remove' ? 'Confirm removal' : 'Save account'}</button><button className="btn-outline min-h-11" type="button" disabled={busy} onClick={() => open('')}>Cancel</button></div>
@@ -121,13 +127,43 @@ export default function Earnings() {
   const [withdrawOpen, setWithdrawOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [period, setPeriod] = useState('all')
-  const load = useCallback(() => api.get('/tutor/earnings')
+  const [lessonState, setLessonState] = useState('all')
+  const [page, setPage] = useState(1)
+  const [history, setHistory] = useState(null)
+  const [historyError, setHistoryError] = useState('')
+  const [historyRevision, setHistoryRevision] = useState(0)
+  const load = useCallback(() => api.get('/tutor/earnings?compact=1')
     .then(({ data: result }) => { setData({ ...result, month: monthKey(new Date()) }); setError('') })
     .catch(err => setError(errorMessage(err))), [])
   useEffect(() => { load() }, [load])
+  const legacy = Array.isArray(data?.transactions)
+  const historyKey = [page, period, lessonState].join('|')
+  useEffect(() => {
+    if (!data || legacy) return
+    const controller = new AbortController()
+    api.get('/tutor/earnings/history', { params: { page, pageSize: LESSONS_PER_PAGE, period, state: lessonState }, signal: controller.signal })
+      .then(({ data: result }) => { if (!controller.signal.aborted) { setHistory({ ...result, key: historyKey }); setHistoryError(''); if (page > result.pagination.totalPages) setPage(result.pagination.totalPages) } })
+      .catch(err => { if (!controller.signal.aborted) setHistoryError(errorMessage(err)) })
+    return () => controller.abort()
+  }, [data, legacy, page, period, lessonState, historyRevision, historyKey])
   if (error) return <LoadError message={error} onRetry={load} />
   if (!data) return <Spinner />
-  const rows = data.transactions.filter(r => period === 'all' || monthKey(r.date) === data.month)
+  const rows = legacy ? data.transactions.filter(r => (period === 'all' || monthKey(r.date) === data.month) && (lessonState === 'all' || r.state === lessonState)) : []
+  const shownHistory = history?.key === historyKey ? history : null
+  const count = legacy ? rows.length : shownHistory?.pagination.total ?? 0
+  const totalPages = legacy ? Math.max(1, Math.ceil(rows.length / LESSONS_PER_PAGE)) : shownHistory?.pagination.totalPages ?? 1
+  const currentPage = Math.min(page, totalPages)
+  const firstRow = (currentPage - 1) * LESSONS_PER_PAGE
+  const pageRows = legacy ? rows.slice(firstRow, firstRow + LESSONS_PER_PAGE) : shownHistory?.rows ?? []
+  const states = legacy ? [...new Set(data.transactions.map(r => r.state))].sort() : history?.states ?? []
+
+  async function downloadHistory() {
+    if (legacy) return exportCsv(rows)
+    try {
+      const { data: result } = await api.get('/tutor/earnings/history', { params: { page: 1, pageSize: LESSONS_PER_PAGE, period, state: lessonState, export: '1' } })
+      exportCsv(result.rows)
+    } catch (err) { setHistoryError(errorMessage(err)) }
+  }
 
   const isPending = w => w.status === 'PENDING' || w.status === 'ESCALATED' || ['AWAITING_TRANSFER', 'ON_HOLD', 'TRANSFER_IN_PROGRESS', 'TRANSFER_REVIEW'].includes(w.payoutStatus)
   const pendingWithdrawals = data.withdrawals.filter(isPending)
@@ -148,13 +184,14 @@ export default function Earnings() {
   return <div className="min-w-0 space-y-4">
     <TutorPageHeader title="My earnings" subtitle="Understand your lesson earnings and track bank transfers." />
     <div className="tutor-earnings-overview grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.2fr)_minmax(0,1fr)]">
-      <div className="min-w-0">        <SectionCard title="Available to withdraw" icon="wallet" className="tutor-paper-blue"><p className="mb-3 font-display text-4xl font-bold text-navy sm:text-5xl">{money(data.available)}</p>{!withdrawOpen && <button className="btn-primary min-h-11 w-full" disabled={busy || !data.bank || Number(data.available) <= 0} onClick={() => setWithdrawOpen(true)}>Request withdrawal</button>}
+      <div className="min-w-0">        <SectionCard title="Available to withdraw" icon="wallet" className="tutor-paper-blue"><p className="mb-3 font-display text-4xl font-bold text-navy sm:text-5xl">{money(data.available)}</p>{!withdrawOpen && <button className="btn-primary min-h-11 w-full" disabled={busy || !data.bank || Number(data.available) < 10} onClick={() => setWithdrawOpen(true)}>Request withdrawal</button>}
+        <p className="mt-2 text-sm">Minimum RM10. We aim to process requests within 3 working days. The platform pays the transfer fee.</p>
         {!data.bank && <p className="mt-2 text-sm">Add a bank account to request a withdrawal.</p>}
         {withdrawOpen && <form onSubmit={withdraw} className="mt-3 space-y-3">
-          <label className="block">Amount (RM)<input className="input min-h-11 text-base" type="number" min="0.01" max={Number(data.available)} step="0.01" inputMode="decimal" required value={amount} onChange={e => setAmount(e.target.value)} /></label>
+          <label className="block">Amount (RM)<input className="input min-h-11 text-base" type="number" min="10" max={Number(data.available)} step="0.01" inputMode="decimal" required value={amount} onChange={e => setAmount(e.target.value)} /></label>
           <p className="text-sm">Up to {money(data.available)} available.</p>
           <p className="break-words">{data.bank ? 'Pay to ' + accountLabel(data.bank) : 'Add a bank account below to withdraw.'}</p>
-          <button className="btn-primary min-h-11 w-full" disabled={busy || !data.bank || Number(data.available) <= 0 || !amount}>{busy ? 'Submitting…' : 'Confirm withdrawal'}</button><button type="button" className="btn-outline min-h-11 w-full" disabled={busy} onClick={() => setWithdrawOpen(false)}>Cancel</button>
+          <button className="btn-primary min-h-11 w-full" disabled={busy || !data.bank || Number(data.available) < 10 || Number(amount) < 10}>{busy ? 'Submitting…' : 'Confirm withdrawal'}</button><button type="button" className="btn-outline min-h-11 w-full" disabled={busy} onClick={() => setWithdrawOpen(false)}>Cancel</button>
         </form>}
         {notice && <p role="status" className="mt-3 text-sm">{notice}</p>}
         </SectionCard></div>
@@ -166,19 +203,26 @@ export default function Earnings() {
     <div className="min-w-0 space-y-4">
 
         <p className="rounded-lg border border-brand-100 bg-white p-3 text-sm text-slate-600">Admin approval reserves your payout. The transfer is complete only after the bank transfer is recorded.</p>
+        {Number(data.amountOwed) > 0 && <p role="status" className="rounded-lg bg-amber-50 p-3 text-sm">Amount to recover from current or future earnings: <strong>{money(data.amountOwed)}</strong>. Refund adjustments and final attendance penalties can reduce your balance.</p>}
+        {data.penalties?.length > 0 && <SectionCard title="Attendance penalties"><p className="text-sm">A 15% penalty applies only after the attendance decision is final.</p><ul className="divide-y divide-brand-100">{data.penalties.map(p => <li key={p.id} className="py-3 text-sm"><strong>{p.booking.subject} · {money(p.penaltyAmount)}</strong><span className="block">Effective {fmtDate(p.penaltyEffectiveAt)} · <Link className="underline" to={'/tutor/bookings/' + (p.booking.publicId || p.bookingId) + '/session'}>View review</Link></span></li>)}</ul></SectionCard>}
         <SectionCard title="How your earnings are calculated">
           <p className="mb-4 text-sm text-slate-600">Total earned: {money(data.totalEarned)} · Pending lesson report: {money(data.pending)} · Your current commission rate: {Number(data.rate)}% (platform base: {Number(data.baseRate)}%). Each lesson uses its saved rate.</p>
-          <div className="mb-3 flex flex-wrap gap-2"><select aria-label="Transaction period" className="input min-h-11 w-auto max-w-full text-base" value={period} onChange={e => setPeriod(e.target.value)}><option value="all">All dates</option><option value="month">This month</option></select>
-            <button className="btn-outline min-h-11" disabled={!rows.length} onClick={() => exportCsv(rows)}>Export CSV</button></div>
-          {!rows.length && <p>No lesson payments for this period.</p>}
-          <ul className="divide-y divide-brand-100">{rows.map(r => <li key={r.id} className="space-y-2 break-words py-3">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3"><strong>{r.subject} · {r.student}</strong><span>{r.state}</span></div>
-            <p className="text-sm">{fmtDate(r.date)} · Booking #{r.bookingId}</p>
+          <div className="mb-3 flex flex-wrap gap-2"><select aria-label="Transaction period" className="input min-h-11 w-auto max-w-full text-base" value={period} onChange={e => { setPeriod(e.target.value); setPage(1) }}><option value="all">All dates</option><option value="month">This month</option></select>
+            <select aria-label="Lesson status" className="input min-h-11 w-auto max-w-full text-base" value={lessonState} onChange={e => { setLessonState(e.target.value); setPage(1) }}><option value="all">All statuses</option>{states.map(state => <option key={state} value={state}>{state}</option>)}</select>
+            <button className="btn-outline min-h-11" disabled={!count} onClick={downloadHistory}>Export CSV</button></div>
+          {historyError && <div><ErrorBox>{historyError}</ErrorBox><button className="btn-outline min-h-11" onClick={() => setHistoryRevision(n => n + 1)}>Try history again</button></div>}
+          {!legacy && !shownHistory && !historyError && <Spinner />}
+          {(legacy || shownHistory) && !count && <p>No lesson payments for this period.</p>}
+          {count > 0 && <p className="mb-2 text-sm text-slate-600">Showing {firstRow + 1}–{firstRow + pageRows.length} of {count} lessons. Select a lesson for its breakdown.</p>}
+          <ul className="divide-y divide-brand-100">{pageRows.map(r => <li key={r.id} className="break-words py-2">
+            <details className="rounded-lg border border-brand-100 bg-white"><summary className="flex min-h-11 cursor-pointer flex-wrap items-center justify-between gap-x-4 gap-y-2 p-3"><span className="min-w-0"><strong className="block">{r.subject} · {r.student}</strong><span className="block text-sm text-slate-600">Paid {fmtDate(r.date)} · Booking #{r.bookingId}</span></span><span className="flex items-center gap-3"><span className="rounded-full bg-brand-50 px-2 py-1 text-sm">{r.state}</span><span className="text-right"><span className="block text-xs text-slate-600">Tutor share</span><strong className="text-navy">{money(r.net)}</strong></span></span></summary><div className="space-y-2 border-t border-brand-100 p-3">
             {r.bookingStatus && <p className="text-sm">Lesson · {r.bookingStatus[0] + r.bookingStatus.slice(1).toLowerCase().replaceAll('_', ' ')}</p>}
             {r.bookingStatus === 'COMPLETED' && <Link className="inline-flex min-h-11 items-center underline" to={'/tutor/bookings/' + (r.bookingRef || r.bookingId) + '/session'}>View lesson report</Link>}
             <TutorPaymentStatus payment={r.payment} />
             <LessonAmounts row={r} />
+            </div></details>
           </li>)}</ul>
+          {totalPages > 1 && <nav aria-label="Lesson history pages" className="mt-4 flex flex-wrap items-center justify-center gap-2"><button type="button" className="btn-outline min-h-11" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button><span className="px-2 text-sm" aria-live="polite">Page {currentPage} of {totalPages}</span><button type="button" className="btn-outline min-h-11" disabled={currentPage === totalPages} onClick={() => setPage(currentPage + 1)}>Next</button></nav>}
         </SectionCard>
         <SectionCard title="Withdrawal history" icon="clock">
           <p className="text-sm">Total paid: {money(data.withdrawn)}</p>

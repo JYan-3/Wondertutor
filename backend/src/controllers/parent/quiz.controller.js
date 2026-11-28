@@ -6,3 +6,5 @@ export async function submit(req, res) { res.status(201).json(await service.subm
 export async function history(req, res) { res.json({ attempts: await service.history(req.parent.id) }) }
 export async function result(req, res) { res.json(await service.result(req.parent.id, Number(req.params.id))) }
 export async function leaderboard(req, res) { const version = z.coerce.number().int().positive().parse(req.query.version); res.json({ leaderboard: await service.leaderboard(Number(req.params.id), version) }) }
+export async function hideLeaderboard(req, res) { await service.hideFromLeaderboard(req.parent.id, Number(req.params.id)); res.json({ ok: true }) }
+export async function report(req, res) { res.status(201).json(await service.reportQuiz(req.user.id, Number(req.params.id), req.body)) }

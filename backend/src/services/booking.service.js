@@ -1,5 +1,6 @@
 // Slot generation + conflict checks for the booking flow.
 import { prisma } from '../config/prisma.js'
+import { canRequestLessonDate } from './bookingCutoff.js'
 import { AppError } from '../utils/AppError.js'
 import { addDays, fromMinutes, mytParts, mytToDate, toMinutes } from '../utils/time.js'
 import { effectiveSlots, effectiveSlotsForDate, slotAllows, slotsCoverInterval } from './availability.service.js'
@@ -7,7 +8,7 @@ import { effectiveSlots, effectiveSlotsForDate, slotAllows, slotsCoverInterval }
 // A tutor's slot is blocked only once a booking is waiting for payment or paid.
 // Plain PENDING requests don't block it — the tutor may still reject or counter them.
 export const SLOT_BLOCKING = ['AWAITING_PAYMENT', 'CONFIRMED']
-// For the *child*, any live booking counts (we don't want the same child double-booked)
+// Other flows still use all live statuses when inspecting a tutor's requests.
 export const CHILD_BLOCKING = ['PENDING', 'COUNTER_OFFERED', 'AWAITING_PAYMENT', 'CONFIRMED']
 
 const LESSON_MINUTES = 60
@@ -44,7 +45,7 @@ export async function getTutorSlots(tutorId, fromDate, days = 7) {
     const slots = cellsForDay(hours.get(tutorId).get(date), dow).map((c) => {
       const s = mytToDate(date, c.start)
       const e = mytToDate(date, c.end)
-      const taken = s <= now || blocking.some((b) => overlaps(s, e, b.startAt, b.endAt))
+      const taken = !canRequestLessonDate(date, now) || s <= now || blocking.some((b) => overlaps(s, e, b.startAt, b.endAt))
       return { ...c, status: taken ? 'unavailable' : 'available' }
     })
     return { date, dow, slots }
@@ -77,7 +78,7 @@ export async function assertChildFree({ childId, startAt, endAt, ignoreBookingId
   const clash = await db.booking.findFirst({
     where: {
       childId,
-      status: { in: CHILD_BLOCKING },
+      status: 'CONFIRMED',
       startAt: { lt: endAt },
       endAt: { gt: startAt },
       ...(ignoreBookingId && { id: { not: ignoreBookingId } }),

@@ -10,18 +10,18 @@ const view = { available: '80.20', totalEarned: 90, pending: 12, held: 9.8, with
   bank, bankAuth: 'password', withdrawals: [], transactions: [] }
 beforeEach(() => { vi.resetAllMocks(); vi.spyOn(window, 'scrollTo').mockImplementation(() => {}) })
 afterEach(() => vi.restoreAllMocks())
-test('a small withdrawal uses the displayed balance version and refreshes the hold and history', async () => {
-  api.get.mockResolvedValueOnce({ data: view }).mockResolvedValue({ data: { ...view, available: '80.19', held: '9.81', withdrawals: [
-    { id: 3, date: '2026-11-13', amount: '0.01', status: 'PENDING', bank },
+test('a withdrawal uses the displayed balance version and refreshes the hold and history', async () => {
+  api.get.mockResolvedValueOnce({ data: view }).mockResolvedValue({ data: { ...view, available: '70.20', held: '19.80', withdrawals: [
+    { id: 3, date: '2026-11-13', amount: '10.00', status: 'PENDING', bank },
   ] } })
   api.post.mockResolvedValue({ data: { id: 3 } })
   render(<MemoryRouter><Earnings /></MemoryRouter>)
   fireEvent.click(await screen.findByRole('button', { name: 'Request withdrawal' }))
-  fireEvent.change(await screen.findByLabelText('Amount (RM)'), { target: { value: '0.01' } })
+  fireEvent.change(await screen.findByLabelText('Amount (RM)'), { target: { value: '10.00' } })
   fireEvent.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
-  expect(await screen.findByText(/RM 0.01 · In review/)).toBeInTheDocument()
-  expect(api.post).toHaveBeenCalledWith('/tutor/earnings/withdrawals', { amount: '0.01', bankId: 4, version: 'initial' })
-  expect(screen.getByText('RM 80.19')).toBeInTheDocument()
+  expect(await screen.findByText(/RM 10.00 · In review/)).toBeInTheDocument()
+  expect(api.post).toHaveBeenCalledWith('/tutor/earnings/withdrawals', { amount: '10.00', bankId: 4, version: 'initial' })
+  expect(screen.getByText('RM 70.20')).toBeInTheDocument()
 })
 test('bank details are masked and replacement asks for confirmation', async () => {
   api.get.mockResolvedValue({ data: view })

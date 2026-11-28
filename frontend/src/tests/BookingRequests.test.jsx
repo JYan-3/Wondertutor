@@ -35,6 +35,15 @@ test('parent sees the payment deadline on an accepted booking', async () => {
   expect(screen.queryByRole('link', { name: 'Join online class' })).toBeNull()
 })
 
+test('the tutor can respond to a new-time request after cancelling a lesson', async () => {
+  const cancelled = { ...b, status: 'CANCELLED', cancellationChoice: { status: 'RESCHEDULING' }, reschedule: { id: 5, status: 'PENDING', mine: false, startAt } }
+  api.get.mockResolvedValue({ data: { bookings: [cancelled] } })
+  render(<MemoryRouter initialEntries={['/tutor/bookings?booking=14']}><BookingRequests /></MemoryRouter>)
+  expect(await screen.findByText('The lesson stays cancelled unless the new time is accepted.')).toBeVisible()
+  expect(screen.getByRole('button', { name: 'Accept new time' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Decline and escalate' })).toBeEnabled()
+})
+
 test('tutor notification and action use the booking public ID when provided', async () => {
   const publicId = 'a47fe8e9-e595-44bd-a028-88390bb13447'
   api.get.mockResolvedValue({ data: { bookings: [{ ...b, publicId }] } })

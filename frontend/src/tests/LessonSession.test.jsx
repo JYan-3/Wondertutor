@@ -10,7 +10,7 @@ vi.mock('../components/PhotoPicker', () => ({ uploadImage: vi.fn(), uploadError:
 const time = '2026-11-13T06:00:00.000Z'
 const data = { id: 3, mode: 'PHYSICAL', radius: 150, latitude: 3, longitude: 101, address: 'Lesson address', locationConfirmedAt: time,
   student: 'Example student', subject: 'Mathematics', status: 'CONFIRMED', serverTime: time,
-  startAt: '2026-11-13T05:45:00Z', endAt: '2026-11-13T06:45:00Z' }
+  startAt: '2026-11-13T05:46:00Z', endAt: '2026-11-13T06:45:00Z' }
 function show(session, reference = String(session.id)) {
   api.get.mockResolvedValue({ data: session })
   render(<MemoryRouter initialEntries={['/tutor/bookings/' + reference + '/session']}><Routes><Route path="/tutor/bookings/:id/session" element={<LessonSession />} /></Routes></MemoryRouter>)
@@ -42,7 +42,7 @@ test('physical check-in needs an in-range GPS reading and a photo, and reads GPS
 })
 
 test('both report fields are required after checkout', async () => {
-  show({ ...data, mode: 'ONLINE', attendance: { checkInAt: time, checkOutAt: time } })
+  show({ ...data, serverTime: data.endAt, mode: 'ONLINE', attendance: { checkInAt: time, checkOutAt: data.endAt } })
   const button = await screen.findByRole('button', { name: 'Submit report and complete session' })
   expect(button).toBeDisabled()
   fireEvent.change(screen.getByLabelText('What was covered'), { target: { value: 'Fractions' } })
@@ -54,7 +54,7 @@ test('both report fields are required after checkout', async () => {
 
 test('an owned UUID session loads, retains the public link, and submits homework with the report', async () => {
   const publicId = 'e15970e1-b3e5-4883-8b5e-4cdd93e9f7ac'
-  const session = { ...data, publicId, mode: 'ONLINE', attendance: { checkInAt: time, checkOutAt: time } }
+  const session = { ...data, serverTime: data.endAt, publicId, mode: 'ONLINE', attendance: { checkInAt: time, checkOutAt: data.endAt } }
   const report = { content: 'Fractions', progressNote: 'Can simplify fractions.', homework: 'Practise questions 1 to 5.' }
   api.post.mockResolvedValue({ data: { ...session, status: 'COMPLETED', report } })
   show(session, publicId)
