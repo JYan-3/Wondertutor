@@ -13,4 +13,5 @@ export const attendanceLabels = {
   RECONSIDERATION: 'Reconsideration requested',
   TUTOR_REPLY: 'Tutor reply',
   PREVIOUS_PARENT_RESPONSE: 'Earlier parent response',
+  PARENT_COMPLAINT: 'Parent complaint',
 }

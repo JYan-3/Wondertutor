@@ -239,16 +239,21 @@ test.each(['admin first', 'parent first', 'simultaneous'])('one finance review f
   await answerReview(parentPath, { answer: 'NO' })
   const c = (await api(admin.token).get('/admin/complaints')).complaints.find(row => row.booking?.id === b.id)
   const complaint = '/admin/complaints/' + c.id
-  const { reviewedAt } = (await api(admin.token).get(complaint)).investigation.attendanceReview
+  let { reviewedAt } = (await api(admin.token).get(complaint)).investigation.attendanceReview
   const decide = () => api(admin.token).patch(complaint, { reviewedAt, status: 'DISMISSED', outcome: 'NOT_HELD', adminResponse: 'Both parties confirmed the lesson was cancelled.' })
+  const retryDecision = async result => {
+    if (result.status !== 409) return result
+    reviewedAt = (await api(admin.token).get(complaint)).investigation.attendanceReview.reviewedAt
+    return decide()
+  }
   const request = () => api(p.token).post(parentPath + '/refund-request', { reason: 'The lesson did not take place.' })
   if (order === 'simultaneous') {
     const [decision, parentRequest] = await Promise.all([decide(), request()])
-    expect(decision.status).toBe(200)
+    expect((await retryDecision(decision)).status).toBe(200)
     expect([201, 409]).toContain(parentRequest.status)
   } else {
     if (order === 'parent first') expect((await request()).status).toBe(201)
-    expect((await decide()).status).toBe(200)
+    expect((await retryDecision(await decide())).status).toBe(200)
   }
   expect((await request()).status).toBe(409)
   const booking = (await api(p.token).get(parentPath)).booking

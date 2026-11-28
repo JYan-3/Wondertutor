@@ -289,9 +289,10 @@ test('stale detail records cannot start a refund or change a physical venue outs
 })
 
 test('parent can answer a missed attendance request from the booking notification link', async () => {
-  const b = booking(1, { attendanceReview: { status: 'OPEN', updatedAt: '2026-11-15T02:00:00.000Z' } })
+  const b = booking(1, { attendanceReview: { status: 'OPEN', updatedAt: '2026-11-15T02:00:00.000Z', parentResponseDueAt: '2026-11-17T02:00:00.000Z' } })
   open([b], '/parent/bookings?booking=' + b.publicId)
   fireEvent.click(await screen.findByLabelText('The lesson did not take place'))
+  expect(screen.getByText(/After 48 hours, admin may decide/)).toBeInTheDocument()
   fireEvent.change(screen.getByLabelText('Optional note'), { target: { value: 'We waited.' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send response to admin' }))
   await waitFor(() => expect(api.post).toHaveBeenCalledWith('/parent/bookings/' + b.publicId + '/attendance-response', { answer: 'NO', note: 'We waited.', reviewedAt: b.attendanceReview.updatedAt }))

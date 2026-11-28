@@ -18,6 +18,7 @@ import { cleanupExpiredSessions } from './session.service.js'
 import { expireCancellationChoices, expireCancellationResponses, remindCancellationResponses } from './cancellationChoice.service.js'
 import { retryVerificationCleanups } from './verificationCleanup.js'
 import { retryAttendanceEvidenceCleanups } from './attendanceEvidenceCleanup.js'
+import { retryPaymentEmails } from './paymentEmailDelivery.js'
 
 import { paymentDeadline, PAYMENT_DEADLINE_MINUTES } from './paymentWindow.js'
 export { PAYMENT_DEADLINE_MINUTES }
@@ -147,6 +148,7 @@ export async function runHousekeeping(now = new Date()) {
   await run('push subscription cleanup', () => prisma.pushSubscription.deleteMany({ where: { expiresAt: { lte: now } } }))
   await run('verification upload cleanup', () => retryVerificationCleanups(now))
   await run('attendance evidence cleanup', () => retryAttendanceEvidenceCleanups(now))
+  await run('payment notification emails', () => retryPaymentEmails(now))
   if (firstError) throw firstError
   return { expired, sent, paymentReminders, moved }
 }

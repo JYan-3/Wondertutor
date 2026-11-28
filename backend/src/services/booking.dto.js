@@ -11,7 +11,7 @@ export const bookingInclude = {
   child: true,
   payment: { include: { refunds: { orderBy: { createdAt: 'desc' } } } },
   review: true,
-  complaints: { where: { category: 'Missed check-in' }, select: { id: true, updatedAt: true, attendanceRefundId: true, attendanceOutcome: true, appealUntil: true, appealUsed: true, parentAnswer: true, parentNote: true, status: true, adminResponse: true, attendanceApproved: true }, take: 1 },
+  complaints: { where: { category: 'Missed check-in' }, select: { id: true, updatedAt: true, attendanceRefundId: true, attendanceOutcome: true, appealUntil: true, appealUsed: true, parentAnswer: true, parentNote: true, parentResponseDueAt: true, status: true, adminResponse: true, attendanceApproved: true }, take: 1 },
   attendance: true,
   summary: true,
   parent: { select: { userId: true } },

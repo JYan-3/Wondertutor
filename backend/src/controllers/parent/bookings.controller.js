@@ -342,6 +342,7 @@ export async function requestRefund(req, res) {
   await prisma.$transaction(async (tx) => {
     // Serialize refund requests with withdrawal approval and transfer checks.
     await tx.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${b.tutorId} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM Booking WHERE id = ${b.id} FOR UPDATE`
     if (await lockPaymentAndCountOpenRefunds(tx, b.payment.id)) throw alreadyAsked()
     if (await tx.complaint.count({ where: { bookingId: b.id, attendanceRefundId: { not: null } } })) throw alreadyAsked()
     // An administrator may have completed a refund, or the lesson may have
@@ -350,9 +351,10 @@ export async function requestRefund(req, res) {
     const current = await tx.booking.findUnique({ where: { id: b.id }, select: { status: true, startAt: true } })
     if (payment?.status !== 'PAID' || current?.status !== b.status || current.startAt.getTime() !== b.startAt.getTime())
       throw new AppError(409, 'This payment or lesson has changed. Please refresh before requesting a refund.')
-    await tx.refund.create({
+    const refund = await tx.refund.create({
       data: { paymentId: b.payment.id, amount: b.payment.amount, type: 'ADMIN_REVIEW', reason: disputing ? `Attendance disputed: ${reason}` : reason },
     })
+    await tx.complaint.updateMany({ where: { bookingId: b.id, category: 'Missed check-in', status: { in: ['OPEN', 'IN_PROGRESS'] }, attendanceRefundId: null }, data: { attendanceRefundId: refund.id } })
     if (disputing) await changeStatus(tx, b, { status: 'DISPUTED' })
   })
   if (disputing) {

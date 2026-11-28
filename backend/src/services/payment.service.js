@@ -4,7 +4,8 @@ import { Prisma } from '@prisma/client'
 import { PAYMENT_DEADLINE_MINUTES } from './paymentWindow.js'
 import { prisma } from '../config/prisma.js'
 import { AppError } from '../utils/AppError.js'
-import { notify, notifyWithEmail } from './notification.service.js'
+import { sendBookingPush } from './webPush.service.js'
+import { deliverPaymentEmail } from './paymentEmailDelivery.js'
 
 const settleInclude = { booking: { include: { tutor: { include: { user: true } }, child: true, parent: { include: { user: true } } } } }
 
@@ -33,6 +34,8 @@ export async function settlePayment(paymentId, { paid, method = 'FPX', real = fa
 
   let late = false
   let closedAlternatives = []
+  let notices = []
+  let emailId
   // Both changes are conditional, so a double click (or the scheduler expiring the booking at the same moment)
   // cannot confirm twice or confirm a booking that was released.
   await prisma.$transaction(async (tx) => {
@@ -62,6 +65,14 @@ export async function settlePayment(paymentId, { paid, method = 'FPX', real = fa
         await tx.rescheduleRequest.updateMany({ where: { bookingId: { in: ids }, status: { in: ['PENDING', 'ESCALATED'] } }, data: { status: 'REJECTED' } })
         await tx.notification.createMany({ data: closedAlternatives.map(row => ({ userId: row.tutor.userId, type: 'BOOKING_CANCELLED', title: 'Alternative request closed', message: 'Another lesson for this child was confirmed at the same time.', link: '/tutor/bookings' })) })
       }
+      const when = b.startAt.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', dateStyle: 'medium', timeStyle: 'short' })
+      notices = [
+        { userId: b.parent.userId, type: 'PAYMENT_SUCCESS', title: 'Payment successful. Booking confirmed', message: `We received RM ${Number(payment.amount).toFixed(2)} for ${b.child.name}'s ${b.subject} lesson with ${b.tutor.user.fullName} on ${when}.${closedAlternatives.length ? ' Other requests for the same time were closed.' : ''}`, link: '/parent/bookings' },
+        { userId: b.tutor.userId, type: 'BOOKING_CONFIRMED', title: 'Booking confirmed', message: `${b.parent.user.fullName} paid for the ${b.subject} lesson on ${when}.`, link: '/tutor/bookings' },
+      ]
+      await tx.notification.createMany({ data: notices })
+      const delivery = await tx.paymentEmailDelivery.create({ data: { paymentId: payment.id, userId: notices[0].userId, title: notices[0].title, message: notices[0].message, link: notices[0].link } })
+      emailId = delivery.id
       return
     }
     if (!real) throw new AppError(400, 'This booking is no longer waiting for payment. You have not been charged.')
@@ -72,32 +83,10 @@ export async function settlePayment(paymentId, { paid, method = 'FPX', real = fa
     await tx.refund.create({
       data: { paymentId: payment.id, amount: payment.amount, type: 'AUTO', reason: clash ? 'Payment was received after another lesson was confirmed for this child, so this lesson was not confirmed.' : 'Paid after the booking was cancelled or released, so the lesson was not confirmed.' },
     })
+    notices = [{ userId: b.parent.userId, type: 'REFUND_REQUESTED', title: 'Payment received but the lesson was not confirmed', message: `We received RM ${Number(payment.amount).toFixed(2)}, but the booking had already been cancelled or released. A full refund has been queued.`, link: '/parent/payments' }]
+    await tx.notification.createMany({ data: notices })
   })
-
-  const parentUser = b.parent.user
-  if (late) {
-    await notify(parentUser.id, {
-      type: 'REFUND_REQUESTED',
-      title: 'Payment received but the lesson was not confirmed',
-      message: `We received RM ${Number(payment.amount).toFixed(2)}, but the booking had already been cancelled or released. A full refund has been queued.`,
-      link: '/parent/payments',
-    })
-    return { result: 'LATE', payment }
-  }
-
-  const when = b.startAt.toLocaleString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', dateStyle: 'medium', timeStyle: 'short' })
-  // Payment success + booking confirmed are record-worthy, so they are also emailed
-  await notifyWithEmail(parentUser, {
-    type: 'PAYMENT_SUCCESS',
-    title: 'Payment successful. Booking confirmed',
-    message: `We received RM ${Number(payment.amount).toFixed(2)} for ${b.child.name}'s ${b.subject} lesson with ${b.tutor.user.fullName} on ${when}.${closedAlternatives.length ? ' Other requests for the same time were closed.' : ''}`,
-    link: '/parent/bookings',
-  })
-  await notify(b.tutor.userId, {
-    type: 'BOOKING_CONFIRMED',
-    title: 'Booking confirmed',
-    message: `${parentUser.fullName} paid for the ${b.subject} lesson on ${when}.`,
-    link: '/tutor/bookings',
-  })
-  return { result: 'SUCCESS', payment }
+  await Promise.allSettled(notices.map(n => sendBookingPush(n.userId, { type: n.type, link: n.link })))
+  if (emailId) await deliverPaymentEmail(emailId).catch(() => {})
+  return { result: late ? 'LATE' : 'SUCCESS', payment }
 }

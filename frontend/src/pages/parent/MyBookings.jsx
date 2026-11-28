@@ -399,6 +399,7 @@ function AttendanceResponse({ booking, act, busy }) {
     {review.attendanceOutcome && !review.attendanceApproved && <p>{attendanceLabels[review.attendanceOutcome]}</p>}
     {review.attendanceApproved && <p>Attendance confirmed by admin.</p>}
     {review.adminResponse && <p>Admin response: {review.adminResponse}</p>}
+    {!review.parentAnswer && open && review.parentResponseDueAt && <p>Please respond by {fmtDate(review.parentResponseDueAt)}, {fmtTime(review.parentResponseDueAt)} (Malaysia time). After 48 hours, admin may decide using the available evidence.</p>}
     {review.parentAnswer ? <p>Your response: {labels[review.parentAnswer]}{review.parentNote && ' · ' + review.parentNote}</p> : open &&
       <form className="space-y-2" onSubmit={e => {
         e.preventDefault()

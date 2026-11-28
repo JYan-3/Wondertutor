@@ -1,4 +1,5 @@
-import { attendanceRefundState } from './attendanceRefund.js'
+import { attendanceRefundState, openAttendanceRefund } from './attendanceRefund.js'
+import { attendanceResponseDeadline } from './attendanceResponse.js'
 import { timingSafeEqual } from 'node:crypto'
 import { v2 as cloudinary } from 'cloudinary'
 import { prisma } from '../config/prisma.js'
@@ -20,7 +21,7 @@ async function booking(db, tutorId, id) {
   const result = await db.booking.findFirst({ where: { id, tutorId }, select: {
     id: true, publicId: true, status: true, subject: true, startAt: true, endAt: true, teachingMode: true,
     latitude: true, longitude: true, location: true, locationConfirmedAt: true, updatedAt: true, child: { select: { name: true } },
-    complaints: { where: { category: MISSED_CHECK_IN }, select: { attendanceRefund: { select: { status: true, issuedAt: true, reviewNote: true, payment: { select: { status: true } } } }, id: true, updatedAt: true, attendanceOutcome: true, appealUntil: true, appealUsed: true, penaltyAmount: true, penaltyEffectiveAt: true, tutorReplyPending: true, reviewHistory: { orderBy: { id: 'asc' } }, evidenceUrl: true, attendanceApproved: true, description: true, status: true, adminResponse: true }, take: 1 },
+    complaints: { where: { category: MISSED_CHECK_IN }, select: { attendanceRefund: { select: { status: true, issuedAt: true, reviewNote: true, payment: { select: { status: true } } } }, id: true, updatedAt: true, attendanceOutcome: true, appealUntil: true, appealUsed: true, penaltyAmount: true, penaltyEffectiveAt: true, tutorReplyPending: true, tutorResponseDueAt: true, reviewHistory: { orderBy: { id: 'asc' } }, evidenceUrl: true, attendanceApproved: true, description: true, status: true, adminResponse: true }, take: 1 },
     tutor: { select: { userId: true } }, parent: { select: { userId: true } }, attendance: true, summary: true,
   } })
   if (!result) throw new AppError(404, 'Lesson not found')
@@ -35,7 +36,7 @@ export async function sessionView(tutorId, id) {
   const visibleReview = review && Object.fromEntries(Object.entries(review).filter(([key]) => key !== 'evidenceUrl'))
   return { id, publicId: b.publicId, subject: b.subject, student: b.child.name, status: b.status, startAt: b.startAt, endAt: b.endAt,
     mode: b.teachingMode, address: b.location, updatedAt: b.updatedAt, ...lessonLocationFields(b),
-    review: review ? { ...visibleReview, hasEvidence: Boolean(review.evidenceUrl), attendanceRefund: review.attendanceRefund && { status: review.attendanceRefund.status, attendanceRefundState: attendanceRefundState(review, review.attendanceRefund) }, reviewHistory: review.reviewHistory.filter(entry => entry.action !== 'PREVIOUS_PARENT_RESPONSE').map(entry => ({ action: entry.action, message: entry.message, createdAt: entry.createdAt })) } : null, radius: settings.GPS_RADIUS_METRES, serverTime: new Date(),
+    review: review ? { ...visibleReview, hasEvidence: Boolean(review.evidenceUrl), attendanceRefund: review.attendanceRefund && { status: review.attendanceRefund.status, attendanceRefundState: attendanceRefundState(review, review.attendanceRefund) }, reviewHistory: review.reviewHistory.filter(entry => !['PREVIOUS_PARENT_RESPONSE', 'PARENT_COMPLAINT'].includes(entry.action)).map(entry => ({ action: entry.action, message: entry.message, createdAt: entry.createdAt })) } : null, radius: settings.GPS_RADIUS_METRES, serverTime: new Date(),
     attendance: a && { checkInAt: a.checkInAt, checkOutAt: a.checkOutAt, distance: a.checkInDistance,
       photo: mediaLink(a.checkInPhotoUrl, 'wondertutor/attendance/' + id) },
     report: b.summary && { content: b.summary.content, progressNote: b.summary.progressNote, homework: b.summary.homework, recommendations: b.summary.recommendations },
@@ -75,9 +76,10 @@ async function checkIn(db, b, input, now) {
 export async function updateSession(tutorId, id, input) {
   const notice = await prisma.$transaction(async db => {
     // Serialize attendance and completion so retries cannot create duplicate reports or notifications.
+    if (input.action === 'request-review') await db.$queryRaw`SELECT id FROM TutorProfile WHERE id = ${tutorId} FOR UPDATE`
     await db.$queryRaw`SELECT id FROM Booking WHERE id = ${id} AND tutorId = ${tutorId} FOR UPDATE`
     const b = await booking(db, tutorId, id)
-    if (b.status !== 'CONFIRMED') throw new AppError(409, 'Only confirmed lessons can be updated.')
+    if (b.status !== 'CONFIRMED' && !(['COMPLETED', 'DISPUTED'].includes(b.status) && ['review-reply', 'reconsider', 'attach-proof'].includes(input.action))) throw new AppError(409, 'Only confirmed lessons can be updated.')
     const now = new Date()
     if (input.action === 'review-reply' || input.action === 'reconsider') {
       const review = b.complaints[0]
@@ -89,7 +91,7 @@ export async function updateSession(tutorId, id, input) {
       if (appeal && [review.description, ...review.reviewHistory.map(entry => entry.message)].some(message => message.trim().toLowerCase() === newText)
         && (!input.photo || [review.evidenceUrl, ...review.reviewHistory.map(entry => entry.evidenceUrl)].includes(input.photo.url))) throw new AppError(400, 'Provide new evidence or explain what new information you have.')
       const { count } = await db.complaint.updateMany({ where: { id: review.id, updatedAt: review.updatedAt, status: review.status },
-        data: { tutorReplyPending: false, ...(input.photo && { evidenceUrl: input.photo.url }),
+        data: { tutorReplyPending: false, tutorResponseDueAt: null, ...(input.photo && { evidenceUrl: input.photo.url }),
           ...(appeal && { status: 'IN_PROGRESS', attendanceOutcome: 'RECONSIDERATION', adminResponse: null, appealUsed: true, penaltyEffectiveAt: null }) } })
       if (!count) throw new AppError(409, 'The review changed. Refresh and try again.')
       if (appeal && !review.reviewHistory.some(entry => entry.action === 'UNVERIFIED' || entry.action === 'NOT_HELD')) {
@@ -115,9 +117,11 @@ export async function updateSession(tutorId, id, input) {
       if (now.getTime() < checkInCloses(b) || b.attendance?.checkInAt) throw new AppError(409, 'You can request a review after the check-in window closes.')
       if (b.complaints.length) throw new AppError(409, 'A review has already been requested.')
       if (input.photo) verifyPhoto(input.photo, id, true)
-      await db.complaint.create({ data: { bookingId: id, filedById: b.tutor.userId, category: MISSED_CHECK_IN, description: input.reason, evidenceUrl: input.photo?.url } })
+      const refunds = await openAttendanceRefund(db, id)
+      if (refunds.length > 1) throw new AppError(409, 'Ask admin to resolve the existing refund requests before starting this review.')
+      await db.complaint.create({ data: { bookingId: id, filedById: b.tutor.userId, category: MISSED_CHECK_IN, description: input.reason, evidenceUrl: input.photo?.url, attendanceRefundId: refunds[0]?.id, parentResponseDueAt: attendanceResponseDeadline(now) } })
       const admins = await db.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } })
-      const parentNotice = { userId: b.parent.userId, type: 'ATTENDANCE_REVIEW', title: 'Missed check-in review', message: 'Your tutor asked an admin to review a missed check-in for ' + b.subject + '. Open the booking to tell admin whether the lesson took place.', link: '/parent/bookings?booking=' + publicReference(b) }
+      const parentNotice = { userId: b.parent.userId, type: 'ATTENDANCE_REVIEW', title: 'Missed check-in review', message: 'Your tutor asked an admin to review a missed check-in for ' + b.subject + '. Please respond within 48 hours; admin can decide after that using the available evidence.', link: '/parent/bookings?booking=' + publicReference(b) }
       await db.notification.createMany({ data: [
         ...admins.map(admin => ({ userId: admin.id, type: 'COMPLAINT_NEW', title: 'Missed check-in review', message: 'A tutor requested a review of their ' + b.subject + ' lesson.', link: '/admin/complaints' })),
         parentNotice,

@@ -110,8 +110,9 @@ function SessionForm({ session: s, setSession }) {
     if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) throw new Error('Choose a JPG or PNG photo up to 5 MB.')
     try { setPhoto(await uploadImage(file, 'attendance', s.id)) } catch (e) { throw new Error(uploadError(e)) }
   }
-  const reconsider = active && s.review?.status === 'DISMISSED' && !s.review?.appealUsed && (!s.review?.appealUntil || Date.parse(s.review.appealUntil) > now)
-  const replyRequested = active && s.review?.tutorReplyPending
+  const reviewActive = ['CONFIRMED', 'COMPLETED', 'DISPUTED'].includes(s.status) && !needsRefresh
+  const reconsider = reviewActive && s.review?.status === 'DISMISSED' && !s.review?.appealUsed && (!s.review?.appealUntil || Date.parse(s.review.appealUntil) > now)
+  const replyRequested = reviewActive && s.review?.tutorReplyPending
   const proofField = <label className="block font-semibold">Supporting photo or document (optional)
     <input type="file" accept="image/jpeg,image/png,application/pdf" className="input mt-1 w-full text-base" disabled={busy} onChange={e => {
       const file = e.target.files?.[0]
@@ -147,7 +148,8 @@ function SessionForm({ session: s, setSession }) {
     <div className="grid min-w-0 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="min-w-0 space-y-4">
         <SectionCard title="Check in" icon="calendar">
-          {attendance?.checkInAt ? <p>Checked in at {fmtTime(attendance.checkInAt)}.</p> : s.review ? <div role="status" className="space-y-2 break-words">
+          {s.review ? <div role="status" className="space-y-2 break-words">
+            {attendance?.checkInAt && <p>Checked in at {fmtTime(attendance.checkInAt)}.</p>}
             <p>Missed check-in review · {{ OPEN: 'Submitted', IN_PROGRESS: 'Under review', RESOLVED: 'Resolved', DISMISSED: 'Dismissed' }[s.review.status]}</p>
             {s.review.attendanceRefund?.attendanceRefundState ? <p>{refundHoldLabels[s.review.attendanceRefund.attendanceRefundState]}</p> : s.review.attendanceRefund && <p>Refund review: {{ PENDING: 'Awaiting admin decision', ESCALATED: 'Escalated', APPROVED: 'Approved', REJECTED: 'Declined' }[s.review.attendanceRefund.status]}</p>}
             {s.review.attendanceApproved && <p>Attendance confirmed by admin. {s.report ? 'Report submitted.' : 'You can submit your lesson report below.'}</p>}
@@ -176,7 +178,8 @@ function SessionForm({ session: s, setSession }) {
             </form>}
             <p>Your explanation: {s.review.description}</p>
             {s.review.adminResponse && <p>Admin response: {s.review.adminResponse}</p>}
-          </div> : now >= checkInCloses && s.status === 'CONFIRMED' ? <form className="space-y-3" onSubmit={e => {
+            {replyRequested && s.review.tutorResponseDueAt && <p>Please respond by {fmtDate(s.review.tutorResponseDueAt)}, {fmtTime(s.review.tutorResponseDueAt)} (Malaysia time). After 48 hours, admin may decide using the available evidence.</p>}
+          </div> : attendance?.checkInAt ? <p>Checked in at {fmtTime(attendance.checkInAt)}.</p> : now >= checkInCloses && s.status === 'CONFIRMED' ? <form className="space-y-3" onSubmit={e => {
             e.preventDefault()
             run(() => send({ action: 'request-review', reason: reason.trim(), ...(proof && { photo: proof }) }))
           }}>

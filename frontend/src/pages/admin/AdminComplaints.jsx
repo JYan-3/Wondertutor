@@ -5,7 +5,7 @@ import api, { errorMessage } from '../../api/client'
 import Icon from '../../components/ui/Icon'
 import { EmptyState, ErrorBox, LoadError, Modal, PageTitle, Spinner } from '../../components/ui/Common'
 import { ComplaintPill } from '../parent/Complaints'
-import { fmtDate, fmtShortDate } from '../../lib/format'
+import { fmtDate, fmtShortDate, fmtTime } from '../../lib/format'
 import ComplaintsReport from '../../components/ComplaintsReport'
 import WarnUser from '../../components/WarnUser'
 import { fmtTimeRange, money } from '../../lib/format'
@@ -129,6 +129,13 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
     }
   }
 
+  async function openAttendanceReview() {
+    setBusy(true); setError('')
+    try { await api.post(`/admin/complaints/${recordRef(c)}/attendance-review`); onDone() }
+    catch (err) { setError(errorMessage(err)) }
+    finally { setBusy(false) }
+  }
+
   return (
     <Modal open onClose={onClose} title={c.category} width="max-w-2xl">
       <div className="space-y-3">
@@ -143,13 +150,14 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
           {evidence.outcome && <p>{attendanceLabels[evidence.outcome]}</p>}
           {evidence.appealUntil && <p>Reconsideration available until {fmtDate(evidence.appealUntil)}.</p>}
           {evidence.penaltyAmount && <p>Attendance penalty: {money(evidence.penaltyAmount)}. {evidence.penaltyEffectiveAt ? `Effective ${fmtDate(evidence.penaltyEffectiveAt)} if the decision remains final.` : 'Paused during reconsideration.'}</p>}
-          {evidence.tutorReplyPending && <p>Waiting for the tutor to reply.</p>}
+          {evidence.tutorReplyPending && <p>{evidence.waiting?.tutor === false ? 'Tutor response period ended. Admin can decide using the available evidence.' : `Waiting for the tutor to reply${evidence.tutorResponseDueAt ? ` until ${fmtDate(evidence.tutorResponseDueAt)}, ${fmtTime(evidence.tutorResponseDueAt)} (Malaysia time)` : ''}.`}</p>}
           {!!evidence.history?.length && <ol className="space-y-2">{evidence.history.map(entry => <li key={entry.id} className="break-words">
             <strong>{attendanceLabels[entry.action]}</strong> · {fmtShortDate(entry.createdAt)} · {entry.message}
             {entry.evidenceUrl && <a href={entry.evidenceUrl} target="_blank" rel="noreferrer" className="ml-2 underline">View supporting evidence</a>}
           </li>)}</ol>}
           {evidence.proof ? <a className="btn-outline" href={evidence.proof} target="_blank" rel="noreferrer">View tutor proof</a> : <p>No proof attached.</p>}
           <p>Parent response: {{ YES: 'The lesson took place', NO: 'The lesson did not take place', UNSURE: 'Unsure' }[evidence.parentAnswer] || 'Awaiting response'}</p>
+          {!evidence.parentAnswer && <p>{evidence.waiting?.parent === false ? 'Parent response period ended. Admin can decide using the available evidence.' : evidence.parentResponseDueAt ? `Parent response due ${fmtDate(evidence.parentResponseDueAt)}, ${fmtTime(evidence.parentResponseDueAt)} (Malaysia time).` : ''}</p>}
           {evidence.parentNote && <p className="break-words">{evidence.parentNote}</p>}
           {!closed && <button className="btn-outline" onClick={loadInvestigation}>Refresh evidence</button>}
         </section>}
@@ -164,12 +172,13 @@ function ReviewModal({ complaint: c, onClose, onDone, onReviewChanged }) {
         {!closed && (
           <div className="flex flex-wrap justify-end gap-2">
             {c.status === 'OPEN' && <button disabled={busy} onClick={() => act('IN_PROGRESS')} className="btn-outline">Mark In Progress</button>}
+            {c.category === 'No-show or lateness' && c.booking && <button disabled={busy} onClick={openAttendanceReview} className="btn-outline">Open attendance review</button>}
             {attendance && <>
               <button disabled={busy || !evidence} onClick={() => act('IN_PROGRESS', 'MORE_INFO')} className="btn-outline">Ask for more information</button>
-              <button disabled={busy || !evidence?.parentAnswer || evidence.tutorReplyPending} onClick={() => act('DISMISSED', 'NOT_HELD')} className="btn-danger">Mark lesson as not held</button>
+              <button disabled={busy || !evidence || (evidence.waiting ? evidence.waiting.parent || evidence.waiting.tutor : !evidence.parentAnswer || evidence.tutorReplyPending)} onClick={() => act('DISMISSED', 'NOT_HELD')} className="btn-danger">Mark lesson as not held</button>
             </>}
-            <button disabled={busy || (attendance && (!evidence?.parentAnswer || evidence.tutorReplyPending))} onClick={() => act('DISMISSED', attendance ? 'UNVERIFIED' : undefined)} className="btn-danger">{attendance ? 'Mark attendance as unverified' : 'Dismiss'}</button>
-            <button disabled={busy || (attendance && (!evidence?.parentAnswer || evidence.tutorReplyPending))} onClick={() => act('RESOLVED')} className="btn-primary">{attendance ? 'Approve attendance' : 'Resolve'}</button>
+            <button disabled={busy || (attendance && (!evidence || (evidence.waiting ? evidence.waiting.parent || evidence.waiting.tutor : !evidence.parentAnswer || evidence.tutorReplyPending)))} onClick={() => act('DISMISSED', attendance ? 'UNVERIFIED' : undefined)} className="btn-danger">{attendance ? 'Mark attendance as unverified' : 'Dismiss'}</button>
+            <button disabled={busy || (attendance && (!evidence || (evidence.waiting ? evidence.waiting.parent || evidence.waiting.tutor : !evidence.parentAnswer || evidence.tutorReplyPending)))} onClick={() => act('RESOLVED')} className="btn-primary">{attendance ? 'Approve attendance' : 'Resolve'}</button>
           </div>
         )}
       </div>

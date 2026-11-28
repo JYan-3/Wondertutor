@@ -513,6 +513,22 @@ model Payment {
   createdAt        DateTime      @default(now())
 
   refunds Refund[]
+  emailDelivery PaymentEmailDelivery?
+}
+
+model PaymentEmailDelivery {
+  id         Int      @id @default(autoincrement())
+  paymentId  Int      @unique
+  payment    Payment  @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  userId     Int
+  title      String
+  message    String   @db.Text
+  link       String?
+  sentAt     DateTime?
+  retryAt    DateTime @default(now())
+  leaseUntil DateTime?
+  attempts   Int      @default(0)
+  @@index([sentAt, retryAt])
 }
 
 model Refund {
@@ -600,6 +616,8 @@ model Complaint {
   evidenceUrl   String?
   parentAnswer  String?
   parentNote    String?         @db.Text
+  parentResponseDueAt DateTime?
+  tutorResponseDueAt DateTime?
   attendanceRefundId Int?
   attendanceRefund Refund? @relation(fields: [attendanceRefundId], references: [id], onDelete: SetNull)
   attendanceOutcome String?

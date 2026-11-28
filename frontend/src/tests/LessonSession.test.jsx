@@ -151,6 +151,16 @@ test('a tutor can explain a missed check-in and see the submitted review', async
   expect(screen.queryByRole('button', { name: 'Request admin review' })).toBeNull()
 })
 
+test('tutor sees the response deadline and can reply to an attendance review', async () => {
+  const session = { ...data, status: 'DISPUTED', serverTime: data.endAt, attendance: { checkInAt: time }, review: { status: 'IN_PROGRESS', attendanceOutcome: 'MORE_INFO', description: 'Admin opened a review.', adminResponse: 'Please explain what happened.', tutorReplyPending: true, tutorResponseDueAt: '2026-11-15T06:00:00Z' } }
+  api.post.mockResolvedValue({ data: { ...session, review: { ...session.review, tutorReplyPending: false } } })
+  show(session)
+  expect(await screen.findByText(/After 48 hours, admin may decide/)).toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Reply to the admin question'), { target: { value: 'Here is what happened.' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send reply to admin' }))
+  await waitFor(() => expect(api.post).toHaveBeenCalledWith('/tutor/bookings/3/session', { action: 'review-reply', reason: 'Here is what happened.' }))
+})
+
 test('a tutor can provide new written evidence after an unverified decision', async () => {
   const session = { ...data, serverTime: data.endAt, review: { status: 'DISMISSED', attendanceOutcome: 'UNVERIFIED' } }
   show(session)
